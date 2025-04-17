@@ -35,7 +35,7 @@ if (Test-Path $commonPath) {
 # === Config ===
 $debugMode = $true
 $localPath = "$PSScriptRoot"
-$remoteBaseUrl = "https://raw.githubusercontent.com/razer86/scripts/master/Powershell/365Audit"
+$remoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 
 function Connect-MgGraphSecure {
     # Required scopes for all modules

@@ -74,29 +74,49 @@ function Initialize-AuditOutput {
 # ===   Fetch and Save Organization Info   ===
 # =========================================
 
-    $org = Get-MgOrganization
-    $branding = Get-MgOrganizationBranding -OrganizationId $org.Id -ErrorAction SilentlyContinue
-    $verifiedDomains = $org.VerifiedDomains | Where-Object { $_.IsInitial -eq $false }
+    # === Retrieve all organizations ===
+    $orgList = Get-MgOrganization
 
-    $orgInfo = [PSCustomObject]@{
-        TenantId         = $org.Id
-        OrgName          = $org.DisplayName
-        DefaultDomain    = ($org.VerifiedDomains | Where-Object { $_.IsDefault }).Name
-        ConnectedDomains = $verifiedDomains.Name -join ", "
-        CompanyAddress   = $org.Street + ", " + $org.City + ", " + $org.State + " " + $org.PostalCode
-        TechContact      = $org.TechnicalNotificationMails -join ", "
-        LogoUrl          = $branding.LogoUrl
+    # === Multi-tenant check ===
+    if ($orgList.Count -gt 1) {
+        $primaryDomain = $orgList[0].VerifiedDomains |
+            Where-Object { $_.IsInitial -eq $true -and $_.Name -like "*.onmicrosoft.com" } |
+            Select-Object -ExpandProperty Name
+
+        Write-Warning "⚠️ Multiple organizations detected ($($orgList.Count))."
+        Write-Host "➡️ Using first org: $($orgList[0].DisplayName) ($primaryDomain)"
     }
 
-    $folderName = "${orgInfo.OrgName}_$(Get-Date -Format 'yyyyMMdd')"
+    # === Use the first org ===
+    $org = $orgList | Select-Object -First 1
+    $branding = Get-MgOrganizationBranding -OrganizationId $org.Id -ErrorAction SilentlyContinue
+
+    # === Build expanded object ===
+    $orgExpanded = [PSCustomObject]@{
+        Id                          = $org.Id
+        DisplayName                 = $org.DisplayName
+        VerifiedDomains             = $org.VerifiedDomains
+        TechnicalNotificationMails = $org.TechnicalNotificationMails
+        MarketingNotificationEmails= $org.MarketingNotificationEmails
+        DefaultDomain               = $org.DefaultDomain
+        CountryLetterCode           = $org.CountryLetterCode
+        PreferredLanguageTag        = $org.PreferredLanguageTag
+        ProvisionedPlans            = $org.ProvisionedPlans
+        AssignedPlans               = $org.AssignedPlans
+        Branding                    = $branding
+        Raw                         = $org
+    }
+
+    $cleanDisplayName = $orgExpanded.DisplayName -replace '[^a-zA-Z0-9]', ''
+    $folderName = "${cleanDisplayName}_$(Get-Date -Format 'yyyyMMdd')"
     $outputDir = Join-Path $PSScriptRoot "..\$folderName"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 
     # Save as JSON
-    $orgInfo | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $outputDir "OrgInfo.json") -Encoding UTF8
+    $orgExpanded | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $outputDir "OrgInfo.json") -Encoding UTF8
 
     $script:AuditOutputContext = @{
-        OrgName    = $orgInfo.OrgName
+        OrgName    = $orgExpanded.DisplayName
         FolderName = $folderName
         OutputPath = $outputDir
     }
