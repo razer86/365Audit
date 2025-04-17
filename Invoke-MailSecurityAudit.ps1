@@ -1,3 +1,12 @@
+param (
+    [string]$AuditFolder,
+    [switch]$DevMode = $false
+)
+
+if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
+    Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
+}
+
 <#
 .SYNOPSIS
     Gathers Microsoft 365 mail security policies (anti-spam, anti-phishing, spoofing, transport rules) and exports them to JSON.

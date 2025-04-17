@@ -1,3 +1,12 @@
+param (
+    [string]$AuditFolder,
+    [switch]$DevMode = $false
+)
+
+if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
+    Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
+}
+
 ﻿<#
 .SYNOPSIS
     Generates an HTML summary report from Microsoft 365 audit CSV output files.

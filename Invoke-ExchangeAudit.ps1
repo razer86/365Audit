@@ -1,3 +1,17 @@
+param (
+    [string]$AuditFolder,
+    [switch]$DevMode = $false
+)
+
+if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
+    Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
+}
+
+
+if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
+    Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
+}
+
 <#
 .SYNOPSIS
     Performs an Exchange Online audit of user and shared mailboxes, permissions, inbox rules, and distribution groups.
