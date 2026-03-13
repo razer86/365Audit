@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.10.0
+    Version     : 1.11.0
     Change Log  :
         1.0.0 - Initial creation and migration of shared helpers from launcher
         1.1.0 - Added CmdletBinding, Invoke-VersionCheck, centralised RemoteBaseUrl
@@ -33,6 +33,8 @@
                 three are present, falls back to interactive delegated auth otherwise
         1.8.0 - Add Connect-ExchangeOnlineSecure: uses client-credentials OAuth token for
                 Exchange Online when app credentials are present; falls back to interactive
+        1.11.0 - Initialize-AuditOutput: move output folder from repo root to parent
+                 directory (../.. from common/) to avoid git conflicts on update
         1.10.0 - Connect-ExchangeOnlineSecure: add missing -AppId to Connect-ExchangeOnline
                  -AccessToken call; EXO v3 requires -AppId alongside -AccessToken to
                  recognise the connection as app-only context (omitting it causes UnAuthorized)
@@ -45,7 +47,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.10.0"
+$ScriptVersion = "1.11.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -263,7 +265,7 @@ function Initialize-AuditOutput {
 
     $cleanDisplayName = $orgExpanded.DisplayName -replace '[^a-zA-Z0-9]', ''
     $folderName       = "${cleanDisplayName}_$(Get-Date -Format 'yyyyMMdd')"
-    $outputDir        = Join-Path $PSScriptRoot "..\$folderName"
+    $outputDir        = Join-Path $PSScriptRoot "..\..\$folderName"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 
     $orgExpanded | ConvertTo-Json -Depth 10 |
