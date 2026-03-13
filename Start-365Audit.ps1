@@ -24,7 +24,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.8.0
+    Version     : 1.9.0
     Change Log  :
         1.0.0 - Initial release
         1.0.1 - Standardised comments; pass folder to summary
@@ -43,6 +43,9 @@
                 app registered by Setup-365AuditApp.ps1 (Register-PnPEntraIDAppForInteractiveLogin)
         1.7.0 - Added Generate-AuditSummary.ps1 to option 9 script list so "Run All"
                 automatically generates the summary report after all modules complete
+        1.9.0 - Generate-AuditSummary.ps1 removed from menu Script arrays; summary
+                now runs once after all selected modules complete to avoid
+                multiple report generations when selecting e.g. "1,2"
         1.8.0 - AppId, AppSecret, and TenantId are now mandatory parameters with
                 HelpMessage guidance; PnPAppId warning displayed at startup when
                 not provided; removed unnecessary Start-Sleep stalls
@@ -67,7 +70,7 @@ param (
     [string]$PnPAppId
 )
 
-$ScriptVersion = "1.8.0"
+$ScriptVersion = "1.9.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -102,11 +105,11 @@ if (-not $PnPAppId) {
 
 # === Define Menu Items ===
 $menu = @{
-    1 = @{ Name = "Microsoft Entra Audit";      Script = @("Invoke-EntraAudit.ps1",      "Generate-AuditSummary.ps1") }
-    2 = @{ Name = "Exchange Online Audit";      Script = @("Invoke-ExchangeAudit.ps1",   "Generate-AuditSummary.ps1") }
-    3 = @{ Name = "SharePoint Online Audit";    Script = @("Invoke-SharePointAudit.ps1", "Generate-AuditSummary.ps1") }
-    4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1","Generate-AuditSummary.ps1") }
-    9 = @{ Name = "Run All Modules (1,2,3,4)";  Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Generate-AuditSummary.ps1") }
+    1 = @{ Name = "Microsoft Entra Audit";      Script = @("Invoke-EntraAudit.ps1") }
+    2 = @{ Name = "Exchange Online Audit";      Script = @("Invoke-ExchangeAudit.ps1") }
+    3 = @{ Name = "SharePoint Online Audit";    Script = @("Invoke-SharePointAudit.ps1") }
+    4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1") }
+    9 = @{ Name = "Run All Modules (1,2,3,4)";  Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1") }
     0 = @{ Name = "Exit";                       Script = $null }
 }
 
@@ -152,17 +155,6 @@ foreach ($index in $selectedIndexes) {
         Write-Host "  Starting: $scriptName" -ForegroundColor Cyan
         Write-Host "================================================================"
 
-        if ($scriptName -eq "Generate-AuditSummary.ps1") {
-            $auditContext = Initialize-AuditOutput
-            if ($auditContext) {
-                & $localScriptPath -AuditFolder $auditContext.OutputPath
-            }
-            else {
-                Write-Warning "No audit output context found. Run at least one audit module first."
-            }
-            continue
-        }
-
         if (Test-Path $localScriptPath) {
             Write-Host "Loading local script: $localScriptPath`n"
             . $localScriptPath
@@ -180,4 +172,17 @@ foreach ($index in $selectedIndexes) {
 
         Write-Host "Completed: $scriptName" -ForegroundColor Green
     }
+}
+
+# === Generate Summary Report (once, after all modules) ===
+$summaryScript = Join-Path $localPath "Generate-AuditSummary.ps1"
+$auditContext  = Initialize-AuditOutput
+if ($auditContext -and (Test-Path $summaryScript)) {
+    Write-Host "`n================================================================"
+    Write-Host "  Starting: Generate-AuditSummary.ps1" -ForegroundColor Cyan
+    Write-Host "================================================================"
+    & $summaryScript -AuditFolder $auditContext.OutputPath
+}
+else {
+    Write-Warning "No audit output context found — summary report skipped."
 }
