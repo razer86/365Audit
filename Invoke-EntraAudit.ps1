@@ -1,3 +1,73 @@
+<#
+.SYNOPSIS
+    Performs a security-focused audit of Microsoft Entra ID.
+
+.DESCRIPTION
+    Connects to Microsoft Graph and collects identity-related data including:
+    - User summary (UPN, name, license, MFA methods, password policy, last sign-in)
+    - License inventory with friendly names
+    - Admin role assignments and Global Administrator list
+    - Guest user list
+    - SSPR (Self-Service Password Reset) configuration
+    - Group membership and ownership
+    - Conditional Access policies
+    - Named/Trusted locations
+    - Security Defaults status
+
+    Output CSVs:
+    - Entra_Users.csv
+    - Entra_Users_Unlicensed.csv
+    - Entra_Licenses.csv
+    - Entra_SSPR.csv
+    - Entra_AdminRoles.csv
+    - Entra_GlobalAdmins.csv
+    - Entra_GuestUsers.csv
+    - Entra_Groups.csv
+    - Entra_CA_Policies.csv
+    - Entra_TrustedLocations.csv
+    - Entra_SecurityDefaults.csv
+    - Entra_SignIns.csv
+    - Entra_AccountCreations.csv
+    - Entra_AccountDeletions.csv
+    - Entra_AuditEvents.csv
+
+.NOTES
+    Author      : Raymond Slater
+    Version     : 1.9.0
+    Change Log  :
+        1.0.0 - Initial release
+        1.0.1 - Refactor output directory initialisation
+        1.0.2 - Combine user info, license, MFA, and sign-in into a single export
+        1.1.0 - Added CA policies, trusted locations, security defaults;
+                fixed LastSignIn property assignment; fixed Groups success message;
+                removed alias usage; added CmdletBinding
+        1.2.0 - Graph SDK v2 cmdlet rename: Get-MgConditionalAccessPolicy ->
+                Get-MgIdentityConditionalAccessPolicy
+        1.3.0 - Filter member-only users (exclude #EXT# guests); add AccountEnabled/
+                AccountStatus column; fix MFA hashtable Count bug; split output into
+                Entra_Users.csv (licensed) and Entra_Users_Unlicensed.csv; add SPB and
+                RMSBASIC to SKU friendly-name map; remove redundant $allUsers API call
+        1.4.0 - Remove AAD P1 gate on sign-in log retrieval; always collect sign-ins
+                (free tenants get 7 days, premium gets 30); store up to 10 entries per
+                user; export Entra_SignIns.csv for interactive HTML summary rows
+        1.5.0 - Add directory audit log collection scoped to tenant retention window:
+                account creations (Entra_AccountCreations.csv), account deletions
+                (Entra_AccountDeletions.csv), notable events — role changes and
+                security info/MFA changes (Entra_AuditEvents.csv)
+        1.6.0 - Format all audit and sign-in timestamps as "yyyy-MM-dd HH:mm UTC"
+                at collection time for consistent timezone display
+        1.7.0 - Guest users: add LastSignIn via SignInActivity property;
+                CA policies: add ClientAppTypes for legacy auth detection
+        1.8.0 - Replaced per-section Write-Host progress lines with Write-Progress
+                for cleaner terminal output
+        1.9.0 - Write-Progress -Status now includes "Step X/Y — " prefix
+
+.LINK
+    https://github.com/razer86/365Audit
+#>
+
+#Requires -Version 7.2
+
 param (
     [string]$AuditFolder,
     [switch]$DevMode = $false
@@ -7,46 +77,14 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-﻿<#
-.SYNOPSIS
-    Performs a security-focused audit of Entra users into a consolidated CSV.
+$ScriptVersion = "1.9.0"
+Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
-.DESCRIPTION
-    This script connects to Microsoft Graph and collects a wide range of identity-related data, including:
-    - User UPN, first name, last name
-    - Assigned licenses with friendly names
-    - MFA status and method types
-    - Password policy and last change date
-    - Administrative role assignments
-    - Guest user list
-    - SSPR (Self-Service Password Reset) configuration
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-    Output CSVs:
-    - Entra_Users.csv      # Consolidated user info, license, MFA, password, and sign-in data
-    - Entra_AdminRoles.csv        # All admin role assignments
-    - Entra_GlobalAdmins.csv      # Subset of Global Admins
-    - Entra_GuestUsers.csv        # List of all guest users
-    - Entra_SSPR.csv              # Status of self-service password reset
-
-.NOTES
-    Author      : Raymond Slater
-    Version     : 1.0.2
-    Change Log  :
-        1.0.0 - Initial release
-        1.0.1 - Refactor output directory initialization
-        1.0.2 - Combine user info, license, MFA, and sign-in into a single export
-
-.LINK
-    https://github.com/razer86/365Audit
-#>
-
-# Force UTF-8 output for emoji if supported
-if ($PSVersionTable.PSVersion.Major -ge 6) {
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-}
-
-# === Convert Sku Names to Friendly Name ===
+# === Convert SKU part numbers to friendly names ===
 function Get-FriendlySkuName {
+    [CmdletBinding()]
     param (
         [string]$Sku
     )
@@ -97,155 +135,271 @@ function Get-FriendlySkuName {
 
         # Misc
         "SMB_APPS"                    = "Business Apps (Free)"
-    } 
-
-    if ($skuMap.ContainsKey($Sku)) {
-        return $skuMap[$Sku]
-    } else {
-        return $Sku
+        "SPB"                         = "Microsoft 365 Business Premium"
+        "RMSBASIC"                    = "Azure Rights Management (Free)"
     }
+
+    if ($skuMap.ContainsKey($Sku)) { return $skuMap[$Sku] }
+    return $Sku
 }
 
-# === Ensure helper functions available ===
+# === Ensure helper functions are loaded ===
 if (-not (Get-Command Connect-MgGraphSecure -ErrorAction SilentlyContinue)) {
-    Write-Error "Connect-MgGraphSecure is not loaded. Please ensure the launcher was used."
+    Write-Error "Connect-MgGraphSecure is not loaded. Please run from the 365Audit launcher."
     exit 1
 }
 if (-not (Get-Command Initialize-AuditOutput -ErrorAction SilentlyContinue)) {
-    Write-Error "Initialize-AuditOutput is not loaded. Please ensure the launcher was used."
+    Write-Error "Initialize-AuditOutput is not loaded. Please run from the 365Audit launcher."
     exit 1
 }
 
-# === Retrieve Output Folder ===
+# === Initialise output folder ===
 try {
-    $context = Initialize-AuditOutput
+    $context   = Initialize-AuditOutput
     $outputDir = $context.OutputPath
 }
 catch {
-    Write-Error "❌ Failed to locate audit output directory: $_"
+    Write-Error "Failed to initialise audit output directory: $_"
     exit 1
 }
 
-# === Connect to Graph ===
+# === Connect to Microsoft Graph ===
 try {
     Connect-MgGraphSecure
-} catch {
-    Write-Error "❌  Microsoft Graph connection failed: $_"
+}
+catch {
+    Write-Error "Microsoft Graph connection failed: $_"
     exit 1
 }
 
-Write-Host "`n🛡  Starting Entra Audit for $($context.OrgName)...`n"
+Write-Host "`nStarting Entra Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
-# === Detect sign-in capability ===
-$validSkus = @("AAD_PREMIUM", "AAD_PREMIUM_P2", "ENTERPRISEPREMIUM", "EMS", "EMS_PREMIUM", "IDENTITY_GOVERNANCE")
-$hasSignInLicense = ($subscribedSkus.SkuPartNumber | Where-Object { $_ -in $validSkus }).Count -gt 0
+$step       = 0
+$totalSteps = 11
+$activity   = "Entra Audit — $($context.OrgName)"
 
-# === Pull sign-in log (if licensed) ===
-$signIns = @{}
-if ($hasSignInLicense) {
-    try {
-        $rawSignIns = Get-MgAuditLogSignIn -All
-        foreach ($entry in $rawSignIns) {
-            if (-not $signIns.ContainsKey($entry.UserPrincipalName)) {
-                $signIns[$entry.UserPrincipalName] = $entry.CreatedDateTime
-            }
+
+# ================================
+# ===   Sign-in Logs            ===
+# ================================
+$subscribedSkus    = Get-MgSubscribedSku -All
+$premiumSignInSkus = @("AAD_PREMIUM", "AAD_PREMIUM_P2", "ENTERPRISEPREMIUM", "ENTERPRISEPACK",
+                       "EMS", "EMS_PREMIUM", "SPB", "O365_BUSINESS_PREMIUM", "M365_F3", "IDENTITY_GOVERNANCE")
+$retentionDays   = if (($subscribedSkus.SkuPartNumber | Where-Object { $_ -in $premiumSignInSkus }).Count -gt 0) { 30 } else { 7 }
+$signInRetention = if ($retentionDays -eq 30) { "30 days (AAD Premium)" } else { "7 days (AAD Free)" }
+
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving sign-in logs ($signInRetention)..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+$signIns   = @{}
+$signInMap = @{}
+
+try {
+    $rawSignIns = Get-MgAuditLogSignIn -All -ErrorAction Stop
+    foreach ($entry in $rawSignIns) {
+        $upn = $entry.UserPrincipalName
+        if (-not $upn) { continue }
+
+        if (-not $signIns.ContainsKey($upn)) {
+            $signIns[$upn] = $entry.CreatedDateTime
         }
-    } catch {
-        Write-Warning "⚠ Failed to retrieve sign-ins: $_"
+
+        if (-not $signInMap.ContainsKey($upn)) {
+            $signInMap[$upn] = [System.Collections.Generic.List[object]]::new()
+        }
+
+        if ($signInMap[$upn].Count -lt 10) {
+            $loc = $entry.Location
+            $signInMap[$upn].Add([PSCustomObject]@{
+                UPN           = $upn
+                Timestamp     = $entry.CreatedDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
+                App           = $entry.AppDisplayName
+                IPAddress     = $entry.IpAddress
+                City          = $loc.City
+                Country       = $loc.CountryOrRegion
+                Success       = ($entry.Status.ErrorCode -eq 0)
+                FailureReason = if ($entry.Status.ErrorCode -ne 0) { $entry.Status.FailureReason } else { "" }
+            })
+        }
     }
-} else {
-    Write-Warning "⚠  Skipping LastSignInDateTime reporting — this tenant may not have the required license (e.g. AAD P1/P2, M365 E5, or equivalent)."
+
+    $signInExport = foreach ($entries in $signInMap.Values) { $entries }
+    $signInExport | Export-Csv "$outputDir\Entra_SignIns.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving sign-in logs..." -CurrentOperation "Saved: Entra_SignIns.csv ($($signInMap.Count) users)" -PercentComplete ([int]($step / $totalSteps * 100))
 }
-# ================================
-# ===   License Summary
-# ================================
-
-Write-Host "`n⏳  Collecting license summary..."
-$subscriptions = Get-MgSubscribedSku -All
-
-$tenantLicenses = $subscriptions | Select-Object SkuPartNumber, SkuId, ConsumedUnits, PrepaidUnits, SubscriptionIds, CapabilityStatus, @{
-    Name = "PurchaseChannel"
-    Expression = { if ($_.AppliesTo -eq "User") { "Direct" } else { "Partner" } }
+catch {
+    Write-Warning "Failed to retrieve sign-in logs: $_"
 }
 
-$licenseDetails = foreach ($sku in $tenantLicenses) {
+
+# ================================
+# ===   Directory Audit Events  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events (last $retentionDays days)..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+$auditFrom  = (Get-Date).AddDays(-$retentionDays).ToString("yyyy-MM-ddTHH:mm:ssZ")
+$dateFilter = "activityDateTime ge $auditFrom"
+
+function Get-AuditInitiator {
+    [CmdletBinding()]
+    param ($Entry)
+    if ($Entry.InitiatedBy.User.UserPrincipalName) { return $Entry.InitiatedBy.User.UserPrincipalName }
+    if ($Entry.InitiatedBy.App.DisplayName)        { return "$($Entry.InitiatedBy.App.DisplayName) [app]" }
+    return "System"
+}
+
+# --- Account Creations ---
+try {
+    $rawCreations  = Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and activityDisplayName eq 'Add user'" -All -ErrorAction Stop
+    $acctCreations = foreach ($entry in $rawCreations) {
+        $target = $entry.TargetResources | Select-Object -First 1
+        [PSCustomObject]@{
+            Timestamp   = $entry.ActivityDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
+            InitiatedBy = Get-AuditInitiator $entry
+            TargetUPN   = $target.UserPrincipalName
+            TargetName  = $target.DisplayName
+            Result      = $entry.Result
+        }
+    }
+    $acctCreations | Export-Csv "$outputDir\Entra_AccountCreations.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events..." -CurrentOperation "Saved: Entra_AccountCreations.csv ($($acctCreations.Count) events)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Write-Warning "Failed to retrieve account creation events: $_"
+}
+
+# --- Account Deletions ---
+try {
+    $rawDeletions  = Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and activityDisplayName eq 'Delete user'" -All -ErrorAction Stop
+    $acctDeletions = foreach ($entry in $rawDeletions) {
+        $target = $entry.TargetResources | Select-Object -First 1
+        [PSCustomObject]@{
+            Timestamp   = $entry.ActivityDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
+            InitiatedBy = Get-AuditInitiator $entry
+            TargetUPN   = $target.UserPrincipalName
+            TargetName  = $target.DisplayName
+            Result      = $entry.Result
+        }
+    }
+    $acctDeletions | Export-Csv "$outputDir\Entra_AccountDeletions.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events..." -CurrentOperation "Saved: Entra_AccountDeletions.csv ($($acctDeletions.Count) events)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Write-Warning "Failed to retrieve account deletion events: $_"
+}
+
+# --- Notable Audit Events ---
+$securityActivityNames = @(
+    "Reset user password",
+    "User registered security info",
+    "User deleted security info",
+    "User changed default security info",
+    "Admin registered security info for a user",
+    "Admin deleted security info for a user",
+    "Admin updated security info for a user"
+)
+
+try {
+    $roleEvents     = @(Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and category eq 'RoleManagement'" -All -ErrorAction Stop)
+    $rawUserMgmt    = @(Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and category eq 'UserManagement'" -All -ErrorAction Stop)
+    $securityEvents = @($rawUserMgmt | Where-Object { $_.ActivityDisplayName -in $securityActivityNames })
+
+    $auditEvents = foreach ($entry in ($roleEvents + $securityEvents)) {
+        $targetUser = $entry.TargetResources | Where-Object { $_.Type -eq "User" } | Select-Object -First 1
+        $targetRole = $entry.TargetResources | Where-Object { $_.Type -eq "Role" } | Select-Object -First 1
+        if (-not $targetUser) { $targetUser = $entry.TargetResources | Select-Object -First 1 }
+
+        [PSCustomObject]@{
+            Timestamp   = $entry.ActivityDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
+            Category    = $entry.Category
+            Activity    = $entry.ActivityDisplayName
+            InitiatedBy = Get-AuditInitiator $entry
+            TargetUPN   = $targetUser.UserPrincipalName
+            TargetName  = $targetUser.DisplayName
+            TargetRole  = if ($targetRole) { $targetRole.DisplayName } else { "" }
+            Result      = $entry.Result
+        }
+    }
+
+    $auditEvents | Sort-Object Timestamp -Descending |
+        Export-Csv "$outputDir\Entra_AuditEvents.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events..." -CurrentOperation "Saved: Entra_AuditEvents.csv ($($auditEvents.Count) events)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Write-Warning "Failed to retrieve directory audit events: $_"
+}
+
+
+# ================================
+# ===   Licence Summary         ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting licence summary..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+$licenseDetails = foreach ($sku in $subscribedSkus) {
     [PSCustomObject]@{
-        SkuPartNumber     = $sku.SkuPartNumber
-        SkuFriendlyName   = Get-FriendlySkuName $sku.SkuPartNumber
-        SkuId             = $sku.SkuId
-        EnabledUnits      = $sku.PrepaidUnits.Enabled
-        SuspendedUnits    = $sku.PrepaidUnits.Suspended
-        WarningUnits      = $sku.PrepaidUnits.Warning
-        ConsumedUnits     = $sku.ConsumedUnits
-        CapabilityStatus  = $sku.CapabilityStatus
-        SubscriptionIds   = ($sku.SubscriptionIds -join ", ")
-        PurchaseChannel   = $sku.PurchaseChannel
+        SkuPartNumber    = $sku.SkuPartNumber
+        SkuFriendlyName  = Get-FriendlySkuName $sku.SkuPartNumber
+        SkuId            = $sku.SkuId
+        EnabledUnits     = $sku.PrepaidUnits.Enabled
+        SuspendedUnits   = $sku.PrepaidUnits.Suspended
+        WarningUnits     = $sku.PrepaidUnits.Warning
+        ConsumedUnits    = $sku.ConsumedUnits
+        CapabilityStatus = $sku.CapabilityStatus
+        SubscriptionIds  = ($sku.SubscriptionIds -join ", ")
+        PurchaseChannel  = if ($sku.AppliesTo -eq "User") { "Direct" } else { "Partner" }
     }
 }
 
-$licenseDetails | Export-Csv -Path "$outputdir\Entra_Licenses.csv" -NoTypeInformation -Encoding UTF8
-if (Test-Path "$outputdir\Entra_Licenses.csv") {
-    Write-Host "`t📂 License Summary exported to Entra_Licenses.csv" -ForegroundColor Green
-} else {
-    Write-Error "`t❌ Failed to save License Summary: $_"
-}
+$licenseDetails | Export-Csv -Path "$outputDir\Entra_Licenses.csv" -NoTypeInformation -Encoding UTF8
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting licence summary..." -CurrentOperation "Saved: Entra_Licenses.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 
 
-# === Self-Service Password Reset (SSPR) ===
-Write-Host "`n⏳  Collecting Self-Service Password Reset (SSPR) configuration..."
+# ================================
+# ===   SSPR Configuration      ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting SSPR configuration..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 try {
     $authPolicy = Get-MgPolicyAuthenticationMethodPolicy
-    $ssprState = $authPolicy.RegistrationEnforcement.AuthenticationMethodsRegistrationCampaign.State
+    $ssprState  = $authPolicy.RegistrationEnforcement.AuthenticationMethodsRegistrationCampaign.State
 
-    # Map 'default' to something more user-friendly
-    switch ($ssprState) {
-        "enabled"  { $friendlySspr = "Enabled" }
-        "disabled" { $friendlySspr = "Disabled" }
-        "default"  { $friendlySspr = "Not Enforced (Default)" }
-        default    { $friendlySspr = "Unknown" }
+    $friendlySspr = switch ($ssprState) {
+        "enabled"  { "Enabled" }
+        "disabled" { "Disabled" }
+        "default"  { "Not Enforced (Default)" }
+        default    { "Unknown" }
     }
 
-    [PSCustomObject]@{
-        SSPREnabled = $friendlySspr
-    } | Export-Csv "$outputDir\Entra_SSPR.csv" -NoTypeInformation
-
-    if (Test-Path "$outputDir\Entra_SSPR.csv") {
-        Write-Host "`t📂 Self-Service Password Reset (SSPR) configuration exported to Entra_SSPR.csv" -ForegroundColor Green
-    } else {
-        Write-Error "`t❌ Failed to save Self-Service Password Reset (SSPR) configuration: $_"
-    }
-
+    [PSCustomObject]@{ SSPREnabled = $friendlySspr } |
+        Export-Csv "$outputDir\Entra_SSPR.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting SSPR configuration..." -CurrentOperation "Saved: Entra_SSPR.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
-    Write-Warning "`t⚠ Unable to retrieve SSPR configuration: $_"
+    Write-Warning "Unable to retrieve SSPR configuration: $_"
 }
 
 
 # ================================
-# ===    Pull base user info   ===
+# ===   User Summary            ===
 # ================================
-Write-Host "`n⏳  Collecting user summary..."
-$users = Get-MgUser -All -Property DisplayName, GivenName, Surname, UserPrincipalName, Id, PasswordPolicies, LastPasswordChangeDateTime
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting user summary..." -PercentComplete ([int]($step / $totalSteps * 100))
 
-# === Build SKU lookup ===
-$subscribedSkus = Get-MgSubscribedSku
+$users = Get-MgUser -All -Filter "userType eq 'Member'" -Property DisplayName, GivenName, Surname, UserPrincipalName, Id, AccountEnabled, PasswordPolicies, LastPasswordChangeDateTime
+
 $skuLookup = @{}
-$subscribedSkus | ForEach-Object {
-    $skuLookup[$_.SkuId] = $_.SkuPartNumber
-}
+$subscribedSkus | ForEach-Object { $skuLookup[$_.SkuId] = $_.SkuPartNumber }
 
-# === Build MFA map with method names and count (excluding password-only) ===
 $mfaMap = @{}
 foreach ($user in $users) {
     try {
-        $methods = Get-MgUserAuthenticationMethod -UserId $user.Id
-        $types = $methods | ForEach-Object { $_.AdditionalProperties['@odata.type'] }
-
-        # Filter out password-only method
+        $methods       = Get-MgUserAuthenticationMethod -UserId $user.Id
+        $types         = $methods | ForEach-Object { $_.AdditionalProperties['@odata.type'] }
         $filteredTypes = $types | Where-Object { $_ -ne "#microsoft.graph.passwordAuthenticationMethod" }
 
-        # Map to friendly names
         $friendlyTypes = $filteredTypes | ForEach-Object {
             switch ($_ -replace "#microsoft.graph.", "") {
                 "phoneAuthenticationMethod"                   { "Phone (SMS/Call)" }
@@ -253,98 +407,74 @@ foreach ($user in $users) {
                 "fido2AuthenticationMethod"                   { "FIDO2 Key" }
                 "windowsHelloForBusinessAuthenticationMethod" { "Windows Hello" }
                 "emailAuthenticationMethod"                   { "Email" }
-                "softwareOathAuthenticationMethod"            { "Software OTP"}
+                "softwareOathAuthenticationMethod"            { "Software OTP" }
                 default { $_ }
             }
         }
 
         $uniqueTypes = $friendlyTypes | Sort-Object -Unique
-
-        $mfaMap[$user.UserPrincipalName] = @{
-            Types = $uniqueTypes
-            Count = $uniqueTypes.Count
-        }
+        $mfaMap[$user.UserPrincipalName] = @{ Types = $uniqueTypes; Count = $uniqueTypes.Count }
     }
     catch {
-        Write-Warning "`t⚠ Unable to get MFA methods for $($user.UserPrincipalName): $_"
-        $mfaMap[$user.UserPrincipalName] = @{
-            Types = @()
-            Count = 0
-        }
+        Write-Warning "Unable to get MFA methods for $($user.UserPrincipalName): $_"
+        $mfaMap[$user.UserPrincipalName] = @{ Types = @(); Count = 0 }
     }
 }
 
-
-# === Build license assignments using LicenseDetail + friendly name fallback ===
 $licenseMap = @{}
-$allUsers = Get-MgUser -All -Property Id, UserPrincipalName
-
-foreach ($user in $allUsers) {
+foreach ($user in $users) {
     $licenses = @()
     try {
-        $licenseDetails = Get-MgUserLicenseDetail -UserId $user.Id
-        foreach ($detail in $licenseDetails) {
-            $skuPartNumber = $detail.SkuPartNumber
-            $licenses += Get-FriendlySkuName $skuPartNumber
+        $details = Get-MgUserLicenseDetail -UserId $user.Id
+        foreach ($detail in $details) {
+            $licenses += Get-FriendlySkuName $detail.SkuPartNumber
         }
     }
     catch {
-        if ($debugMode) {
-            Write-Warning "[DEBUG] Failed to retrieve license details for $($user.UserPrincipalName): $_"
-        }
+        Write-Verbose "Failed to retrieve licence details for $($user.UserPrincipalName): $_"
     }
     if ($user.UserPrincipalName) {
         $licenseMap[$user.UserPrincipalName] = $licenses -join ", "
     }
 }
 
-# === Generate combined user report ===
-$userReport = @()
-foreach ($user in $users) {
-    $upn = $user.UserPrincipalName
-    $first = $user.GivenName
-    $last = $user.Surname
-    $mfaEnabled = $mfaMap.ContainsKey($upn) -and ($mfaMap[$upn].Count -gt 0)
-    $mfaTypes = if ($mfaMap[$upn].Count -gt 0) { $mfaMap[$upn].Types -join ", " } else { "None" }
-    $mfaCount = $mfaMap[$upn].Count
-    $license = if ($licenseMap.ContainsKey($upn)) { $licenseMap[$upn] } else { "None" }
-    $pwdExpiry = if ($user.PasswordPolicies -notmatch "DisablePasswordExpiration") { "Enabled" } else { "Disabled" }
-    $pwdLastSet = $user.LastPasswordChangeDateTime
-    $lastSignIn = if ($hasSignInLicense -and $signIns.ContainsKey($upn)) {
-        $signIns[$upn]
-    } else {
-        "Unavailable"
-    }
+$userReport = foreach ($user in $users) {
+    $upn        = $user.UserPrincipalName
+    $mfaEnabled = $mfaMap.ContainsKey($upn) -and ($mfaMap[$upn]['Count'] -gt 0)
+    $mfaTypes   = if ($mfaMap[$upn]['Count'] -gt 0) { $mfaMap[$upn].Types -join ", " } else { "None" }
+    $lastSignIn = if ($signIns.ContainsKey($upn)) { $signIns[$upn].ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC" } else { "Unavailable" }
 
-    $userReport += [PSCustomObject]@{
-        UPN               = $upn
-        FirstName         = $first
-        LastName          = $last
-        AssignedLicense   = $license
-        MFAEnabled        = $mfaEnabled
-        MFAMethods        = $mfaTypes
-        MFACount          = $mfaCount
-        DisablePasswordExpiration    = $pwdExpiry
-        LastPasswordChange= $pwdLastSet
-    }
-
-    if ($hasSignInLicense -and $signIns.ContainsKey($upn)) {
-        $userReport['LastSignIn'] = $signIns[$upn]
+    [PSCustomObject]@{
+        UPN                       = $upn
+        FirstName                 = $user.GivenName
+        LastName                  = $user.Surname
+        AccountStatus             = if ($user.AccountEnabled) { "Enabled" } else { "Blocked" }
+        AssignedLicense           = if ($licenseMap.ContainsKey($upn) -and $licenseMap[$upn]) { $licenseMap[$upn] } else { "None" }
+        MFAEnabled                = $mfaEnabled
+        MFAMethods                = $mfaTypes
+        MFACount                  = $mfaMap[$upn]['Count']
+        DisablePasswordExpiration = if ($user.PasswordPolicies -notmatch "DisablePasswordExpiration") { "Enabled" } else { "Disabled" }
+        LastPasswordChange        = $user.LastPasswordChangeDateTime
+        LastSignIn                = $lastSignIn
     }
 }
 
-$userReport | Export-Csv "$outputDir\Entra_Users.csv" -NoTypeInformation
-if (Test-Path "$outputDir\Entra_Users.csv") {
-    Write-Host "`t✅ User summary exported to Entra_Users.csv" -ForegroundColor Green
-} else {
-    Write-Error "`t❌ Failed to save User summary: $_"
-}
+$licensedUsers   = @($userReport | Where-Object { $_.AssignedLicense -ne "None" })
+$unlicensedUsers = @($userReport | Where-Object { $_.AssignedLicense -eq "None" })
 
-# === Admin Role Assignments ===
-Write-Host "`n⏳  Collecting Admin Role assignments..."
+$licensedUsers   | Export-Csv "$outputDir\Entra_Users.csv"            -NoTypeInformation -Encoding UTF8
+$unlicensedUsers | Export-Csv "$outputDir\Entra_Users_Unlicensed.csv" -NoTypeInformation -Encoding UTF8
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting user summary..." -CurrentOperation "Saved: Entra_Users.csv ($($licensedUsers.Count) licensed), Entra_Users_Unlicensed.csv ($($unlicensedUsers.Count) unlicensed)" -PercentComplete ([int]($step / $totalSteps * 100))
 
-$roles = Get-MgDirectoryRole
-$adminReport = @()
+
+# ================================
+# ===   Admin Role Assignments  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting admin role assignments..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+$roles        = Get-MgDirectoryRole
+$adminReport  = @()
 $globalAdmins = @()
 
 foreach ($role in $roles) {
@@ -353,107 +483,157 @@ foreach ($role in $roles) {
 
         foreach ($member in $members) {
             $entry = [PSCustomObject]@{
-                RoleName              = $role.DisplayName
-                MemberDisplayName     = $member.AdditionalProperties.displayName
+                RoleName                = $role.DisplayName
+                MemberDisplayName       = $member.AdditionalProperties.displayName
                 MemberUserPrincipalName = $member.AdditionalProperties.userPrincipalName
             }
-
             $adminReport += $entry
-
-            # Comment
             if ($role.DisplayName -eq "Global Administrator") {
                 $globalAdmins += $entry
             }
         }
-    } catch {
-        Write-Warning "⚠ Could not retrieve members for role: $($role.DisplayName)"
+    }
+    catch {
+        Write-Warning "Could not retrieve members for role: $($role.DisplayName)"
     }
 }
 
-# === Export full role assignment list ===
-$adminReport | Export-Csv "$outputDir\Entra_AdminRoles.csv" -NoTypeInformation
-if (Test-Path "$outputDir\Entra_AdminRoles.csv") {
-    Write-Host "`t📂 Admin Role assignments exported to Entra_AdminRoles.csv" -ForegroundColor Green
-} else {
-    Write-Error "`t❌ Failed to save Admin Role assignments: $_"
+$adminReport  | Export-Csv "$outputDir\Entra_AdminRoles.csv"   -NoTypeInformation -Encoding UTF8
+$globalAdmins | Export-Csv "$outputDir\Entra_GlobalAdmins.csv" -NoTypeInformation -Encoding UTF8
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting admin role assignments..." -CurrentOperation "Saved: Entra_AdminRoles.csv, Entra_GlobalAdmins.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+
+if ($globalAdmins.Count -eq 1) {
+    Write-Warning "Only ONE Global Administrator found. Best practice is at least two to avoid lockout."
 }
-
-$globalAdmins | Export-Csv "$outputDir\Entra_GlobalAdmins.csv" -NoTypeInformation
-if (Test-Path "$outputDir\Entra_GlobalAdmins.csv") {
-    Write-Host "`t📂 Global Admin summary exported to Entra_GlobalAdmins.csv" -ForegroundColor Green
-} else {
-    Write-Error "`t❌ Failed to save Global Admin summary: $_"
-}
-
-# === Check Global Admin count ===
-switch ($globalAdmins.Count) {
-    1 {
-        Write-Host "`n⚠  Only ONE Global Administrator found in the tenant!" -ForegroundColor Yellow
-        Write-Host "   Best practice is to have at least TWO to avoid lockout risks.`n" -ForegroundColor Yellow
-    }
-    default {
-        Write-Host "✅ Global Administrators: $($globalAdmins.Count)"
-    }
-}
-
-# === Guest Users ===
-Write-Host "`n⏳  Collecting Guest user summary..."
-$guestUsers = Get-MgUser -Filter "UserType eq 'Guest'" -All
-$guestUsers | Select DisplayName, UserPrincipalName, CreatedDateTime | Export-Csv "$outputDir\Entra_GuestUsers.csv" -NoTypeInformation
-
-if (Test-Path "$outputDir\Entra_GuestUsers.csv") {
-    Write-Host "`t📂 Guest user summary exported to Entra_GuestUsers.csv" -ForegroundColor Green
-} else {
-    Write-Error "`t❌ Failed to save Guest user summary: $_"
-}
-
-
-
-
 
 
 # ================================
-# Group Members and Owners
+# ===   Guest Users             ===
 # ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting guest user summary..." -PercentComplete ([int]($step / $totalSteps * 100))
 
-Write-Host "`n⏳  Collecting Groups summary..."
-$groups = Get-MgGroup -All
+$guestData = foreach ($guest in (Get-MgUser -Filter "UserType eq 'Guest'" -All -Property Id,DisplayName,UserPrincipalName,CreatedDateTime,SignInActivity -ErrorAction SilentlyContinue)) {
+    [PSCustomObject]@{
+        DisplayName       = $guest.DisplayName
+        UserPrincipalName = $guest.UserPrincipalName
+        CreatedDateTime   = $guest.CreatedDateTime
+        LastSignIn        = if ($guest.SignInActivity.LastSignInDateTime) { $guest.SignInActivity.LastSignInDateTime.ToString("yyyy-MM-dd HH:mm") + " UTC" } else { $null }
+    }
+}
+$guestData | Export-Csv "$outputDir\Entra_GuestUsers.csv" -NoTypeInformation -Encoding UTF8
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting guest user summary..." -CurrentOperation "Saved: Entra_GuestUsers.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 
-$groupData = foreach ($group in $groups) {
-    $owners = (Get-MgGroupOwner -GroupId $group.Id -ErrorAction SilentlyContinue | ForEach-Object {
-        $_.AdditionalProperties['userPrincipalName']
-    }) -join "; "
-    
-    $members = (Get-MgGroupMember -GroupId $group.Id -ErrorAction SilentlyContinue | ForEach-Object {
-        $_.AdditionalProperties['userPrincipalName']
-    }) -join "; "
-    
+
+# ================================
+# ===   Groups                  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting group summary..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+$groupData = foreach ($group in (Get-MgGroup -All)) {
+    $owners  = (Get-MgGroupOwner -GroupId $group.Id -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.AdditionalProperties['userPrincipalName'] }) -join "; "
+    $members = (Get-MgGroupMember -GroupId $group.Id -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.AdditionalProperties['userPrincipalName'] }) -join "; "
 
     [PSCustomObject]@{
-        DisplayName         = $group.DisplayName
-        GroupId             = $group.Id
-        GroupType           = if ($group.GroupTypes -and $group.GroupTypes -contains "Unified") { "Microsoft 365" } else { "Security" }
-        MembershipType      = if ($group.MembershipRule) { "Dynamic" } else { "Assigned" }
-        Owners              = $owners
-        Members             = $members
-        MailEnabled         = $group.MailEnabled
-        SecurityEnabled     = $group.SecurityEnabled
-        IsAssignableToRole  = $group.IsAssignableToRole
-        Visibility          = $group.Visibility
-        OnPremSyncEnabled   = $group.OnPremisesSyncEnabled
+        DisplayName        = $group.DisplayName
+        GroupId            = $group.Id
+        GroupType          = if ($group.GroupTypes -contains "Unified") { "Microsoft 365" } else { "Security" }
+        MembershipType     = if ($group.MembershipRule) { "Dynamic" } else { "Assigned" }
+        Owners             = $owners
+        Members            = $members
+        MailEnabled        = $group.MailEnabled
+        SecurityEnabled    = $group.SecurityEnabled
+        IsAssignableToRole = $group.IsAssignableToRole
+        Visibility         = $group.Visibility
+        OnPremSyncEnabled  = $group.OnPremisesSyncEnabled
     }
-    
-}
-$groupData | Export-Csv -Path "$outputdir\Entra_Groups.csv" -NoTypeInformation -Encoding UTF8
-if (Test-Path "$outputdir\Entra_Groups.csv" ) {
-    Write-Host "`t📂 Groups summary exported to Entra_SSPR.csv" -ForegroundColor Green
-} else {
-    Write-Error "`t❌ Failed to save Self-Service Password Reset (SSPR) configuration: $_"
 }
 
+$groupData | Export-Csv -Path "$outputDir\Entra_Groups.csv" -NoTypeInformation -Encoding UTF8
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting group summary..." -CurrentOperation "Saved: Entra_Groups.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 
 
 # ================================
-# === Done                     ===
+# ===   Conditional Access      ===
 # ================================
-Write-Host "`n✅ Entra Audit Complete. Results saved to: $outputDir`n"
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Conditional Access policies..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+try {
+    $caPolicyData = foreach ($policy in (Get-MgIdentityConditionalAccessPolicy -All)) {
+        [PSCustomObject]@{
+            Name           = $policy.DisplayName
+            State          = $policy.State
+            IncludeUsers   = ($policy.Conditions.Users.IncludeUsers -join ", ")
+            ExcludeUsers   = ($policy.Conditions.Users.ExcludeUsers -join ", ")
+            IncludeGroups  = ($policy.Conditions.Users.IncludeGroups -join ", ")
+            GrantControls  = ($policy.GrantControls.BuiltInControls -join ", ")
+            RequiresMFA    = ($policy.GrantControls.BuiltInControls -contains "mfa")
+            ClientAppTypes = ($policy.Conditions.ClientAppTypes -join ", ")
+        }
+    }
+
+    $caPolicyData | Export-Csv "$outputDir\Entra_CA_Policies.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Conditional Access policies..." -CurrentOperation "Saved: Entra_CA_Policies.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Write-Warning "Unable to retrieve Conditional Access policies: $_"
+}
+
+
+# ================================
+# ===   Named / Trusted Locations
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting named locations..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+try {
+    $locationData = foreach ($loc in (Get-MgIdentityConditionalAccessNamedLocation -All)) {
+        $ipRanges = if ($loc.AdditionalProperties.ContainsKey('ipRanges')) {
+            ($loc.AdditionalProperties['ipRanges'] | ForEach-Object { $_['cidrAddress'] }) -join ", "
+        }
+        else { "-" }
+
+        [PSCustomObject]@{
+            Name      = $loc.DisplayName
+            IsTrusted = $loc.AdditionalProperties['isTrusted']
+            Type      = $loc.ODataType
+            IPRanges  = $ipRanges
+        }
+    }
+
+    $locationData | Export-Csv "$outputDir\Entra_TrustedLocations.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting named locations..." -CurrentOperation "Saved: Entra_TrustedLocations.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Write-Warning "Unable to retrieve named locations: $_"
+}
+
+
+# ================================
+# ===   Security Defaults       ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Security Defaults configuration..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+try {
+    $secDefaults = Get-MgPolicyIdentitySecurityDefaultEnforcementPolicy
+
+    [PSCustomObject]@{
+        SecurityDefaultsEnabled = $secDefaults.IsEnabled
+    } | Export-Csv "$outputDir\Entra_SecurityDefaults.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Security Defaults configuration..." -CurrentOperation "Saved: Entra_SecurityDefaults.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Write-Warning "Unable to retrieve Security Defaults: $_"
+}
+
+
+# ================================
+# ===   Done                    ===
+# ================================
+Write-Progress -Id 1 -Activity $activity -Completed
+Write-Host "`nEntra Audit complete. Results saved to: $outputDir`n" -ForegroundColor Green

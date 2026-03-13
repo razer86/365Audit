@@ -1,119 +1,113 @@
 ﻿<#
 .SYNOPSIS
-    Interactive script launcher for Microsoft 365 audit modules (Azure, Exchange, SharePoint, etc.).
+    Interactive launcher for the Microsoft 365 Audit toolkit.
 
 .DESCRIPTION
-    Allows the user to interactively select and run one or more Microsoft 365 audit modules.
-    Modules are run from local disk if available, or downloaded from GitHub if missing.
-    The launcher also manages audit output folders and passes the folder name to the summary module.
+    Presents a menu of available audit modules. Modules are loaded from local disk;
+    missing modules are downloaded from GitHub as a fallback. On startup, compares
+    local script versions against the GitHub version manifest and warns if any are outdated.
+
+.PARAMETER AppId
+    Azure AD application (client) ID for app-only Entra/Exchange authentication.
+    When provided alongside -AppSecret and -TenantId, Entra and Exchange modules
+    will authenticate silently using the app credentials.
+
+.PARAMETER AppSecret
+    Client secret for the app registration specified by -AppId.
+
+.PARAMETER TenantId
+    Azure AD tenant ID (GUID or .onmicrosoft.com domain) for app-only auth.
+
+.PARAMETER PnPAppId
+    Azure AD application (client) ID of the PnP interactive auth app registered
+    by Setup-365AuditApp.ps1. Required for the SharePoint Online audit module.
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.0.1
+    Version     : 1.8.0
     Change Log  :
         1.0.0 - Initial release
-        1.0.1 - Updated to standardize comments and pass folder to summary
+        1.0.1 - Standardised comments; pass folder to summary
+        1.1.0 - Removed duplicate helper functions (moved to Audit-Common.ps1);
+                fixed menu option 9 script name; added version check on startup;
+                added Invoke-MailSecurityAudit.ps1 as option 4
+        1.2.0 - Added optional -AppId/-AppSecret/-TenantId parameters for
+                app-only SharePoint authentication (MSP cross-tenant support)
+        1.3.0 - SharePoint module now skipped with setup guidance when app
+                credentials are not supplied at launch
+        1.4.0 - Added -CertThumbprint parameter; SharePoint audit now requires a
+                certificate (SharePoint admin APIs reject client-secret tokens)
+        1.5.0 - Reverted SharePoint to interactive auth; removed -CertThumbprint
+                parameter and SharePoint skip block
+        1.6.0 - Added -PnPAppId parameter for the dedicated PnP interactive auth
+                app registered by Setup-365AuditApp.ps1 (Register-PnPEntraIDAppForInteractiveLogin)
+        1.7.0 - Added Generate-AuditSummary.ps1 to option 9 script list so "Run All"
+                automatically generates the summary report after all modules complete
+        1.8.0 - AppId, AppSecret, and TenantId are now mandatory parameters with
+                HelpMessage guidance; PnPAppId warning displayed at startup when
+                not provided; removed unnecessary Start-Sleep stalls
 
 .LINK
     https://github.com/razer86/365Audit
 #>
 
-# Force UTF-8 output for emoji if supported
-if ($PSVersionTable.PSVersion.Major -ge 6) {
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-}
+#Requires -Version 7.2
 
-# Load common audit helper functions
+param (
+    [Parameter(Mandatory, HelpMessage = 'Azure AD application (client) ID. Run Setup-365AuditApp.ps1 to obtain.')]
+    [string]$AppId,
+
+    [Parameter(Mandatory, HelpMessage = 'Client secret for the app registration. Run Setup-365AuditApp.ps1 to obtain.')]
+    [string]$AppSecret,
+
+    [Parameter(Mandatory, HelpMessage = 'Azure AD tenant ID (GUID or .onmicrosoft.com domain). Run Setup-365AuditApp.ps1 to obtain.')]
+    [string]$TenantId,
+
+    [Parameter(HelpMessage = 'PnP interactive auth app ID. Optional — SharePoint audit is skipped if not provided. Run Setup-365AuditApp.ps1 to obtain.')]
+    [string]$PnPAppId
+)
+
+$ScriptVersion = "1.8.0"
+Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# === Load shared helper functions ===
 $commonPath = Join-Path $PSScriptRoot "common\Audit-Common.ps1"
 if (Test-Path $commonPath) {
     . $commonPath
-} else {
+}
+else {
     Write-Error "Required helper script not found: $commonPath"
     exit 1
 }
 
 # === Config ===
-$debugMode = $true
-$localPath = "$PSScriptRoot"
-$remoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
+$localPath = $PSScriptRoot
 
-function Connect-MgGraphSecure {
-    # Required scopes for all modules
-    $requiredScopes = @(
-        "User.Read.All",                               # Required to get basic user profile info
-        "Directory.Read.All",                          # Required for admin role assignments, user properties, group membership, etc.
-        "Reports.Read.All",                            # Required for sign-in activity and MFA reports
-        "Organization.Read.All",                       # Used to retrieve tenant display name and info
-        "Policy.Read.All",                             # Used for password policy and security defaults
-        "Policy.ReadWrite.ConditionalAccess",          # Used to read conditional access policies
-        "UserAuthenticationMethod.Read.All",           # Required for MFA method details per user
-        "RoleManagement.Read.Directory",               # Used for Partner Relationship checking (DAP/GDAP)
-        "Group.Read.All"                               # Required for Microsoft 365 group properties, privacy, members, Teams, and dynamic membership
-    )    
+# Expose app credentials so dot-sourced modules can access them.
+# Variables are empty strings when not supplied; modules check for non-empty values before using.
+$AuditAppId     = $AppId
+$AuditAppSecret = $AppSecret
+$AuditTenantId  = $TenantId
+$AuditPnPAppId  = $PnPAppId
 
-    # Skip if already connected
-    if (Get-MgContext) {
-        write-host "ℹ  Already connected to Microsoft Graph." -ForegroundColor Green
-        return
-    }
+# === Check for updates ===
+Invoke-VersionCheck -ScriptRoot $PSScriptRoot
 
-    try {
-        write-host "ℹ  Connecting to Microsoft Graph..." -ForegroundColor Blue
-        Connect-MgGraph -Scopes $requiredScopes -ErrorAction Stop
-    }
-    catch {
-        write-error "❌ Failed to connect to Microsoft Graph: $_"
-        throw
-    }
-
-    # Verify all scopes were granted
-    $context = Get-MgContext
-    $missingScopes = $requiredScopes | Where-Object { $_ -notin $context.Scopes }
-
-    if ($missingScopes.Count -gt 0) {
-        write-error "❌ Missing required Microsoft Graph scopes:"
-        $missingScopes | ForEach-Object { Write-Warning " - $_" }
-
-        throw "Please re-run and ensure consent is granted for the missing scopes."
-    }
-
-    write-host "✅ Connected with all required Microsoft Graph permissions." -ForegroundColor Green
-}
-
-# === Initialize-AuditOutput ===
-function Initialize-AuditOutput {
-    if ($script:AuditOutputContext) {
-        return $script:AuditOutputContext
-    }
-
-    if (-not (Get-MgContext)) {
-        Connect-MgGraphSecure
-    }
-
-    $org = Get-MgOrganization
-    $companyName = $org.DisplayName -replace '[^a-zA-Z0-9]', '_'
-    $folderName = "${companyName}_$(Get-Date -Format 'yyyyMMdd')"
-    $outputDir = Join-Path $PSScriptRoot "..\$folderName"
-    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-
-    $script:AuditOutputContext = @{
-        OrgName    = $companyName
-        FolderName = $folderName
-        OutputPath = $outputDir
-    }
-
-    return $script:AuditOutputContext
+if (-not $PnPAppId) {
+    Write-Host "`n[!] -PnPAppId not provided — SharePoint Online audit will be skipped." -ForegroundColor Yellow
+    Write-Host "    Run Setup-365AuditApp.ps1 to register the PnP app, then re-launch with -PnPAppId <id>.`n" -ForegroundColor Yellow
 }
 
 # === Define Menu Items ===
 $menu = @{
-    1 = @{ Name = "Microsoft Entra Audit";          Script = "Invoke-EntraAudit.ps1" }
-    2 = @{ Name = "Exchange Online Audit";          Script = "Invoke-ExchangeAudit.ps1" }
-    3 = @{ Name = "SharePoint Online Audit";        Script = "Invoke-SharePointAudit.ps1" }
-    #4 = @{ Name = "Microsoft Teams Audit";         Script = "Invoke-TeamsAudit.ps1" }
-    8 = @{ Name = "Generate Audit Summary";         Script = "Generate-AuditSummary.ps1" }
-    9 = @{ Name = "Run All Modules (1,2,3,8)";      Script = @("Invoke-AzureAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1") }
-    0 = @{ Name = "Exit";                           Script = $null }
+    1 = @{ Name = "Microsoft Entra Audit";      Script = "Invoke-EntraAudit.ps1", "Generate-AuditSummary.ps1" }
+    2 = @{ Name = "Exchange Online Audit";      Script = "Invoke-ExchangeAudit.ps1", "Generate-AuditSummary.ps1" }
+    3 = @{ Name = "SharePoint Online Audit";    Script = "Invoke-SharePointAudit.ps1", "Generate-AuditSummary.ps1" }
+    4 = @{ Name = "Mail Security Audit";        Script = "Invoke-MailSecurityAudit.ps1", "Generate-AuditSummary.ps1" }
+    9 = @{ Name = "Run All Modules (1,2,3,4)";  Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Generate-AuditSummary.ps1") }
+    0 = @{ Name = "Exit";                       Script = $null }
 }
 
 # === Display Menu ===
@@ -121,71 +115,69 @@ Write-Host "`n╔═════════════════════
 Write-Host "║    Microsoft 365 Audit Launcher    ║"
 Write-Host "╚════════════════════════════════════╝"
 
-foreach ($key in ($menu.Keys | Sort-Object {[int]$_})) {
+foreach ($key in ($menu.Keys | Sort-Object { [int]$_ })) {
     Write-Host "$key. $($menu[$key].Name)"
 }
 
 # === User Selection ===
 $selection = Read-Host "`nSelect one or more modules (comma separated, e.g. 1,2)"
 if ($selection -eq "0") {
-    write-host "`nℹ  Exiting script, Goodbye!"
+    Write-Host "Exiting. Goodbye!"
     return
 }
 
 # === Parse Selection ===
-$selectedIndexes = $selection -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ }
+$selectedIndexes = $selection -split "," |
+    ForEach-Object { $_.Trim() } |
+    Where-Object    { $_ -match '^\d+$' } |
+    ForEach-Object  { [int]$_ }
 
 # === Execute Selected Modules ===
 foreach ($index in $selectedIndexes) {
-    if ($menu.ContainsKey($index)) {
-        $module = $menu[$index]
+    if (-not $menu.ContainsKey($index)) {
+        Write-Warning "Invalid selection: $index"
+        continue
+    }
 
-        if (-not $module.Script) { continue }
+    $module = $menu[$index]
+    if (-not $module.Script) { continue }
 
-        $scriptsToRun = @($module.Script)
+    $scriptsToRun = @($module.Script)
 
-        foreach ($scriptName in $scriptsToRun) {
-            $localScriptPath = Join-Path $localPath $scriptName
-            $remoteScriptUrl = "$remoteBaseUrl/$scriptName"
-            write-host "`nℹ  Attempting to load: $localScriptPath"
+    foreach ($scriptName in $scriptsToRun) {
+        $localScriptPath = Join-Path $localPath $scriptName
+        $remoteScriptUrl = "$RemoteBaseUrl/$scriptName"
 
-            Write-Host "`n■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
-            Write-Host "           Starting: $scriptName" -ForegroundColor Cyan
-            Write-Host "■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■"
+        Write-Host "`n================================================================"
+        Write-Host "  Starting: $scriptName" -ForegroundColor Cyan
+        Write-Host "================================================================"
 
-            if ($scriptName -eq "Generate-AuditSummary.ps1") {
-                if (Test-Path $outputDir) {
-                    & $localScriptPath -AuditFolder $outputDir
-                }
-                else {
-                    write-host "❌  Could not find any audit output folders."
-                }
-                continue
-            }
-
-            if (Test-Path $localScriptPath) {
-                write-host "`nℹ  Found local script: $localScriptPath"
-                write-host "`nℹ  This will open a new session window or prompt for login if required.`n"
-                Start-Sleep -Seconds 2
-                . $localScriptPath
+        if ($scriptName -eq "Generate-AuditSummary.ps1") {
+            $auditContext = Initialize-AuditOutput
+            if ($auditContext) {
+                & $localScriptPath -AuditFolder $auditContext.OutputPath
             }
             else {
-                write-host "ℹ  Local script not found. Downloading from GitHub..."
-                write-host "ℹ  Fetching from: $remoteScriptUrl"
-                write-host "ℹ  This will run interactively and may prompt for Microsoft 365 login.`n"
-                Start-Sleep -Seconds 2
-                try {
-                    irm $remoteScriptUrl | iex
-                }
-                catch {
-                    write-host "❌  Failed to download or run $scriptName from GitHub: $_"
-                }
+                Write-Warning "No audit output context found. Run at least one audit module first."
             }
-
-            write-host "✅  Completed: $scriptName"
+            continue
         }
-    }
-    else {
-        write-host "❌  Invalid selection: $index"
+
+        if (Test-Path $localScriptPath) {
+            Write-Host "Loading local script: $localScriptPath`n"
+            . $localScriptPath
+        }
+        else {
+            Write-Host "Local script not found. Downloading from GitHub..."
+            Write-Host "Fetching: $remoteScriptUrl`n"
+            try {
+                Invoke-Expression (Invoke-RestMethod $remoteScriptUrl)
+            }
+            catch {
+                Write-Warning "Failed to download or run ${scriptName}: $_"
+            }
+        }
+
+        Write-Host "Completed: $scriptName" -ForegroundColor Green
     }
 }
