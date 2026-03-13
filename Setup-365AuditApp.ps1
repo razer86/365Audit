@@ -35,7 +35,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.1
+    Version     : 1.9.2
     Change Log  :
         1.0.0 - Initial release
         1.1.0 - Added Microsoft Graph application permissions required for app-only auth;
@@ -66,6 +66,7 @@
         1.9.0 - Removed SharePoint (Sites.FullControl.All) from main app registration;
                 SharePoint auth is handled entirely by the PnP interactive app which uses
                 delegated permissions scoped to the signed-in technician's rights
+        1.9.2 - Added SecurityEvents.Read.All to Graph permissions for Identity Secure Score
         1.9.1 - Updated URLs and references from 'MSA Audit Toolkit' to '365Audit' for branding consistency
 
 .LINK
@@ -84,7 +85,7 @@ param (
     [switch]$Force
 )
 
-$ScriptVersion      = '1.9.1'
+$ScriptVersion      = '1.9.2'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -101,7 +102,8 @@ $script:GraphPermissions = @(
     'UserAuthenticationMethod.Read.All',
     'RoleManagement.Read.Directory',
     'Group.Read.All',
-    'AuditLog.Read.All'
+    'AuditLog.Read.All',
+    'SecurityEvents.Read.All'
 )
 
 # Office 365 Exchange Online service principal app ID (constant in all Azure tenants)

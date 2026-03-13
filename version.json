@@ -1,10 +1,10 @@
 {
     "Start-365Audit.ps1": "1.9.0",
-    "Setup-365AuditApp.ps1": "1.9.1",
+    "Setup-365AuditApp.ps1": "1.9.2",
     "common/Audit-Common.ps1": "1.11.0",
-    "Invoke-EntraAudit.ps1": "1.9.0",
+    "Invoke-EntraAudit.ps1": "1.10.0",
     "Invoke-ExchangeAudit.ps1": "1.9.0",
     "Invoke-SharePointAudit.ps1": "2.7.0",
     "Invoke-MailSecurityAudit.ps1": "1.6.0",
-    "Generate-AuditSummary.ps1": "1.16.0"
+    "Generate-AuditSummary.ps1": "1.17.0"
 }

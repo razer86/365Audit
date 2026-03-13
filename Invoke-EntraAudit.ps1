@@ -26,6 +26,8 @@
     - Entra_CA_Policies.csv
     - Entra_TrustedLocations.csv
     - Entra_SecurityDefaults.csv
+    - Entra_SecureScore.csv
+    - Entra_SecureScoreControls.csv
     - Entra_SignIns.csv
     - Entra_AccountCreations.csv
     - Entra_AccountDeletions.csv
@@ -33,7 +35,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.0
+    Version     : 1.10.0
     Change Log  :
         1.0.0 - Initial release
         1.0.1 - Refactor output directory initialisation
@@ -60,6 +62,9 @@
                 CA policies: add ClientAppTypes for legacy auth detection
         1.8.0 - Replaced per-section Write-Host progress lines with Write-Progress
                 for cleaner terminal output
+        1.10.0 - Add Identity Secure Score collection: Entra_SecureScore.csv
+                 (date, current, max, percentage) and Entra_SecureScoreControls.csv
+                 (per-control name, score, description); requires SecurityEvents.Read.All
         1.9.0 - Write-Progress -Status now includes "Step X/Y — " prefix
 
 .LINK
@@ -77,7 +82,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "1.10.0"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -175,7 +180,7 @@ catch {
 Write-Host "`nStarting Entra Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 11
+$totalSteps = 12
 $activity   = "Entra Audit — $($context.OrgName)"
 
 
@@ -610,6 +615,46 @@ try {
 }
 catch {
     Write-Warning "Unable to retrieve named locations: $_"
+}
+
+
+# ================================
+# ===   Identity Secure Score   ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Identity Secure Score..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+try {
+    $scoreResponse = Invoke-MgGraphRequest -Method GET -Uri 'https://graph.microsoft.com/v1.0/security/secureScores?$top=1' -OutputType PSObject -ErrorAction Stop
+    $latestScore   = $scoreResponse.value | Select-Object -First 1
+
+    if ($latestScore) {
+        $currentScore = [math]::Round($latestScore.currentScore, 2)
+        $maxScore     = [math]::Round($latestScore.maxScore, 2)
+        $percentage   = if ($maxScore -gt 0) { [math]::Round(($currentScore / $maxScore) * 100, 1) } else { 0 }
+
+        [PSCustomObject]@{
+            Date         = $latestScore.createdDateTime
+            CurrentScore = $currentScore
+            MaxScore     = $maxScore
+            Percentage   = $percentage
+        } | Export-Csv "$outputDir\Entra_SecureScore.csv" -NoTypeInformation -Encoding UTF8
+
+        $controlRows = foreach ($ctrl in $latestScore.controlScores) {
+            [PSCustomObject]@{
+                ControlName  = $ctrl.controlName
+                Score        = $ctrl.score
+                Description  = $ctrl.description
+            }
+        }
+        $controlRows | Sort-Object Score -Descending |
+            Export-Csv "$outputDir\Entra_SecureScoreControls.csv" -NoTypeInformation -Encoding UTF8
+
+        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Identity Secure Score..." -CurrentOperation "Saved: Entra_SecureScore.csv ($currentScore / $maxScore = $percentage%)" -PercentComplete ([int]($step / $totalSteps * 100))
+    }
+}
+catch {
+    Write-Warning "Unable to retrieve Secure Score: $_"
 }
 
 

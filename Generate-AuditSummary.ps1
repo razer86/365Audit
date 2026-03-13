@@ -15,6 +15,8 @@
     - Entra_Licenses.csv
     - Entra_SSPR.csv
     - Entra_SecurityDefaults.csv
+    - Entra_SecureScore.csv
+    - Entra_SecureScoreControls.csv
     - Entra_CA_Policies.csv
     - Entra_SignIns.csv
     - Entra_AccountCreations.csv
@@ -36,7 +38,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.16.0
+    Version     : 1.17.0
     Change Log  :
         1.0.0 - Initial release
         1.0.1 - Updated Entra audit sources
@@ -75,6 +77,8 @@
                  Attachments/Links, SharePoint default link type, sync restriction;
                  new summary sections: stale accounts table in Entra, outbound
                  spam/shared mailbox sign-in/Safe Attachments/Safe Links in Exchange
+        1.17.0 - Add Identity Secure Score gauge to Entra section (reads
+                 Entra_SecureScore.csv; colour-coded progress bar)
         1.16.0 - Cross-platform report launch: xdg-open on Linux, open on macOS
         1.15.0 - SharePoint section fixes: tenant storage falls back to summing
                  per-site + OneDrive CSVs when StorageQuotaUsed is null from
@@ -114,7 +118,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.16.0"
+$ScriptVersion = "1.17.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -596,6 +600,18 @@ if ($entraFiles.Count -gt 0) {
         if (($_skuList | Where-Object { $_ -in $_auditPremiumSkus }).Count -gt 0) { $auditWindowDays = 30 }
     }
     $auditWindowLabel = "last $auditWindowDays days"
+
+    # --- Identity Secure Score ---
+    $secureScoreCsv = Join-Path $AuditFolder "Entra_SecureScore.csv"
+    if (Test-Path $secureScoreCsv) {
+        $ss = Import-Csv $secureScoreCsv | Select-Object -First 1
+        if ($ss) {
+            $ssPct   = [double]$ss.Percentage
+            $ssColor = if ($ssPct -ge 80) { '#27ae60' } elseif ($ssPct -ge 50) { '#f39c12' } else { '#e74c3c' }
+            $ssBar   = "<div style='background:#e0e0e0;border-radius:4px;height:14px;width:100%;max-width:300px;display:inline-block;vertical-align:middle'><div style='background:$ssColor;width:$($ssPct)%;height:14px;border-radius:4px'></div></div>"
+            $entraSummary.Add("<p><b>Identity Secure Score:</b> $($ss.CurrentScore) / $($ss.MaxScore) &nbsp;($($ss.Percentage)%) &nbsp;$ssBar &nbsp;<span style='color:#888;font-size:0.85em'>as of $($ss.Date)</span></p>")
+        }
+    }
 
     # --- Security Defaults ---
     $secDefaultsCsv = Join-Path $AuditFolder "Entra_SecurityDefaults.csv"

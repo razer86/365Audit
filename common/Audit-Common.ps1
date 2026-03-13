@@ -96,7 +96,8 @@ function Connect-MgGraphSecure {
         "UserAuthenticationMethod.Read.All",
         "RoleManagement.Read.Directory",
         "Group.Read.All",
-        "AuditLog.Read.All"
+        "AuditLog.Read.All",
+        "SecurityEvents.Read.All"
     )
 
     # Auto-detect app credentials set by the launcher (-AppId/-AppSecret/-TenantId params).
