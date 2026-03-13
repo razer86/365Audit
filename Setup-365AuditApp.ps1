@@ -35,7 +35,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.0
+    Version     : 1.9.1
     Change Log  :
         1.0.0 - Initial release
         1.1.0 - Added Microsoft Graph application permissions required for app-only auth;
@@ -66,6 +66,7 @@
         1.9.0 - Removed SharePoint (Sites.FullControl.All) from main app registration;
                 SharePoint auth is handled entirely by the PnP interactive app which uses
                 delegated permissions scoped to the signed-in technician's rights
+        1.9.1 - Updated URLs and references from 'MSA Audit Toolkit' to '365Audit' for branding consistency
 
 .LINK
     https://github.com/razer86/365Audit
@@ -346,7 +347,13 @@ function Request-AdminConsent {
     Write-Host "$sep`n" -ForegroundColor Yellow
 
     try {
-        Start-Process $portalUrl -ErrorAction Stop
+        if ($IsLinux) {
+            xdg-open $portalUrl
+        } elseif ($IsMacOS) {
+            open $portalUrl
+        } else {
+            Start-Process $portalUrl -ErrorAction Stop
+        }
     }
     catch {
         Write-Warning "Unable to open browser automatically: $($_.Exception.Message)"
@@ -430,10 +437,10 @@ function Show-Credentials {
     Write-Host ''
     Write-Host '  Run the audit with:' -ForegroundColor DarkCyan
     if ($PnPAppId) {
-        Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -AppSecret '<secret>' -TenantId '$TenantId' -PnPAppId '$PnPAppId'" -ForegroundColor Cyan
+        Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -AppSecret '$SecretText' -TenantId '$TenantId' -PnPAppId '$PnPAppId'" -ForegroundColor Cyan
     }
     else {
-        Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -AppSecret '<secret>' -TenantId '$TenantId'" -ForegroundColor Cyan
+        Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -AppSecret '$SecretText' -TenantId '$TenantId'" -ForegroundColor Cyan
     }
     Write-Host "$sep`n" -ForegroundColor Cyan
 }

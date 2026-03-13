@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.0
+    Version     : 1.10.0
     Change Log  :
         1.0.0 - Initial creation and migration of shared helpers from launcher
         1.1.0 - Added CmdletBinding, Invoke-VersionCheck, centralised RemoteBaseUrl
@@ -33,6 +33,9 @@
                 three are present, falls back to interactive delegated auth otherwise
         1.8.0 - Add Connect-ExchangeOnlineSecure: uses client-credentials OAuth token for
                 Exchange Online when app credentials are present; falls back to interactive
+        1.10.0 - Connect-ExchangeOnlineSecure: add missing -AppId to Connect-ExchangeOnline
+                 -AccessToken call; EXO v3 requires -AppId alongside -AccessToken to
+                 recognise the connection as app-only context (omitting it causes UnAuthorized)
         1.9.0 - Change "Already connected" Write-Host calls to Write-Verbose so they do
                 not add scroll lines when modules reuse an existing session
 
@@ -42,7 +45,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "1.10.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -160,7 +163,7 @@ function Connect-MgGraphSecure {
 # =======================================================
 # Must be called AFTER Import-Module ExchangeOnlineManagement.
 # Detects $AuditAppId/$AuditAppSecret/$AuditTenantId from the launcher scope.
-# When present: obtains an OAuth token via client credentials and connects silently.
+# When present: obtains an OAuth2 client-credentials token and connects via -AccessToken/-AppId.
 # Requires Exchange.ManageAsApp permission + Exchange Administrator Entra role on the SP.
 # Falls back to interactive browser auth when credentials are absent.
 function Connect-ExchangeOnlineSecure {
@@ -189,7 +192,9 @@ function Connect-ExchangeOnlineSecure {
             Where-Object { $_.IsInitial -eq $true } |
             Select-Object -ExpandProperty Name -First 1
 
-        # Obtain an OAuth2 token for Exchange Online using client credentials
+        # Obtain an OAuth2 token for Exchange Online using client credentials.
+        # -AppId must be passed alongside -AccessToken in EXO v3 to declare an app-only context;
+        # omitting it causes an UnAuthorized rejection even with a valid token.
         $_tokenBody = @{
             grant_type    = 'client_credentials'
             scope         = 'https://outlook.office365.com/.default'
@@ -203,7 +208,7 @@ function Connect-ExchangeOnlineSecure {
             -ErrorAction Stop
 
         $_secureToken = ConvertTo-SecureString $_tokenResponse.access_token -AsPlainText -Force
-        Connect-ExchangeOnline -AccessToken $_secureToken -Organization $_orgDomain -ShowBanner:$false -ErrorAction Stop
+        Connect-ExchangeOnline -AccessToken $_secureToken -AppId $appId -Organization $_orgDomain -ShowBanner:$false -ErrorAction Stop
 
         Remove-Variable _orgDomain, _tokenBody, _tokenResponse, _secureToken -ErrorAction SilentlyContinue
     }

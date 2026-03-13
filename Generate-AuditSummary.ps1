@@ -1789,4 +1789,10 @@ function togglePerms(row) {
 $html -join "`n" | Set-Content -Path $reportPath -Encoding UTF8
 
 Write-Host "Summary report written to: $reportPath" -ForegroundColor Green
-Start-Process $reportPath
+if ($IsLinux) {
+    xdg-open $reportPath
+} elseif ($IsMacOS) {
+    open $reportPath
+} else {
+    Start-Process $reportPath
+}

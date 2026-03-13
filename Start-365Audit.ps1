@@ -102,10 +102,10 @@ if (-not $PnPAppId) {
 
 # === Define Menu Items ===
 $menu = @{
-    1 = @{ Name = "Microsoft Entra Audit";      Script = "Invoke-EntraAudit.ps1", "Generate-AuditSummary.ps1" }
-    2 = @{ Name = "Exchange Online Audit";      Script = "Invoke-ExchangeAudit.ps1", "Generate-AuditSummary.ps1" }
-    3 = @{ Name = "SharePoint Online Audit";    Script = "Invoke-SharePointAudit.ps1", "Generate-AuditSummary.ps1" }
-    4 = @{ Name = "Mail Security Audit";        Script = "Invoke-MailSecurityAudit.ps1", "Generate-AuditSummary.ps1" }
+    1 = @{ Name = "Microsoft Entra Audit";      Script = @("Invoke-EntraAudit.ps1",      "Generate-AuditSummary.ps1") }
+    2 = @{ Name = "Exchange Online Audit";      Script = @("Invoke-ExchangeAudit.ps1",   "Generate-AuditSummary.ps1") }
+    3 = @{ Name = "SharePoint Online Audit";    Script = @("Invoke-SharePointAudit.ps1", "Generate-AuditSummary.ps1") }
+    4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1","Generate-AuditSummary.ps1") }
     9 = @{ Name = "Run All Modules (1,2,3,4)";  Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Generate-AuditSummary.ps1") }
     0 = @{ Name = "Exit";                       Script = $null }
 }
