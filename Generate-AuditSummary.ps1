@@ -36,7 +36,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.15.0
+    Version     : 1.16.0
     Change Log  :
         1.0.0 - Initial release
         1.0.1 - Updated Entra audit sources
@@ -75,6 +75,7 @@
                  Attachments/Links, SharePoint default link type, sync restriction;
                  new summary sections: stale accounts table in Entra, outbound
                  spam/shared mailbox sign-in/Safe Attachments/Safe Links in Exchange
+        1.16.0 - Cross-platform report launch: xdg-open on Linux, open on macOS
         1.15.0 - SharePoint section fixes: tenant storage falls back to summing
                  per-site + OneDrive CSVs when StorageQuotaUsed is null from
                  Get-PnPTenant; claim token parsing for group members (tenant,
@@ -113,7 +114,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.15.0"
+$ScriptVersion = "1.16.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

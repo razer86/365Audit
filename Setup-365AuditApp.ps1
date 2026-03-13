@@ -84,7 +84,7 @@ param (
     [switch]$Force
 )
 
-$ScriptVersion      = '1.9.0'
+$ScriptVersion      = '1.9.1'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 

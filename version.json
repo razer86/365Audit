@@ -6,5 +6,5 @@
     "Invoke-ExchangeAudit.ps1": "1.9.0",
     "Invoke-SharePointAudit.ps1": "2.7.0",
     "Invoke-MailSecurityAudit.ps1": "1.6.0",
-    "Generate-AuditSummary.ps1": "1.15.0"
+    "Generate-AuditSummary.ps1": "1.16.0"
 }
