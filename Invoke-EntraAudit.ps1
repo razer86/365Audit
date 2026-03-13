@@ -654,7 +654,13 @@ try {
     }
 }
 catch {
-    Write-Warning "Unable to retrieve Secure Score: $_"
+    if ($_.Exception.Message -match '403|Forbidden|valid permissions|valid roles') {
+        Write-Warning "Secure Score: permission denied (SecurityEvents.Read.All not yet granted). Re-run Setup-365AuditApp.ps1 to add the missing permission."
+    }
+    else {
+        Write-Warning "Unable to retrieve Secure Score: $($_.Exception.Message)"
+    }
+    Write-Verbose "Secure Score full error: $_"
 }
 
 

@@ -35,7 +35,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.2
+    Version     : 1.9.4
     Change Log  :
         1.0.0 - Initial release
         1.1.0 - Added Microsoft Graph application permissions required for app-only auth;
@@ -66,6 +66,12 @@
         1.9.0 - Removed SharePoint (Sites.FullControl.All) from main app registration;
                 SharePoint auth is handled entirely by the PnP interactive app which uses
                 delegated permissions scoped to the signed-in technician's rights
+        1.9.4 - Fix Set-ExchangeAdminRole: add -All to Get-MgDirectoryRoleMember to prevent
+                pagination from missing existing members; catch already-exists error as fallback;
+                only call Set-ExchangeAdminRole when Exchange perms are actually missing
+        1.9.3 - Fix existing-app permission check: now compares per individual permission ID
+                so new permissions (e.g. SecurityEvents.Read.All) are applied on re-run
+                without requiring a full fresh setup
         1.9.2 - Added SecurityEvents.Read.All to Graph permissions for Identity Secure Score
         1.9.1 - Updated URLs and references from 'MSA Audit Toolkit' to '365Audit' for branding consistency
 
@@ -85,7 +91,7 @@ param (
     [switch]$Force
 )
 
-$ScriptVersion      = '1.9.2'
+$ScriptVersion      = '1.9.4'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -258,17 +264,25 @@ function Set-ExchangeAdminRole {
         $role = New-MgDirectoryRole -RoleTemplateId $template.Id -ErrorAction Stop
     }
 
-    # Skip if already assigned
-    $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -ErrorAction SilentlyContinue |
+    # Skip if already assigned (-All prevents pagination from missing members in large tenants)
+    $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All -ErrorAction SilentlyContinue |
         Where-Object { $_.Id -eq $ServicePrincipalId }
     if ($existing) {
         Write-Verbose 'Exchange Administrator role already assigned — skipping.'
         return
     }
 
-    $body = @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$ServicePrincipalId" }
-    New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
-    Write-Verbose "Exchange Administrator role assigned to service principal."
+    try {
+        $body = @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$ServicePrincipalId" }
+        New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
+        Write-Verbose "Exchange Administrator role assigned to service principal."
+    }
+    catch {
+        if ($_.Exception.Message -match 'already exist') {
+            Write-Verbose 'Exchange Administrator role already assigned — skipping.'
+        }
+        else { throw }
+    }
 }
 
 
@@ -485,18 +499,20 @@ try {
         Write-Status "App found — App ID: $($existingApp.AppId)" -Type Info
 
         # ----------------------------------------------------------
-        # Ensure Microsoft Graph and Exchange permissions are present.
+        # Ensure all required Graph and Exchange permissions are present.
+        # Checks per individual permission so new ones added in future
+        # versions are automatically applied on re-run.
         # ----------------------------------------------------------
-        $hasGraphPerms    = $existingApp.RequiredResourceAccess |
-            Where-Object { $_.ResourceAppId -eq $script:GraphResourceAppId }
-        $hasExchangePerms = $existingApp.RequiredResourceAccess |
-            Where-Object { $_.ResourceAppId -eq $script:ExchangeResourceAppId }
+        $graphPerms    = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId    -PermissionNames $script:GraphPermissions)
+        $exchangePerms = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId -PermissionNames $script:ExchangePermissions)
 
-        if (-not $hasGraphPerms -or -not $hasExchangePerms) {
-            Write-Status 'Adding missing permissions to existing app...' -Type Warning
+        $currentIds    = @($existingApp.RequiredResourceAccess.ResourceAccess | ForEach-Object { $_.Id })
+        $missingGraph    = @($graphPerms    | Where-Object { $_.Id -notin $currentIds })
+        $missingExchange = @($exchangePerms | Where-Object { $_.Id -notin $currentIds })
 
-            $graphPerms    = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId    -PermissionNames $script:GraphPermissions)
-            $exchangePerms = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId -PermissionNames $script:ExchangePermissions)
+        if ($missingGraph.Count -gt 0 -or $missingExchange.Count -gt 0) {
+            $missingNames = ($missingGraph + $missingExchange | ForEach-Object { $_.Name }) -join ', '
+            Write-Status "Adding missing permissions: $missingNames" -Type Warning
 
             $resourceAccess = @(
                 @{
@@ -512,11 +528,12 @@ try {
             Update-MgApplication -ApplicationId $existingApp.Id -RequiredResourceAccess $resourceAccess -ErrorAction Stop
             $ourSp = Ensure-ServicePrincipal -AppId $existingApp.AppId
 
-            if (-not $hasGraphPerms)    { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $graphPerms }
-            if (-not $hasExchangePerms) { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $exchangePerms }
-
-            Write-Status 'Assigning Exchange Administrator role to service principal...'
-            Set-ExchangeAdminRole -ServicePrincipalId $ourSp.Id
+            if ($missingGraph.Count -gt 0)    { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingGraph }
+            if ($missingExchange.Count -gt 0) {
+                Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingExchange
+                Write-Status 'Assigning Exchange Administrator role to service principal...'
+                Set-ExchangeAdminRole -ServicePrincipalId $ourSp.Id
+            }
             Write-Status 'Permissions updated and admin consent granted.' -Type Success
             Request-AdminConsent -ApplicationId $existingApp.AppId -TenantName $orgName
         }
