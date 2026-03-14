@@ -571,48 +571,54 @@ function Push-HuduAuditAsset {
     $companyId   = $company.id   # normalise to numeric DB id for subsequent calls
     Write-Host "  Company: $companyName (id: $companyId)" -ForegroundColor Green
 
-    # Build field payload (field IDs confirmed from NeConnect Audit Toolkit layout, id 67)
+    # Build field payload using snake_case custom field names (Hudu API requirement).
+    # Field names are the asset layout field labels lowercased with spaces replaced by underscores.
     $companySlug = if ($company.slug) { $company.slug } else { $companyId }
-    $launchCmd = @"
-Without Hudu API key:
-.\Start-365Audit.ps1 -AppId '$AppId' -TenantId '$TenantId' -CertPassword (Read-Host -AsSecureString 'Cert Password')
-
-With Hudu API key:
-.\Start-365Audit.ps1 -HuduCompanyId '$companySlug'
-"@
-    $fields = @(
-        @{ field_id = 629; value = $AppId }
-        @{ field_id = 630; value = $TenantId }
-        @{ field_id = 631; value = $CertBase64 }
-        @{ field_id = 632; value = $CertPassword }
-        @{ field_id = 633; value = $CertExpiry.ToString('yyyy-MM-dd') }
-        @{ field_id = 634; value = $launchCmd }
-    )
+    $launchCmd = "<p><strong>Without Hudu API key:</strong><br>" +
+                 ".\Start-365Audit.ps1 -AppId '$AppId' -TenantId '$TenantId' -CertPassword (Read-Host -AsSecureString 'Cert Password')</p>" +
+                 "<p><strong>With Hudu API key:</strong><br>" +
+                 ".\Start-365Audit.ps1 -HuduCompanyId '$companySlug'</p>"
 
     $body = @{
-        asset = @{
-            name            = '365Audit'
-            asset_layout_id = 67
-            company_id      = $companyId
-            fields          = $fields
-        }
+        name            = "NeConnect Audit Toolkit - $companyName"
+        asset_layout_id = 67
+        custom_fields   = @(
+            @{ application_id            = $AppId }
+            @{ tenant_id                 = $TenantId }
+            @{ cert_base64               = $CertBase64 }
+            @{ cert_password             = $CertPassword }
+            @{ cert_expiry               = $CertExpiry.ToString('yyyy/MM/dd') }
+            @{ powershell_launch_command = $launchCmd }
+        )
     } | ConvertTo-Json -Depth 5
 
     # Find existing asset for this company in the layout
-    $existingResult = Invoke-RestMethod `
-        -Uri     "$huduUrl/api/v1/assets?company_id=$companyId&asset_layout_id=67&page_size=5" `
-        -Headers $headers -Method Get -ErrorAction SilentlyContinue
-    $existingAsset = @($existingResult.assets) | Select-Object -First 1
-
-    if ($existingAsset) {
-        Invoke-RestMethod -Uri "$huduUrl/api/v1/assets/$($existingAsset.id)" `
-            -Headers $headers -Method Put -Body $body | Out-Null
-        Write-Host "  Hudu asset updated: $($existingAsset.name) (id: $($existingAsset.id))" -ForegroundColor Green
+    try {
+        $existingResult = Invoke-RestMethod `
+            -Uri     "$huduUrl/api/v1/assets?company_id=$companyId&asset_layout_id=67&page_size=5" `
+            -Headers $headers -Method Get -ErrorAction Stop
+        $existingAsset = @($existingResult.assets) | Select-Object -First 1
     }
-    else {
-        $created = Invoke-RestMethod -Uri "$huduUrl/api/v1/assets" `
-            -Headers $headers -Method Post -Body $body
-        Write-Host "  Hudu asset created: $($created.asset.name) (id: $($created.asset.id))" -ForegroundColor Green
+    catch {
+        Write-Warning "Could not query Hudu assets: $_"
+        $existingAsset = $null
+    }
+
+    try {
+        if ($existingAsset) {
+            Invoke-RestMethod -Uri "$huduUrl/api/v1/assets/$($existingAsset.id)" `
+                -Headers $headers -Method Put -Body $body -ErrorAction Stop | Out-Null
+            Write-Host "  Hudu asset updated: $($existingAsset.name) (id: $($existingAsset.id))" -ForegroundColor Green
+        }
+        else {
+            # Assets must be created under the company-scoped endpoint
+            $created = Invoke-RestMethod -Uri "$huduUrl/api/v1/companies/$companyId/assets" `
+                -Headers $headers -Method Post -Body $body -ErrorAction Stop
+            Write-Host "  Hudu asset created: $($created.asset.name) (id: $($created.asset.id))" -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-Warning "Hudu asset push failed — credentials were printed above and must be saved manually: $_"
     }
 }
 
@@ -712,13 +718,13 @@ try {
             if ($certStatus.ExpiresWithin30Days) {
                 Write-Status "Certificate expiring within $script:ExpiryWarnDays days — generating new certificate." -Type Warning
                 $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
                 Push-HuduAuditAsset    -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
             }
             elseif ($Force) {
                 Write-Status '-Force specified — generating new certificate.' -Type Warning
                 $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
                 Push-HuduAuditAsset    -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
             }
             else {
@@ -735,7 +741,7 @@ try {
         else {
             Write-Status 'No active certificate found — generating new certificate.' -Type Warning
             $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-            Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+            Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
             Push-HuduAuditAsset    -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
         }
     }
@@ -792,7 +798,7 @@ try {
             Write-Status "Generating $CertExpiryYears-year certificate..."
             $newCert = New-AuditCertificate -AppObjectId $newApp.Id -AppId $newApp.AppId -ExpiryYears $CertExpiryYears
 
-            Write-CredentialSummary -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+            Write-CredentialSummary -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
             Push-HuduAuditAsset    -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
         }
     }
