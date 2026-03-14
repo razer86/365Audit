@@ -13,27 +13,40 @@ Before running the toolkit for any customer, run `Setup-365AuditApp.ps1` once in
 ```
 
 The script will:
-1. Create an app registration with the required Microsoft Graph and Exchange permissions, and grant admin consent
-2. Create a second app registration for SharePoint interactive authentication (PnP)
-3. Print all credentials to the terminal — **store these in Hudu** immediately
+1. Create an app registration with the required Microsoft Graph, Exchange Online, and SharePoint permissions, and grant admin consent
+2. Generate a self-signed certificate, upload the public key to the app, and export the `.pfx` to the script folder
+3. Print all credentials to the terminal — **store these in Hudu immediately**
 
 **Credentials to store per customer:**
 
 | Field | Used For |
 |---|---|
-| App ID (Client ID) | Entra and Exchange silent authentication |
+| App ID (Client ID) | All modules (silent app-only authentication) |
 | Tenant ID | All modules |
-| Client Secret | Entra and Exchange silent authentication |
-| Secret Expiry | Reminder to rotate before expiry |
-| PnP App ID | SharePoint interactive authentication |
+| Cert Base64 | Certificate decoded at runtime — no file path needed |
+| Cert Password | Decrypts the certificate |
+| Cert Expiry | Reminder to rotate before expiry (re-run `Setup-365AuditApp.ps1`) |
 
 **Example launch command (printed by Setup script):**
 
 ```powershell
-.\Start-365Audit.ps1 -AppId '<AppId>' -AppSecret '<secret>' -TenantId '<TenantId>' -PnPAppId '<PnPAppId>'
+.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>' -CertBase64 '<paste base64>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
 ```
 
-> `-PnPAppId` is optional. Omitting it skips the SharePoint Online audit.
+`-CertBase64` and `-CertPassword` can both be omitted to be prompted interactively.
+
+---
+
+## Rotating the Certificate
+
+Certificates are valid for 2 years by default. Re-run `Setup-365AuditApp.ps1` at any time to rotate:
+
+```powershell
+.\Setup-365AuditApp.ps1 -Force    # rotate regardless of expiry
+.\Setup-365AuditApp.ps1           # rotate only if expiring within 30 days
+```
+
+Update the Cert Base64 and Cert Password in Hudu with the new values printed to the terminal.
 
 ---
 
@@ -41,7 +54,7 @@ The script will:
 
 ### PowerShell Version
 
-- **7.4 or later** — required for the SharePoint module (PnP.PowerShell v3)
+- **7.4 or later** — required for SharePoint (`Invoke-SharePointAudit.ps1` uses PnP.PowerShell v3) and for `Setup-365AuditApp.ps1`
 - **7.2 or later** — minimum for Entra, Exchange, and Mail Security modules only
 
 Download: https://github.com/PowerShell/PowerShell/releases
@@ -50,9 +63,9 @@ Download: https://github.com/PowerShell/PowerShell/releases
 
 | Module | Required By | Install |
 |---|---|---|
-| `Microsoft.Graph` | All modules | `Install-Module Microsoft.Graph -Scope CurrentUser` |
+| `Microsoft.Graph.*` | All modules | `Install-Module Microsoft.Graph -Scope CurrentUser` |
 | `ExchangeOnlineManagement` | Exchange, Mail Security | `Install-Module ExchangeOnlineManagement -Scope CurrentUser` |
-| `PnP.PowerShell` | SharePoint | `Install-Module PnP.PowerShell -Scope CurrentUser` |
+| `PnP.PowerShell` (v3+) | SharePoint | `Install-Module PnP.PowerShell -Scope CurrentUser` |
 
 Modules are checked at runtime and installed automatically if missing.
 
@@ -60,22 +73,27 @@ Modules are checked at runtime and installed automatically if missing.
 
 ## Usage
 
-Open a PowerShell 7.4+ terminal, navigate to the toolkit directory, and run with credentials from `Setup-365AuditApp.ps1`:
+Open a PowerShell 7.4+ terminal, navigate to the toolkit directory, and run:
 
 ```powershell
-.\Start-365Audit.ps1 -AppId '<AppId>' -AppSecret '<AppSecret>' -TenantId '<TenantId>' -PnPAppId '<PnPAppId>'
+.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>'
+# → Paste certificate Base64: <paste from Hudu>
+# → Cert Password: <type password>
+```
+
+Or supply credentials on the command line:
+
+```powershell
+.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>' `
+    -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
 ```
 
 On launch the toolkit will:
 1. Check local script versions against the GitHub version manifest and warn if updates are available
-2. Display a notice if `-PnPAppId` was not provided (SharePoint audit will be skipped)
+2. Decode the certificate from base64 to a temp `.pfx` in `$env:TEMP` (deleted on exit)
 3. Present the module selection menu
-4. Connect silently to Microsoft Graph and Exchange Online on first module run (no browser prompt)
-5. Create a per-customer output folder: `<CompanyName>_<yyyyMMdd>/`
 
-> SharePoint uses an interactive browser sign-in once per session. After the first sign-in, the MSAL token is reused across all site connections — no repeated prompts.
-
-Select one or more modules by number (comma-separated, e.g. `1,2,3`).
+Select one or more modules by number (comma-separated, e.g. `1,2,3`). All modules connect silently — no browser prompts.
 
 ---
 
@@ -83,14 +101,12 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`).
 
 | Option | Module | Description |
 |---|---|---|
-| 1 | Microsoft Entra Audit | Identity, MFA, roles, Conditional Access |
+| 1 | Microsoft Entra Audit | Identity, MFA, roles, Conditional Access, Secure Score |
 | 2 | Exchange Online Audit | Mailboxes, permissions, mail flow |
-| 3 | SharePoint Online Audit | Sites, permissions, storage, OneDrive *(requires -PnPAppId)* |
+| 3 | SharePoint Online Audit | Sites, permissions, storage, OneDrive |
 | 4 | Mail Security Audit | DKIM, DMARC, SPF, anti-spam/phish policies |
-| 9 | Run All (1, 2, 3, 4 + summary) | Full audit and summary in one pass |
+| 9 | Run All (1, 2, 3, 4) | Full audit, then generates the HTML summary once |
 | 0 | Exit | — |
-
-> Each module option (1–4 and 9) automatically regenerates the HTML summary report on completion.
 
 ---
 
@@ -105,6 +121,7 @@ Connects to Microsoft Graph and audits Entra ID (Azure Active Directory).
 | File | Description |
 |---|---|
 | `Entra_Users.csv` | UPN, name, licence, MFA status and methods, password policy, last sign-in |
+| `Entra_Users_Unlicensed.csv` | Member accounts with no active licence |
 | `Entra_Licenses.csv` | Subscriptions: total, consumed, suspended, and warning seat counts |
 | `Entra_SSPR.csv` | Self-Service Password Reset enforcement status |
 | `Entra_AdminRoles.csv` | All directory role assignments |
@@ -114,6 +131,12 @@ Connects to Microsoft Graph and audits Entra ID (Azure Active Directory).
 | `Entra_CA_Policies.csv` | Conditional Access policy names, states, targets, client app types, and grant controls |
 | `Entra_TrustedLocations.csv` | Named locations with trusted flag and IP ranges |
 | `Entra_SecurityDefaults.csv` | Whether Security Defaults are enabled |
+| `Entra_SecureScore.csv` | Identity Secure Score: current, max, and percentage |
+| `Entra_SecureScoreControls.csv` | Per-control score and description (human-readable names) |
+| `Entra_SignIns.csv` | Last 10 interactive sign-ins per user |
+| `Entra_AccountCreations.csv` | Account creation events within the audit retention window |
+| `Entra_AccountDeletions.csv` | Account deletion events within the audit retention window |
+| `Entra_AuditEvents.csv` | Notable events: role changes and MFA/security info modifications |
 
 ---
 
@@ -150,9 +173,9 @@ Connects to Exchange Online and audits mailboxes, permissions, and mail flow.
 
 ### Invoke-SharePointAudit.ps1
 
-Connects to SharePoint Online via PnP.PowerShell and audits sites and OneDrive.
+Connects to SharePoint Online using PnP.PowerShell with certificate-based app-only authentication and audits sites and OneDrive.
 
-> Requires PowerShell 7.4+ and the PnP.PowerShell module. Must be launched with `-PnPAppId`.
+> Requires PowerShell 7.4+ and the PnP.PowerShell v3+ module.
 
 **Output files:**
 
@@ -220,8 +243,8 @@ The top of the report shows a prioritised list of findings requiring attention:
 
 **Report sections:**
 
-- **Microsoft Entra** — MFA coverage, stale licensed accounts, licence table, SSPR status, Security Defaults, global admin count, role summary, guest accounts and stale guest count, CA policies, legacy auth check
-- **Exchange Online** — Mailbox count, external forwarding rule alerts, shared mailbox sign-in status, outbound spam auto-forward policy, Safe Attachments and Safe Links status
+- **Microsoft Entra** — MFA coverage, stale licensed accounts, licence table, SSPR status, Security Defaults, global admin count, role summary, guest accounts and stale guest count, CA policies, legacy auth check, Identity Secure Score with control breakdown (To Action / Implemented)
+- **Exchange Online** — Mailbox count and storage, delegated permissions, external forwarding rule alerts, shared mailbox sign-in status, outbound spam auto-forward policy, Safe Attachments and Safe Links status
 - **SharePoint / OneDrive** — Tenant storage gauge, site collection table with expandable groups panel, external sharing policy and site overrides, access control policies, OneDrive usage and unlicensed accounts
 - **Mail Security** — DKIM, DMARC, and SPF coverage per domain
 
@@ -229,14 +252,15 @@ The top of the report shows a prioritised list of findings requiring attention:
 
 ## Output Structure
 
-All module output lands in a single folder created at the start of each session:
+All module output lands in a folder created at the start of each session, one level above the repository root (to avoid git tracking audit data):
 
 ```
-<repo root>/
+365Audit/            ← repository
+<parent folder>/
 └── <CompanyName>_<yyyyMMdd>/
     ├── OrgInfo.json
     ├── Entra_Users.csv
-    ├── Entra_Licenses.csv
+    ├── Entra_SecureScore.csv
     ├── ... (all module CSVs and JSON files)
     └── M365_AuditSummary.html
 ```
@@ -270,13 +294,14 @@ All modules accept the `-DevMode` switch for standalone testing.
 ```
 365Audit/
 ├── Start-365Audit.ps1           # Launcher and menu
-├── Setup-365AuditApp.ps1        # One-time app registration setup
+├── Setup-365AuditApp.ps1        # One-time app registration and certificate setup
 ├── Invoke-EntraAudit.ps1        # Entra ID module
 ├── Invoke-ExchangeAudit.ps1     # Exchange Online module
 ├── Invoke-SharePointAudit.ps1   # SharePoint / OneDrive module
 ├── Invoke-MailSecurityAudit.ps1 # Mail security module
 ├── Generate-AuditSummary.ps1    # HTML report generator
 ├── version.json                 # GitHub version manifest
+├── CHANGELOG.md                 # Full version history for all scripts
 └── common/
-    └── Audit-Common.ps1         # Shared helpers and version check
+    └── Audit-Common.ps1         # Shared helpers (Graph/EXO auth, output folder, version check)
 ```
