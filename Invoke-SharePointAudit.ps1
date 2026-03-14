@@ -68,6 +68,11 @@
                 to $siteConn; guarantees exactly one browser sign-in (MSAL reuses
                 the cached token for all subsequent site connections silently)
         2.6.0 - Added Step X/Y counter to Write-Progress status strings
+        2.8.0 - Switched to certificate-based app-only auth: reads $AuditAppId/
+                $AuditCertFilePath/$AuditCertPassword from launcher scope; uses
+                Connect-PnPOnline -CertificatePath/-CertificatePassword (portable .pfx,
+                no cert store required); removes interactive auth, PnP app ID pre-flight,
+                and Get-PnPAccessToken; falls back to interactive when cert vars absent
         2.7.0 - Replaced -ReturnConnection MSAL caching strategy with explicit
                 -AccessToken pass-through: authenticate interactively once to the
                 admin URL, capture the SPO access token via Get-PnPAccessToken, then
@@ -90,7 +95,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "2.7.0"
+$ScriptVersion = "2.8.0"
 Write-Verbose "Invoke-SharePointAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -105,28 +110,6 @@ catch {
     exit 1
 }
 
-# === Pre-flight: verify PnP interactive auth app ID is available ===
-# Setup-365AuditApp.ps1 must be run once per tenant to register the PnP interactive
-# auth app (via Register-PnPEntraIDAppForInteractiveLogin) and save the App ID.
-# Pass it via Start-365Audit.ps1 -PnPAppId (sets $AuditPnPAppId in launcher scope).
-$pnpClientId = Get-Variable -Name AuditPnPAppId -ValueOnly -ErrorAction SilentlyContinue
-if (-not $pnpClientId) {
-    Write-Host ""
-    Write-Host "  ┌───────────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-    Write-Host "  │  SharePoint Audit — one-time setup required for this tenant           │" -ForegroundColor Yellow
-    Write-Host "  │                                                                       │" -ForegroundColor Yellow
-    Write-Host "  │  A registered PnP interactive auth app is required.                  │" -ForegroundColor Yellow
-    Write-Host "  │  Run the following as a Global Administrator in this tenant:          │" -ForegroundColor Yellow
-    Write-Host "  │    .\Setup-365AuditApp.ps1                                            │" -ForegroundColor Yellow
-    Write-Host "  │                                                                       │" -ForegroundColor Yellow
-    Write-Host "  │  Then provide all credentials at audit runtime:                      │" -ForegroundColor Yellow
-    Write-Host "  │    .\Start-365Audit.ps1 -AppId <id> -AppSecret <secret> \            │" -ForegroundColor Yellow
-    Write-Host "  │       -TenantId <id> -PnPAppId <pnp-id>                              │" -ForegroundColor Yellow
-    Write-Host "  └───────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-    Write-Host ""
-    return
-}
-
 # === Ensure PnP.PowerShell v3+ is available ===
 if (-not (Get-Module -ListAvailable -Name PnP.PowerShell | Where-Object Version -ge '3.0.0')) {
     Write-Host "Installing PnP.PowerShell v3+..." -ForegroundColor Yellow
@@ -134,26 +117,33 @@ if (-not (Get-Module -ListAvailable -Name PnP.PowerShell | Where-Object Version 
 }
 Import-Module PnP.PowerShell -WarningAction SilentlyContinue
 
+# === Auto-detect app credentials from the launcher scope ===
+$_spAppId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
+$_spCertFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue
+$_spCertPassword = Get-Variable -Name AuditCertPassword -ValueOnly -ErrorAction SilentlyContinue
+$_useAppAuth     = $_spAppId -and $_spCertFilePath
+
 # === Derive SharePoint admin URL from the tenant's .onmicrosoft.com domain ===
 $initialDomain = (Get-MgOrganization).VerifiedDomains |
     Where-Object { $_.IsInitial -eq $true } |
     Select-Object -ExpandProperty Name -First 1
 $spoAdminUrl = "https://$(($initialDomain -split '\.')[0])-admin.sharepoint.com"
 
-# === Connect once — capture the SPO access token for silent per-site reuse ===
-# Interactive auth prompts the browser exactly once. Get-PnPAccessToken then captures
-# the resulting SharePoint token (aud: https://<tenant>.sharepoint.com) which is valid
-# for all site URLs in the tenant. Each per-site Connect-PnPOnline uses this token
-# directly — no additional browser prompts regardless of site count.
+# === Connect to SharePoint admin URL ===
 Write-Host "Connecting to SharePoint Online ($spoAdminUrl)..." -ForegroundColor Cyan
-Write-Host "  Sign in once — site connections reuse this token silently." -ForegroundColor DarkCyan
-Connect-PnPOnline `
-    -Url      $spoAdminUrl `
-    -ClientId $pnpClientId `
-    -Interactive `
-    -ErrorAction Stop
-
-$spAccessToken = Get-PnPAccessToken -ResourceTypeName SharePoint
+if ($_useAppAuth) {
+    Connect-PnPOnline `
+        -Url                 $spoAdminUrl `
+        -ClientId            $_spAppId `
+        -Tenant              $initialDomain `
+        -CertificatePath     $_spCertFilePath `
+        -CertificatePassword $_spCertPassword `
+        -ErrorAction Stop
+}
+else {
+    Write-Host "  No app credentials found — falling back to interactive sign-in." -ForegroundColor DarkCyan
+    Connect-PnPOnline -Url $spoAdminUrl -Interactive -ErrorAction Stop
+}
 
 Write-Host "`nStarting SharePoint Online Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
@@ -199,7 +189,6 @@ Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Gat
 $oneDriveSites = Get-PnPTenantSite -IncludeOneDriveSites |
     Where-Object { $_.Template -like 'SPSPERS*' }
 
-# Disconnect from admin — per-site connections use the captured access token
 Disconnect-PnPOnline
 
 
@@ -212,8 +201,13 @@ $permissionReport = [System.Collections.Generic.List[PSCustomObject]]::new()
 
 foreach ($site in $sites) {
     try {
-        # Connects silently using the captured token — no browser prompt
-        Connect-PnPOnline -Url $site.Url -AccessToken $spAccessToken -ErrorAction Stop
+        if ($_useAppAuth) {
+            Connect-PnPOnline -Url $site.Url -ClientId $_spAppId -Tenant $initialDomain `
+                -CertificatePath $_spCertFilePath -CertificatePassword $_spCertPassword -ErrorAction Stop
+        }
+        else {
+            Connect-PnPOnline -Url $site.Url -Interactive -ErrorAction Stop
+        }
 
         # Groups and members
         $groups = Get-PnPGroup -ErrorAction Stop

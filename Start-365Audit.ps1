@@ -8,47 +8,25 @@
     local script versions against the GitHub version manifest and warns if any are outdated.
 
 .PARAMETER AppId
-    Azure AD application (client) ID for app-only Entra/Exchange authentication.
-    When provided alongside -AppSecret and -TenantId, Entra and Exchange modules
-    will authenticate silently using the app credentials.
-
-.PARAMETER AppSecret
-    Client secret for the app registration specified by -AppId.
+    Azure AD application (client) ID for app-only authentication.
+    Run Setup-365AuditApp.ps1 to create the app registration.
 
 .PARAMETER TenantId
-    Azure AD tenant ID (GUID or .onmicrosoft.com domain) for app-only auth.
+    Azure AD tenant ID (GUID or .onmicrosoft.com domain) of the customer tenant.
 
-.PARAMETER PnPAppId
-    Azure AD application (client) ID of the PnP interactive auth app registered
-    by Setup-365AuditApp.ps1. Required for the SharePoint Online audit module.
+.PARAMETER CertBase64
+    Base64-encoded contents of the .pfx certificate file.
+    Paste the value from Hudu (output by Setup-365AuditApp.ps1).
+    The script writes a temp .pfx to $env:TEMP and deletes it on exit.
+    If omitted, the script will prompt for it interactively.
+
+.PARAMETER CertPassword
+    Password for the .pfx certificate file.
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.0
-    Change Log  :
-        1.0.0 - Initial release
-        1.0.1 - Standardised comments; pass folder to summary
-        1.1.0 - Removed duplicate helper functions (moved to Audit-Common.ps1);
-                fixed menu option 9 script name; added version check on startup;
-                added Invoke-MailSecurityAudit.ps1 as option 4
-        1.2.0 - Added optional -AppId/-AppSecret/-TenantId parameters for
-                app-only SharePoint authentication (MSP cross-tenant support)
-        1.3.0 - SharePoint module now skipped with setup guidance when app
-                credentials are not supplied at launch
-        1.4.0 - Added -CertThumbprint parameter; SharePoint audit now requires a
-                certificate (SharePoint admin APIs reject client-secret tokens)
-        1.5.0 - Reverted SharePoint to interactive auth; removed -CertThumbprint
-                parameter and SharePoint skip block
-        1.6.0 - Added -PnPAppId parameter for the dedicated PnP interactive auth
-                app registered by Setup-365AuditApp.ps1 (Register-PnPEntraIDAppForInteractiveLogin)
-        1.7.0 - Added Generate-AuditSummary.ps1 to option 9 script list so "Run All"
-                automatically generates the summary report after all modules complete
-        1.9.0 - Generate-AuditSummary.ps1 removed from menu Script arrays; summary
-                now runs once after all selected modules complete to avoid
-                multiple report generations when selecting e.g. "1,2"
-        1.8.0 - AppId, AppSecret, and TenantId are now mandatory parameters with
-                HelpMessage guidance; PnPAppId warning displayed at startup when
-                not provided; removed unnecessary Start-Sleep stalls
+    Version     : 2.5.0
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
@@ -60,17 +38,17 @@ param (
     [Parameter(Mandatory, HelpMessage = 'Azure AD application (client) ID. Run Setup-365AuditApp.ps1 to obtain.')]
     [string]$AppId,
 
-    [Parameter(Mandatory, HelpMessage = 'Client secret for the app registration. Run Setup-365AuditApp.ps1 to obtain.')]
-    [string]$AppSecret,
-
     [Parameter(Mandatory, HelpMessage = 'Azure AD tenant ID (GUID or .onmicrosoft.com domain). Run Setup-365AuditApp.ps1 to obtain.')]
     [string]$TenantId,
 
-    [Parameter(HelpMessage = 'PnP interactive auth app ID. Optional — SharePoint audit is skipped if not provided. Run Setup-365AuditApp.ps1 to obtain.')]
-    [string]$PnPAppId
+    [Parameter(HelpMessage = 'Base64-encoded .pfx certificate (output by Setup-365AuditApp.ps1, stored in Hudu). Omit to be prompted.')]
+    [string]$CertBase64,
+
+    [Parameter(Mandatory, HelpMessage = 'Password for the .pfx certificate file.')]
+    [SecureString]$CertPassword
 )
 
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "2.5.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -88,20 +66,23 @@ else {
 # === Config ===
 $localPath = $PSScriptRoot
 
+# === Decode base64 cert to a temp .pfx (deleted on exit) ===
+if (-not $CertBase64) {
+    $CertBase64 = Read-Host 'Paste certificate Base64'
+}
+$_tempCertPath = Join-Path $env:TEMP "365Audit-$(New-Guid).pfx"
+[System.IO.File]::WriteAllBytes($_tempCertPath, [Convert]::FromBase64String($CertBase64))
+$CertFilePath  = $_tempCertPath
+Write-Verbose "Certificate decoded from base64 to temp file: $_tempCertPath"
+
 # Expose app credentials so dot-sourced modules can access them.
-# Variables are empty strings when not supplied; modules check for non-empty values before using.
-$AuditAppId     = $AppId
-$AuditAppSecret = $AppSecret
-$AuditTenantId  = $TenantId
-$AuditPnPAppId  = $PnPAppId
+$AuditAppId        = $AppId
+$AuditTenantId     = $TenantId
+$AuditCertFilePath = $CertFilePath
+$AuditCertPassword = $CertPassword
 
 # === Check for updates ===
 Invoke-VersionCheck -ScriptRoot $PSScriptRoot
-
-if (-not $PnPAppId) {
-    Write-Host "`n[!] -PnPAppId not provided — SharePoint Online audit will be skipped." -ForegroundColor Yellow
-    Write-Host "    Run Setup-365AuditApp.ps1 to register the PnP app, then re-launch with -PnPAppId <id>.`n" -ForegroundColor Yellow
-}
 
 # === Define Menu Items ===
 $menu = @{
@@ -136,53 +117,61 @@ $selectedIndexes = $selection -split "," |
     ForEach-Object  { [int]$_ }
 
 # === Execute Selected Modules ===
-foreach ($index in $selectedIndexes) {
-    if (-not $menu.ContainsKey($index)) {
-        Write-Warning "Invalid selection: $index"
-        continue
+try {
+    foreach ($index in $selectedIndexes) {
+        if (-not $menu.ContainsKey($index)) {
+            Write-Warning "Invalid selection: $index"
+            continue
+        }
+
+        $module = $menu[$index]
+        if (-not $module.Script) { continue }
+
+        $scriptsToRun = @($module.Script)
+
+        foreach ($scriptName in $scriptsToRun) {
+            $localScriptPath = Join-Path $localPath $scriptName
+            $remoteScriptUrl = "$RemoteBaseUrl/$scriptName"
+
+            Write-Host "`n================================================================"
+            Write-Host "  Starting: $scriptName" -ForegroundColor Cyan
+            Write-Host "================================================================"
+
+            if (Test-Path $localScriptPath) {
+                Write-Host "Loading local script: $localScriptPath`n"
+                . $localScriptPath
+            }
+            else {
+                Write-Host "Local script not found. Downloading from GitHub..."
+                Write-Host "Fetching: $remoteScriptUrl`n"
+                try {
+                    Invoke-Expression (Invoke-RestMethod $remoteScriptUrl)
+                }
+                catch {
+                    Write-Warning "Failed to download or run ${scriptName}: $_"
+                }
+            }
+
+            Write-Host "Completed: $scriptName" -ForegroundColor Green
+        }
     }
 
-    $module = $menu[$index]
-    if (-not $module.Script) { continue }
-
-    $scriptsToRun = @($module.Script)
-
-    foreach ($scriptName in $scriptsToRun) {
-        $localScriptPath = Join-Path $localPath $scriptName
-        $remoteScriptUrl = "$RemoteBaseUrl/$scriptName"
-
+    # === Generate Summary Report (once, after all modules) ===
+    $summaryScript = Join-Path $localPath "Generate-AuditSummary.ps1"
+    $auditContext  = Initialize-AuditOutput
+    if ($auditContext -and (Test-Path $summaryScript)) {
         Write-Host "`n================================================================"
-        Write-Host "  Starting: $scriptName" -ForegroundColor Cyan
+        Write-Host "  Starting: Generate-AuditSummary.ps1" -ForegroundColor Cyan
         Write-Host "================================================================"
-
-        if (Test-Path $localScriptPath) {
-            Write-Host "Loading local script: $localScriptPath`n"
-            . $localScriptPath
-        }
-        else {
-            Write-Host "Local script not found. Downloading from GitHub..."
-            Write-Host "Fetching: $remoteScriptUrl`n"
-            try {
-                Invoke-Expression (Invoke-RestMethod $remoteScriptUrl)
-            }
-            catch {
-                Write-Warning "Failed to download or run ${scriptName}: $_"
-            }
-        }
-
-        Write-Host "Completed: $scriptName" -ForegroundColor Green
+        & $summaryScript -AuditFolder $auditContext.OutputPath
+    }
+    else {
+        Write-Warning "No audit output context found — summary report skipped."
     }
 }
-
-# === Generate Summary Report (once, after all modules) ===
-$summaryScript = Join-Path $localPath "Generate-AuditSummary.ps1"
-$auditContext  = Initialize-AuditOutput
-if ($auditContext -and (Test-Path $summaryScript)) {
-    Write-Host "`n================================================================"
-    Write-Host "  Starting: Generate-AuditSummary.ps1" -ForegroundColor Cyan
-    Write-Host "================================================================"
-    & $summaryScript -AuditFolder $auditContext.OutputPath
-}
-else {
-    Write-Warning "No audit output context found — summary report skipped."
+finally {
+    if (Test-Path $_tempCertPath) {
+        Remove-Item $_tempCertPath -Force -ErrorAction SilentlyContinue
+        Write-Verbose "Temp certificate file removed: $_tempCertPath"
+    }
 }

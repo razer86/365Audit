@@ -35,45 +35,8 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.4
-    Change Log  :
-        1.0.0 - Initial release
-        1.1.0 - Added Microsoft Graph application permissions required for app-only auth;
-                existing apps without Graph permissions are updated automatically
-        1.2.0 - Added Request-AdminConsent: opens Azure portal to API permissions page
-                and prints instructions after consent is granted
-        1.3.0 - Added Exchange.ManageAsApp permission and Exchange Administrator Entra role
-                assignment so Exchange Online can authenticate via client credentials
-        1.4.0 - Added New-AuditCertificate: generates a self-signed certificate, installs
-                it in Cert:\CurrentUser\My, and uploads the public key to the Azure AD app;
-                SharePoint admin APIs require azpacr=1 (certificate auth) tokens and reject
-                client-secret tokens; certificate thumbprint is now shown in credentials output
-        1.5.0 - Added Register-PnPManagementShell: creates a service principal for the PnP
-                Management Shell public app and grants tenant-wide admin consent for
-                AllSites.FullControl so any technician can use interactive SharePoint auth
-                without per-user consent prompts or AADSTS700016 errors
-        1.6.0 - Removed certificate management (SharePoint reverted to interactive auth);
-                updated description to reflect dual purpose: app credentials for silent
-                Entra/Exchange auth + PnP Management Shell consent for SharePoint interactive
-        1.7.0 - Removed PnP Management Shell registration (app deprecated in PnP.PowerShell v2);
-                added http://localhost as a public client redirect URI to the app registration
-                so Connect-PnPOnline -Interactive -ClientId $AuditAppId works from any machine
-        1.8.0 - Replaced http://localhost approach with Register-PnPEntraIDAppForInteractiveLogin
-                (the PnP-recommended method since Sep 2024); dedicated PnP interactive app is
-                registered separately and its App ID is shown alongside main app credentials;
-                bumped #Requires to 7.4 (PnP.PowerShell v3 requires PowerShell 7.4+);
-                updated PnP module check to enforce MinimumVersion 3.0.0
-        1.9.0 - Removed SharePoint (Sites.FullControl.All) from main app registration;
-                SharePoint auth is handled entirely by the PnP interactive app which uses
-                delegated permissions scoped to the signed-in technician's rights
-        1.9.4 - Fix Set-ExchangeAdminRole: add -All to Get-MgDirectoryRoleMember to prevent
-                pagination from missing existing members; catch already-exists error as fallback;
-                only call Set-ExchangeAdminRole when Exchange perms are actually missing
-        1.9.3 - Fix existing-app permission check: now compares per individual permission ID
-                so new permissions (e.g. SecurityEvents.Read.All) are applied on re-run
-                without requiring a full fresh setup
-        1.9.2 - Added SecurityEvents.Read.All to Graph permissions for Identity Secure Score
-        1.9.1 - Updated URLs and references from 'MSA Audit Toolkit' to '365Audit' for branding consistency
+    Version     : 2.2.0
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
@@ -85,13 +48,13 @@
 param (
     [string]$AppName = 'NeConnect MSA Audit Toolkit',
 
-    [ValidateRange(1, 24)]
-    [int]$SecretExpiryMonths = 24,
+    [ValidateRange(1, 5)]
+    [int]$CertExpiryYears = 2,
 
     [switch]$Force
 )
 
-$ScriptVersion      = '1.9.4'
+$ScriptVersion      = '2.2.0'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -118,8 +81,19 @@ $script:ExchangeResourceAppId = '00000002-0000-0ff1-ce00-000000000000'
 # Required Exchange Online application permission for app-only PowerShell authentication
 $script:ExchangePermissions = @('Exchange.ManageAsApp')
 
-# Days before expiry to trigger a warning / offer secret rotation
+# SharePoint Online service principal app ID (constant in all Azure tenants)
+$script:SharePointResourceAppId = '00000003-0000-0ff1-ce00-000000000000'
+
+# Required SharePoint Online application permission for app-only access.
+# Sites.FullControl.All is the minimum required for SharePoint tenant admin API calls
+# (Get-PnPTenant, Get-PnPTenantSite) when using app-only auth — even for read operations.
+$script:SharePointPermissions = @('Sites.FullControl.All')
+
+# Days before certificate expiry to trigger a warning / offer rotation
 $script:ExpiryWarnDays = 30
+
+# Output directory for generated .pfx files (alongside this script)
+$script:CertOutputDir = $PSScriptRoot
 
 
 # ============================================================
@@ -287,46 +261,86 @@ function Set-ExchangeAdminRole {
 
 
 # ============================================================
-# Analyse existing password credentials
+# Analyse existing key (certificate) credentials on the app
 # ============================================================
-function Get-SecretStatus {
+function Get-CertificateStatus {
     [CmdletBinding()]
     param (
         [Microsoft.Graph.PowerShell.Models.MicrosoftGraphApplication]$App
     )
 
     $now    = Get-Date
-    $active = @($App.PasswordCredentials | Where-Object { $_.EndDateTime -gt $now })
+    $active = @($App.KeyCredentials | Where-Object { $_.Usage -eq 'Verify' -and $_.EndDateTime -gt $now })
     $soon   = @($active | Where-Object { $_.EndDateTime -lt $now.AddDays($script:ExpiryWarnDays) })
     $next   = $active | Sort-Object EndDateTime | Select-Object -First 1
 
     [PSCustomObject]@{
-        HasActive    = $active.Count -gt 0
+        HasActive           = $active.Count -gt 0
         ExpiresWithin30Days = $soon.Count -gt 0
-        Soonest      = $next
+        Soonest             = $next
     }
 }
 
 
 # ============================================================
-# Add a new client secret to the app
+# Generate a self-signed certificate, export the .pfx, and
+# upload the public key to the Entra app registration.
+# Returns: [PSCustomObject] PfxPath, PlainPassword, ExpiryDate
 # ============================================================
-function New-AuditSecret {
+function New-AuditCertificate {
     [CmdletBinding()]
     param (
-        [string] $ApplicationObjectId,
-        [int]    $ExpiryMonths
+        [string] $AppObjectId,
+        [string] $AppId,
+        [int]    $ExpiryYears
     )
 
-    $now = Get-Date
-    Add-MgApplicationPassword `
-        -ApplicationId      $ApplicationObjectId `
-        -PasswordCredential @{
-            DisplayName   = "AuditToolkit-$(Get-Date -Format 'yyyy-MM')"
-            StartDateTime = $now
-            EndDateTime   = $now.AddMonths($ExpiryMonths)
-        } `
+    $certName  = "365Audit-$AppId"
+    $notAfter  = [System.DateTimeOffset]::UtcNow.AddYears($ExpiryYears)
+
+    # -KeySpec KeyExchange forces the legacy CSP provider (not CNG).
+    # EXO Connect-ExchangeOnline -CertificateFilePath requires a CSP cert.
+    $cert = New-SelfSignedCertificate `
+        -Subject           "CN=$certName" `
+        -CertStoreLocation 'Cert:\CurrentUser\My' `
+        -NotAfter          $notAfter.LocalDateTime `
+        -KeySpec           KeyExchange `
         -ErrorAction Stop
+
+    # Generate a random 32-char password for the .pfx
+    $chars    = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%&*'
+    $plainPwd = -join ((1..32) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+    $securePwd = ConvertTo-SecureString $plainPwd -AsPlainText -Force
+
+    # Export .pfx alongside this script
+    $pfxPath = Join-Path $script:CertOutputDir "$certName.pfx"
+    $cert | Export-PfxCertificate -FilePath $pfxPath -Password $securePwd -ErrorAction Stop | Out-Null
+
+    # Upload the public key to the Entra app registration.
+    # Graph SDK requires DateTimeOffset (not DateTime) for key credential dates.
+    Update-MgApplication -ApplicationId $AppObjectId -KeyCredentials @(
+        @{
+            type          = 'AsymmetricX509Cert'
+            usage         = 'Verify'
+            key           = [byte[]]$cert.RawData
+            displayName   = $certName
+            startDateTime = [System.DateTimeOffset]::UtcNow
+            endDateTime   = $notAfter
+        }
+    ) -ErrorAction Stop
+
+    # Remove from local cert store — the .pfx is the portable copy
+    Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
+
+    # Encode the .pfx as base64 so it can be stored as a Hudu secret
+    $certBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($pfxPath))
+
+    return [PSCustomObject]@{
+        PfxPath       = $pfxPath
+        PlainPassword = $plainPwd
+        ExpiryDate    = $notAfter.LocalDateTime
+        CertBase64    = $certBase64
+    }
 }
 
 
@@ -377,64 +391,20 @@ function Request-AdminConsent {
 }
 
 
-# ============================================================
-# Register a dedicated PnP interactive auth app
-# Uses the PnP-recommended Register-PnPEntraIDAppForInteractiveLogin cmdlet.
-# A browser window will open for sign-in during registration.
-# ============================================================
-function Register-PnPInteractiveApp {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [string]$Tenant,
-        [Parameter(Mandatory)] [string]$AppName
-    )
-
-    # Check if the PnP interactive app already exists by display name
-    $existingPnpApp = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($existingPnpApp) {
-        Write-Status "PnP interactive app already registered — App ID: $($existingPnpApp.AppId)" -Type Info
-        return $existingPnpApp.AppId
-    }
-
-    if (-not (Get-Module -ListAvailable -Name PnP.PowerShell | Where-Object Version -ge '3.0.0')) {
-        Write-Status 'Installing PnP.PowerShell v3+...' -Type Warning
-        Install-Module PnP.PowerShell -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-    }
-    Import-Module PnP.PowerShell -WarningAction SilentlyContinue
-
-    Write-Status "Registering PnP interactive auth app '$AppName'..."
-    Write-Host '  A browser window will open — sign in as a Global or Application Administrator.' -ForegroundColor DarkCyan
-
-    Register-PnPEntraIDAppForInteractiveLogin `
-        -ApplicationName $AppName `
-        -Tenant          $Tenant `
-        -ErrorAction Stop | Out-Null
-
-    # The cmdlet writes to the console but does not return a usable object;
-    # resolve the App ID via Graph using the known display name.
-    $createdApp = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if (-not $createdApp) {
-        throw "PnP app registration appeared to succeed but app '$AppName' was not found in Entra ID."
-    }
-
-    Write-Status "PnP interactive app registered — App ID: $($createdApp.AppId)" -Type Success
-    return $createdApp.AppId
-}
-
 
 # ============================================================
 # Print credentials in a clearly formatted block
 # ============================================================
 function Show-Credentials {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'CertPassword',
+        Justification = 'Intentionally plain text — displayed once so the operator can store it in the password manager.')]
     [CmdletBinding()]
     param (
         [string]   $AppId,
         [string]   $TenantId,
-        [string]   $SecretText,
-        [datetime] $SecretExpiry,
-        [string]   $PnPAppId
+        [string]   $CertBase64,
+        [string]   $CertPassword,
+        [datetime] $CertExpiry
     )
 
     $sep = '=' * 72
@@ -443,21 +413,12 @@ function Show-Credentials {
     Write-Host $sep -ForegroundColor Cyan
     Write-Host "  App ID (Client ID) : $AppId"
     Write-Host "  Tenant ID          : $TenantId"
-    Write-Host "  Client Secret      : $SecretText" -ForegroundColor Yellow
-    Write-Host "  Secret Expires     : $($SecretExpiry.ToString('yyyy-MM-dd'))"
-    if ($PnPAppId) {
-        Write-Host ''
-        Write-Host "  PnP App ID         : $PnPAppId" -ForegroundColor Cyan
-        Write-Host '  (Used for interactive SharePoint authentication)' -ForegroundColor DarkCyan
-    }
+    Write-Host "  Cert Base64        : $CertBase64" -ForegroundColor Yellow
+    Write-Host "  Cert Password      : $CertPassword" -ForegroundColor Yellow
+    Write-Host "  Cert Expires       : $($CertExpiry.ToString('yyyy-MM-dd'))"
     Write-Host ''
     Write-Host '  Run the audit with:' -ForegroundColor DarkCyan
-    if ($PnPAppId) {
-        Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -AppSecret '$SecretText' -TenantId '$TenantId' -PnPAppId '$PnPAppId'" -ForegroundColor Cyan
-    }
-    else {
-        Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -AppSecret '$SecretText' -TenantId '$TenantId'" -ForegroundColor Cyan
-    }
+    Write-Host "  .\Start-365Audit.ps1 -AppId '$AppId' -TenantId '$TenantId' -CertBase64 '<paste base64>' -CertPassword (Read-Host -AsSecureString 'Cert Password')" -ForegroundColor Cyan
     Write-Host "$sep`n" -ForegroundColor Cyan
 }
 
@@ -503,32 +464,39 @@ try {
         # Checks per individual permission so new ones added in future
         # versions are automatically applied on re-run.
         # ----------------------------------------------------------
-        $graphPerms    = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId    -PermissionNames $script:GraphPermissions)
-        $exchangePerms = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId -PermissionNames $script:ExchangePermissions)
+        $graphPerms      = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
+        $exchangePerms   = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
+        $sharePointPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
 
-        $currentIds    = @($existingApp.RequiredResourceAccess.ResourceAccess | ForEach-Object { $_.Id })
-        $missingGraph    = @($graphPerms    | Where-Object { $_.Id -notin $currentIds })
-        $missingExchange = @($exchangePerms | Where-Object { $_.Id -notin $currentIds })
+        $currentIds        = @($existingApp.RequiredResourceAccess.ResourceAccess | ForEach-Object { $_.Id })
+        $missingGraph      = @($graphPerms      | Where-Object { $_.Id -notin $currentIds })
+        $missingExchange   = @($exchangePerms   | Where-Object { $_.Id -notin $currentIds })
+        $missingSharePoint = @($sharePointPerms | Where-Object { $_.Id -notin $currentIds })
 
-        if ($missingGraph.Count -gt 0 -or $missingExchange.Count -gt 0) {
-            $missingNames = ($missingGraph + $missingExchange | ForEach-Object { $_.Name }) -join ', '
+        if ($missingGraph.Count -gt 0 -or $missingExchange.Count -gt 0 -or $missingSharePoint.Count -gt 0) {
+            $missingNames = ($missingGraph + $missingExchange + $missingSharePoint | ForEach-Object { $_.Name }) -join ', '
             Write-Status "Adding missing permissions: $missingNames" -Type Warning
 
             $resourceAccess = @(
                 @{
                     resourceAppId  = $script:GraphResourceAppId
-                    resourceAccess = @($graphPerms    | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
+                    resourceAccess = @($graphPerms      | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
                 },
                 @{
                     resourceAppId  = $script:ExchangeResourceAppId
-                    resourceAccess = @($exchangePerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
+                    resourceAccess = @($exchangePerms   | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
+                },
+                @{
+                    resourceAppId  = $script:SharePointResourceAppId
+                    resourceAccess = @($sharePointPerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
                 }
             )
 
             Update-MgApplication -ApplicationId $existingApp.Id -RequiredResourceAccess $resourceAccess -ErrorAction Stop
             $ourSp = Ensure-ServicePrincipal -AppId $existingApp.AppId
 
-            if ($missingGraph.Count -gt 0)    { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingGraph }
+            if ($missingGraph.Count -gt 0)      { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingGraph }
+            if ($missingSharePoint.Count -gt 0) { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingSharePoint }
             if ($missingExchange.Count -gt 0) {
                 Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingExchange
                 Write-Status 'Assigning Exchange Administrator role to service principal...'
@@ -541,49 +509,37 @@ try {
             Write-Verbose 'All required permissions already present on app.'
         }
 
-        # Register the dedicated PnP interactive auth app for SharePoint
-        $pnpInteractiveAppId = Register-PnPInteractiveApp -Tenant $tenantId -AppName "$AppName (SharePoint)"
+        $certStatus = Get-CertificateStatus -App $existingApp
 
-        $status = Get-SecretStatus -App $existingApp
+        if ($certStatus.HasActive) {
+            $expiry = $certStatus.Soonest.EndDateTime
+            Write-Status "Active certificate expires: $($expiry.ToString('yyyy-MM-dd'))"
 
-        if ($status.HasActive) {
-            $expiry = $status.Soonest.EndDateTime
-            Write-Status "Active secret expires: $($expiry.ToString('yyyy-MM-dd'))"
-
-            if ($status.ExpiresWithin30Days) {
-                Write-Status "Secret expiring within $script:ExpiryWarnDays days — generating new secret." -Type Warning
-                $newSecret = New-AuditSecret -ApplicationObjectId $existingApp.Id -ExpiryMonths $SecretExpiryMonths
-                Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -SecretText $newSecret.SecretText -SecretExpiry $newSecret.EndDateTime -PnPAppId $pnpInteractiveAppId
+            if ($certStatus.ExpiresWithin30Days) {
+                Write-Status "Certificate expiring within $script:ExpiryWarnDays days — generating new certificate." -Type Warning
+                $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
+                Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
             }
             elseif ($Force) {
-                Write-Status '-Force specified — generating new secret.' -Type Warning
-                $newSecret = New-AuditSecret -ApplicationObjectId $existingApp.Id -ExpiryMonths $SecretExpiryMonths
-                Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -SecretText $newSecret.SecretText -SecretExpiry $newSecret.EndDateTime -PnPAppId $pnpInteractiveAppId
+                Write-Status '-Force specified — generating new certificate.' -Type Warning
+                $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
+                Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
             }
             else {
-                Write-Status "Secret is healthy — re-run the audit with your existing credentials." -Type Success
+                Write-Status "Certificate is healthy — re-run the audit with your existing .pfx file." -Type Success
                 $sep = '=' * 72
                 Write-Host "`n$sep" -ForegroundColor Cyan
                 Write-Host "  App ID (Client ID) : $($existingApp.AppId)"
                 Write-Host "  Tenant ID          : $tenantId"
-                if ($pnpInteractiveAppId) {
-                    Write-Host ''
-                    Write-Host "  PnP App ID         : $pnpInteractiveAppId" -ForegroundColor Cyan
-                    Write-Host '  (Used for interactive SharePoint authentication)' -ForegroundColor DarkCyan
-                    Write-Host ''
-                    Write-Host "  .\Start-365Audit.ps1 -AppId '$($existingApp.AppId)' -AppSecret '<your secret>' -TenantId '$tenantId' -PnPAppId '$pnpInteractiveAppId'" -ForegroundColor Cyan
-                }
-                else {
-                    Write-Host "  .\Start-365Audit.ps1 -AppId '$($existingApp.AppId)' -AppSecret '<your secret>' -TenantId '$tenantId'" -ForegroundColor Cyan
-                }
-                Write-Host "  Use -Force to rotate the secret regardless of expiry." -ForegroundColor DarkCyan
+                Write-Host "  Cert Expires       : $($expiry.ToString('yyyy-MM-dd'))"
+                Write-Host "  Use -Force to rotate the certificate regardless of expiry." -ForegroundColor DarkCyan
                 Write-Host "$sep`n" -ForegroundColor Cyan
             }
         }
         else {
-            Write-Status 'No active secrets found — generating new secret.' -Type Warning
-            $newSecret = New-AuditSecret -ApplicationObjectId $existingApp.Id -ExpiryMonths $SecretExpiryMonths
-            Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -SecretText $newSecret.SecretText -SecretExpiry $newSecret.EndDateTime -PnPAppId $pnpInteractiveAppId
+            Write-Status 'No active certificate found — generating new certificate.' -Type Warning
+            $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
+            Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
         }
     }
     else {
@@ -593,18 +549,23 @@ try {
         Write-Status "App not found — creating '$AppName'..." -Type Info
 
         Write-Status 'Resolving permission IDs...'
-        $graphPerms    = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId    -PermissionNames $script:GraphPermissions)
-        $exchangePerms = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId -PermissionNames $script:ExchangePermissions)
+        $graphPerms      = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
+        $exchangePerms   = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
+        $sharePointPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
 
         # Graph SDK v2 requires camelCase keys and explicit string GUIDs in hashtables
         $resourceAccess = @(
             @{
                 resourceAppId  = $script:GraphResourceAppId
-                resourceAccess = @($graphPerms    | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
+                resourceAccess = @($graphPerms      | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
             },
             @{
                 resourceAppId  = $script:ExchangeResourceAppId
-                resourceAccess = @($exchangePerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
+                resourceAccess = @($exchangePerms   | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
+            },
+            @{
+                resourceAppId  = $script:SharePointResourceAppId
+                resourceAccess = @($sharePointPerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
             }
         )
 
@@ -623,6 +584,7 @@ try {
             Write-Status 'Granting admin consent for all permissions...'
             Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $graphPerms
             Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $exchangePerms
+            Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $sharePointPerms
 
             Write-Status 'Assigning Exchange Administrator role to service principal...'
             Set-ExchangeAdminRole -ServicePrincipalId $ourSp.Id
@@ -630,13 +592,10 @@ try {
 
             Request-AdminConsent -ApplicationId $newApp.AppId -TenantName $orgName
 
-            # Register the dedicated PnP interactive auth app for SharePoint
-            $pnpInteractiveAppId = Register-PnPInteractiveApp -Tenant $tenantId -AppName "$AppName (SharePoint)"
+            Write-Status "Generating $CertExpiryYears-year certificate..."
+            $newCert = New-AuditCertificate -AppObjectId $newApp.Id -AppId $newApp.AppId -ExpiryYears $CertExpiryYears
 
-            Write-Status "Generating $SecretExpiryMonths-month client secret..."
-            $newSecret = New-AuditSecret -ApplicationObjectId $newApp.Id -ExpiryMonths $SecretExpiryMonths
-
-            Show-Credentials -AppId $newApp.AppId -TenantId $tenantId -SecretText $newSecret.SecretText -SecretExpiry $newSecret.EndDateTime -PnPAppId $pnpInteractiveAppId
+            Show-Credentials -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
         }
     }
 }

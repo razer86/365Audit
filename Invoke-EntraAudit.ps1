@@ -35,37 +35,8 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.10.0
-    Change Log  :
-        1.0.0 - Initial release
-        1.0.1 - Refactor output directory initialisation
-        1.0.2 - Combine user info, license, MFA, and sign-in into a single export
-        1.1.0 - Added CA policies, trusted locations, security defaults;
-                fixed LastSignIn property assignment; fixed Groups success message;
-                removed alias usage; added CmdletBinding
-        1.2.0 - Graph SDK v2 cmdlet rename: Get-MgConditionalAccessPolicy ->
-                Get-MgIdentityConditionalAccessPolicy
-        1.3.0 - Filter member-only users (exclude #EXT# guests); add AccountEnabled/
-                AccountStatus column; fix MFA hashtable Count bug; split output into
-                Entra_Users.csv (licensed) and Entra_Users_Unlicensed.csv; add SPB and
-                RMSBASIC to SKU friendly-name map; remove redundant $allUsers API call
-        1.4.0 - Remove AAD P1 gate on sign-in log retrieval; always collect sign-ins
-                (free tenants get 7 days, premium gets 30); store up to 10 entries per
-                user; export Entra_SignIns.csv for interactive HTML summary rows
-        1.5.0 - Add directory audit log collection scoped to tenant retention window:
-                account creations (Entra_AccountCreations.csv), account deletions
-                (Entra_AccountDeletions.csv), notable events — role changes and
-                security info/MFA changes (Entra_AuditEvents.csv)
-        1.6.0 - Format all audit and sign-in timestamps as "yyyy-MM-dd HH:mm UTC"
-                at collection time for consistent timezone display
-        1.7.0 - Guest users: add LastSignIn via SignInActivity property;
-                CA policies: add ClientAppTypes for legacy auth detection
-        1.8.0 - Replaced per-section Write-Host progress lines with Write-Progress
-                for cleaner terminal output
-        1.10.0 - Add Identity Secure Score collection: Entra_SecureScore.csv
-                 (date, current, max, percentage) and Entra_SecureScoreControls.csv
-                 (per-control name, score, description); requires SecurityEvents.Read.All
-        1.9.0 - Write-Progress -Status now includes "Step X/Y — " prefix
+    Version     : 1.10.1
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
@@ -82,7 +53,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.10.0"
+$ScriptVersion = "1.10.1"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -139,9 +110,12 @@ function Get-FriendlySkuName {
         "FLOW_P2"                     = "Power Automate Plan 2"
 
         # Misc
-        "SMB_APPS"                    = "Business Apps (Free)"
-        "SPB"                         = "Microsoft 365 Business Premium"
-        "RMSBASIC"                    = "Azure Rights Management (Free)"
+        "SMB_APPS"                               = "Business Apps (Free)"
+        "SPB"                                    = "Microsoft 365 Business Premium"
+        "RMSBASIC"                               = "Azure Rights Management (Free)"
+        "Microsoft_Teams_Rooms_Basic"            = "Microsoft Teams Rooms Basic"
+        "Microsoft_Teams_Rooms_Pro"              = "Microsoft Teams Rooms Pro"
+        "MEETING_ROOM"                           = "Microsoft Teams Rooms Standard"
     }
 
     if ($skuMap.ContainsKey($Sku)) { return $skuMap[$Sku] }
@@ -640,9 +614,19 @@ try {
             Percentage   = $percentage
         } | Export-Csv "$outputDir\Entra_SecureScore.csv" -NoTypeInformation -Encoding UTF8
 
+        # Fetch human-readable titles from control profiles (paginated)
+        $profileTitles = @{}
+        $profileUri = 'https://graph.microsoft.com/v1.0/security/secureScoreControlProfiles?$select=controlName,title&$top=250'
+        while ($profileUri) {
+            $profilePage = Invoke-MgGraphRequest -Method GET -Uri $profileUri -OutputType PSObject -ErrorAction Stop
+            foreach ($p in $profilePage.value) { $profileTitles[$p.controlName] = $p.title }
+            $profileUri = $profilePage.'@odata.nextLink'
+        }
+
         $controlRows = foreach ($ctrl in $latestScore.controlScores) {
+            $title = if ($profileTitles.ContainsKey($ctrl.controlName)) { $profileTitles[$ctrl.controlName] } else { $ctrl.controlName }
             [PSCustomObject]@{
-                ControlName  = $ctrl.controlName
+                ControlName  = $title
                 Score        = $ctrl.score
                 Description  = $ctrl.description
             }

@@ -38,69 +38,8 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.17.0
-    Change Log  :
-        1.0.0 - Initial release
-        1.0.1 - Updated Entra audit sources
-        1.1.0 - Added Entra_RiskyUsers and Entra_AdminRoles summaries
-        1.2.0 - Fixed broken $OutputPath and $latestFolder variable references;
-                removed duplicate param block; added Mail Security section;
-                added Security Defaults to Entra section
-        1.3.0 - MFA stat counts licensed users only; add AccountStatus column to
-                user table; show GA name when count = 1; replace admin role count
-                with full assignment table; add unlicensed member count;
-                consume Entra_Users_Unlicensed.csv
-        1.4.0 - Sort user table by UPN; add Conditional Access policy summary
-                with per-policy state table and licence-based warning when no
-                CA policies are present
-        1.5.0 - Add interactive sign-in history rows; click user row to
-                expand/collapse last 10 sign-ins from Entra_SignIns.csv
-        1.6.0 - Add account creations, account deletions, and notable audit
-                event summaries (role changes, MFA/security info changes)
-        1.7.0 - Add audit window duration label (derived from licence tier) to
-                all audit event messages; timestamps now show "last N days" context
-        1.8.0 - Add company summary block at top of report from OrgInfo.json:
-                company name, address, phone, tech contact, verified domains,
-                Azure AD sync status with staleness colour-coding
-        1.9.0 - Exchange section: full mailbox table (Used/Free/Limit/Archive) with
-                expandable delegated-permissions panel per mailbox
-        1.9.1 - Replace Used/Free/Limit MB columns with a usage progress bar and
-                limit shown in GB
-        1.10.0 - Exchange section: add summaries for all remaining CSVs
-        1.11.0 - Remote domains table; audit config human-readable; system mailbox
-                 filter; expandable rows for policies/rules/distribution lists
-        1.12.0 - Add Action Items panel: checks Entra MFA, CA enforcement, admin
-                 count, SSPR, Exchange forwarding/audit/DKIM/anti-phish,
-                 mail security DMARC/SPF, SharePoint external sharing/unlicensed OD
-        1.13.0 - New action items: legacy auth, stale accounts, stale guests,
-                 shared mailbox sign-in, outbound spam auto-forward, Safe
-                 Attachments/Links, SharePoint default link type, sync restriction;
-                 new summary sections: stale accounts table in Entra, outbound
-                 spam/shared mailbox sign-in/Safe Attachments/Safe Links in Exchange
-        1.17.0 - Add Identity Secure Score gauge to Entra section (reads
-                 Entra_SecureScore.csv; colour-coded progress bar)
-        1.16.0 - Cross-platform report launch: xdg-open on Linux, open on macOS
-        1.15.0 - SharePoint section fixes: tenant storage falls back to summing
-                 per-site + OneDrive CSVs when StorageQuotaUsed is null from
-                 Get-PnPTenant; claim token parsing for group members (tenant,
-                 spo-grid-all-users, federateddirectoryclaimprovider); expanded
-                 template label map (EHS#1, SPSMSITEHOST#0, PWA#0, RedirectSite#0,
-                 POINTPUBLISHINGTOPIC#0, and more)
-        1.14.0 - Full SharePoint / OneDrive summary section: tenant storage gauge,
-                 site collection table with expandable groups panel per site,
-                 external sharing policy + site override table, access control
-                 policy settings table, OneDrive usage count + unlicensed accounts
-        1.9.1 - Replace Used/Free/Limit MB columns with a usage progress bar and
-                limit shown in GB
-        1.10.0 - Exchange section: add summaries for all remaining CSVs —
-                 forwarding rules table, remote domain auto-forward, audit config,
-                 mailbox audit status, DKIM, anti-phish, spam, malware, transport
-                 rules, distribution lists, resource mailboxes
-        1.11.0 - Remote domains: add per-domain table; audit config: parse retention
-                 days and add setting descriptions; mailbox audit: filter system
-                 mailboxes (DiscoverySearchMailbox), add contextual explanation;
-                 anti-phish/spam/malware/transport rules: expandable rows with
-                 descriptions; distribution lists: expandable member rows
+    Version     : 1.19.0
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
@@ -118,7 +57,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.17.0"
+$ScriptVersion = "1.19.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -200,7 +139,7 @@ $html.Add(@"
   .signin-fail       { color: red;    font-weight: bold; }
   .size-warn         { background-color: #fff3cd; }
   .size-critical     { background-color: #ffcccc; }
-  .company-info      { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+  .company-info      { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem 1.5rem; margin: 0 auto 1.5rem; max-width: 700px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
   .company-info h2   { margin: 0 0 0.75rem; font-size: 1.15rem; color: #333; }
   .company-info table { width: auto; min-width: 500px; }
   .company-info th   { background: transparent; font-weight: 600; padding: 4px 1.5rem 4px 0; width: 160px; border: none; border-bottom: 1px solid #eee; vertical-align: top; }
@@ -289,8 +228,8 @@ $actionItems = [System.Collections.Generic.List[hashtable]]::new()
 # Helper: add an action item
 # Severity: 'critical' | 'warning'
 function Add-ActionItem {
-    param([string]$Severity, [string]$Category, [string]$Text)
-    $script:actionItems.Add(@{ Severity = $Severity; Category = $Category; Text = $Text })
+    param([string]$Severity, [string]$Category, [string]$Text, [string]$DocUrl = "")
+    $script:actionItems.Add(@{ Severity = $Severity; Category = $Category; Text = $Text; DocUrl = $DocUrl })
 }
 
 # --- Entra checks ---
@@ -304,7 +243,7 @@ if (Test-Path $_aiUsersCsv) {
     $_aiPct     = if ($_aiTotal -gt 0) { [math]::Round(($_aiEnabled / $_aiTotal) * 100, 1) } else { 100 }
     if ($_aiPct -lt 100) {
         $missing = $_aiTotal - $_aiEnabled
-        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "MFA not enabled for $missing of $_aiTotal licensed users (${_aiPct}%). Essential Eight: Restrict privileged access — all users must have MFA."
+        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "MFA not enabled for $missing of $_aiTotal licensed users (${_aiPct}%). Essential Eight: Restrict privileged access — all users must have MFA." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mfa-howitworks'
     }
 }
 
@@ -320,15 +259,15 @@ if (-not $_aiSdEnabled -and (Test-Path $_aiCaCsv)) {
     $_aiCaPolicies = @(Import-Csv $_aiCaCsv)
     $_aiEnabledCa  = @($_aiCaPolicies | Where-Object { $_.State -eq "enabled" })
     if ($_aiEnabledCa.Count -eq 0 -and $_aiCaPolicies.Count -eq 0) {
-        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "Security Defaults are disabled and no Conditional Access policies exist. MFA is not enforced for any user."
+        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "Security Defaults are disabled and no Conditional Access policies exist. MFA is not enforced for any user." -DocUrl 'https://learn.microsoft.com/en-us/entra/fundamentals/security-defaults'
     }
     elseif ($_aiEnabledCa.Count -eq 0) {
         $_reportOnly = @($_aiCaPolicies | Where-Object { $_.State -eq "enabledForReportingButNotEnforced" }).Count
-        Add-ActionItem -Severity 'critical' -Category 'Entra / CA' -Text "Security Defaults disabled and no CA policies are in 'Enabled' state ($_reportOnly in report-only). MFA is not enforced."
+        Add-ActionItem -Severity 'critical' -Category 'Entra / CA' -Text "Security Defaults disabled and no CA policies are in 'Enabled' state ($_reportOnly in report-only). MFA is not enforced." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview'
     }
     elseif (($_aiCaPolicies | Where-Object { $_.State -eq "enabledForReportingButNotEnforced" }).Count -gt 0) {
         $_roCount = ($_aiCaPolicies | Where-Object { $_.State -eq "enabledForReportingButNotEnforced" }).Count
-        Add-ActionItem -Severity 'warning' -Category 'Entra / CA' -Text "$_roCount Conditional Access policy/policies are in report-only mode and not enforcing controls. Review and enable when ready."
+        Add-ActionItem -Severity 'warning' -Category 'Entra / CA' -Text "$_roCount Conditional Access policy/policies are in report-only mode and not enforcing controls. Review and enable when ready." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-conditional-access-report-only'
     }
 }
 
@@ -340,10 +279,10 @@ if (Test-Path $_aiGaCsv) {
         Add-ActionItem -Severity 'critical' -Category 'Entra / Admins' -Text "No Global Administrators found — this may indicate a data collection issue."
     }
     elseif ($_aiGaCount -eq 1) {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "Only 1 Global Administrator account. Recommend at least 2 for resilience (break-glass scenario)."
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "Only 1 Global Administrator account. Recommend at least 2 for resilience (break-glass scenario)." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
     }
     elseif ($_aiGaCount -gt 4) {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "$_aiGaCount Global Administrator accounts. Microsoft recommends 2–4 max. Essential Eight: Restrict administrative privileges."
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "$_aiGaCount Global Administrator accounts. Microsoft recommends 2–4 max. Essential Eight: Restrict administrative privileges." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
     }
 }
 
@@ -352,7 +291,7 @@ $_aiSsprCsv = Join-Path $AuditFolder "Entra_SSPR.csv"
 if (Test-Path $_aiSsprCsv) {
     $_aiSspr = Import-Csv $_aiSsprCsv | Select-Object -First 1
     if ($_aiSspr.SSPREnabled -ne "Enabled") {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / SSPR' -Text "Self-Service Password Reset is not fully enabled (current: $($_aiSspr.SSPREnabled)). Users cannot reset passwords without helpdesk intervention."
+        Add-ActionItem -Severity 'warning' -Category 'Entra / SSPR' -Text "Self-Service Password Reset is not fully enabled (current: $($_aiSspr.SSPREnabled)). Users cannot reset passwords without helpdesk intervention." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-sspr-howitworks'
     }
 }
 
@@ -363,7 +302,7 @@ $_aiInboxCsv = Join-Path $AuditFolder "Exchange_InboxForwardingRules.csv"
 if (Test-Path $_aiInboxCsv) {
     $_aiInboxRules = @(Import-Csv $_aiInboxCsv)
     if ($_aiInboxRules.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Rules' -Text "$($_aiInboxRules.Count) inbox rule(s) forward or redirect mail. Review to ensure these are authorised and not a sign of account compromise."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Rules' -Text "$($_aiInboxRules.Count) inbox rule(s) forward or redirect mail. Review to ensure these are authorised and not a sign of account compromise." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/mail-flow-rules-transport-rules-0'
     }
 }
 
@@ -373,7 +312,7 @@ if (Test-Path $_aiRemoteCsv) {
     $_aiRemoteNamed = @(Import-Csv $_aiRemoteCsv | Where-Object { $_.AutoForwardEnabled -eq "True" -and $_.DomainName -ne "*" })
     if ($_aiRemoteNamed.Count -gt 0) {
         $domainList = ($_aiRemoteNamed.DomainName -join ", ")
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Forwarding' -Text "Auto-forwarding explicitly enabled for named external domain(s): $domainList. Confirm these are intentional."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Forwarding' -Text "Auto-forwarding explicitly enabled for named external domain(s): $domainList. Confirm these are intentional." -DocUrl 'https://learn.microsoft.com/en-us/exchange/mail-flow-best-practices/remote-domains/remote-domains'
     }
 }
 
@@ -382,13 +321,13 @@ $_aiAuditCfgCsv = Join-Path $AuditFolder "Exchange_AuditConfig.csv"
 if (Test-Path $_aiAuditCfgCsv) {
     $_aiAuditCfg = Import-Csv $_aiAuditCfgCsv | Select-Object -First 1
     if ($_aiAuditCfg.UnifiedAuditLogIngestionEnabled -eq "False") {
-        Add-ActionItem -Severity 'critical' -Category 'Exchange / Audit' -Text "Unified Audit Log ingestion is disabled. Security and compliance events are not being recorded. Enable immediately."
+        Add-ActionItem -Severity 'critical' -Category 'Exchange / Audit' -Text "Unified Audit Log ingestion is disabled. Security and compliance events are not being recorded. Enable immediately." -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-log-enable-disable'
     }
     else {
         # Check retention
         $_aiRetDays = try { [int]([TimeSpan]::Parse($_aiAuditCfg.AuditLogAgeLimit).Days) } catch { 90 }
         if ($_aiRetDays -lt 90) {
-            Add-ActionItem -Severity 'warning' -Category 'Exchange / Audit' -Text "Audit log retention is only $_aiRetDays days. Microsoft recommends 90+ days; Essential Eight recommends 12 months for privileged actions."
+            Add-ActionItem -Severity 'warning' -Category 'Exchange / Audit' -Text "Audit log retention is only $_aiRetDays days. Microsoft recommends 90+ days; Essential Eight recommends 12 months for privileged actions." -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-log-enable-disable'
         }
     }
 }
@@ -399,7 +338,7 @@ if (Test-Path $_aiMbxAuditCsv) {
     $_aiMbxAudit   = @(Import-Csv $_aiMbxAuditCsv | Where-Object { $_.UserPrincipalName -notlike 'DiscoverySearchMailbox*' })
     $_aiAuditOff   = @($_aiMbxAudit | Where-Object { $_.AuditEnabled -eq "False" })
     if ($_aiAuditOff.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Audit' -Text "$($_aiAuditOff.Count) mailbox(es) have per-mailbox auditing disabled. Actions in these mailboxes (logins, deletions, sends) will not be logged."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Audit' -Text "$($_aiAuditOff.Count) mailbox(es) have per-mailbox auditing disabled. Actions in these mailboxes (logins, deletions, sends) will not be logged." -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-mailboxes'
     }
 }
 
@@ -410,7 +349,7 @@ if (Test-Path $_aiDkimCsv) {
     $_aiDkimOff     = @($_aiDkim | Where-Object { $_.DKIMEnabled -ne "True" -and $_.Domain -notlike "*.onmicrosoft.com" })
     if ($_aiDkimOff.Count -gt 0) {
         $dkimDomains = ($_aiDkimOff.Domain -join ", ")
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / DKIM' -Text "DKIM signing not enabled on: $dkimDomains. DKIM helps prevent email spoofing and improves deliverability."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / DKIM' -Text "DKIM signing not enabled on: $dkimDomains. DKIM helps prevent email spoofing and improves deliverability." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dkim-configure'
     }
 }
 
@@ -420,7 +359,7 @@ if (Test-Path $_aiPhishCsv) {
     $_aiPhish      = @(Import-Csv $_aiPhishCsv)
     $_aiNoSpoof    = @($_aiPhish | Where-Object { $_.EnableSpoofIntelligence -eq "False" })
     if ($_aiNoSpoof.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Anti-Phish' -Text "$($_aiNoSpoof.Count) anti-phishing policy/policies have Spoof Intelligence disabled. This reduces protection against email spoofing attacks."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Anti-Phish' -Text "$($_aiNoSpoof.Count) anti-phishing policy/policies have Spoof Intelligence disabled. This reduces protection against email spoofing attacks." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/anti-phishing-policies-about'
     }
 }
 
@@ -432,7 +371,7 @@ if (Test-Path $_aiDmarcCsv) {
     $_aiNoDmarc  = @($_aiDmarc | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" -and ($_.DMARC -eq "Not Found" -or $_.DMARC -eq "" -or $null -eq $_.DMARC) })
     if ($_aiNoDmarc.Count -gt 0) {
         $dmarcDomains = ($_aiNoDmarc.Domain -join ", ")
-        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "DMARC not configured for: $dmarcDomains. Without DMARC, spoofed email from your domain cannot be detected or rejected by recipients."
+        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "DMARC not configured for: $dmarcDomains. Without DMARC, spoofed email from your domain cannot be detected or rejected by recipients." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dmarc-configure'
     }
 }
 
@@ -442,7 +381,7 @@ if (Test-Path $_aiSpfCsv) {
     $_aiNoSpf = @($_aiSpf | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" -and ($_.SPF -eq "DNS query failed" -or $_.SPF -eq "" -or $null -eq $_.SPF) })
     if ($_aiNoSpf.Count -gt 0) {
         $spfDomains = ($_aiNoSpf.Domain -join ", ")
-        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "SPF not configured for: $spfDomains. SPF is required to identify authorised sending servers and prevent spoofing."
+        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "SPF not configured for: $spfDomains. SPF is required to identify authorised sending servers and prevent spoofing." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-spf-configure'
     }
 }
 
@@ -453,7 +392,7 @@ if (Test-Path $_aiExtShareCsv) {
     $_aiExtShare    = @(Import-Csv $_aiExtShareCsv)
     $_aiPermissive  = @($_aiExtShare | Where-Object { $_.SharingCapability -eq "ExternalUserAndGuestSharing" })
     if ($_aiPermissive.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiPermissive.Count) site(s) allow anonymous guest sharing, overriding tenant defaults. Review to confirm these are intentional."
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiPermissive.Count) site(s) allow anonymous guest sharing, overriding tenant defaults. Review to confirm these are intentional." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/turn-external-sharing-on-or-off'
     }
 }
 
@@ -461,7 +400,7 @@ $_aiOdUnlicCsv = Join-Path $AuditFolder "SharePoint_OneDrive_Unlicensed.csv"
 if (Test-Path $_aiOdUnlicCsv) {
     $_aiOdUnlic = @(Import-Csv $_aiOdUnlicCsv)
     if ($_aiOdUnlic.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiOdUnlic.Count) OneDrive account(s) belong to unlicensed users. Data may be inaccessible and storage costs may be wasted."
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiOdUnlic.Count) OneDrive account(s) belong to unlicensed users. Data may be inaccessible and storage costs may be wasted." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/manage-sites-in-new-admin-center'
     }
 }
 
@@ -474,7 +413,7 @@ if (-not $_aiSdEnabled -and (Test-Path $_aiCaCsv)) {
         ($_.GrantControls -match "block")
     })
     if ($_aiLegacyBlocked.Count -eq 0) {
-        Add-ActionItem -Severity 'critical' -Category 'Entra / Auth' -Text "Legacy authentication does not appear to be blocked. Security Defaults is disabled and no enabled CA policy targets legacy auth client types with a Block control. Legacy auth bypasses MFA. Essential Eight ML2."
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Auth' -Text "Legacy authentication does not appear to be blocked. Security Defaults is disabled and no enabled CA policy targets legacy auth client types with a Block control. Legacy auth bypasses MFA. Essential Eight ML2." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/block-legacy-authentication'
     }
 }
 
@@ -485,7 +424,7 @@ if (Test-Path $_aiUsersCsv) {
         -not $_.LastSignIn -or (-not [datetime]::TryParse(($_.LastSignIn -replace ' UTC',''), [ref]$dt)) -or (([datetime]::UtcNow - $dt).TotalDays -gt 90)
     })
     if ($_aiStale.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / Accounts' -Text "$($_aiStale.Count) licensed user(s) have not signed in for 90+ days or have no recorded sign-in. Review for stale/orphaned accounts."
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Accounts' -Text "$($_aiStale.Count) licensed user(s) have not signed in for 90+ days or have no recorded sign-in. Review for stale/orphaned accounts." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/monitoring-health/recommendation-remove-unused-credential-from-apps'
     }
 }
 
@@ -498,7 +437,7 @@ if (Test-Path $_aiGuestCsv) {
         -not $_.LastSignIn -or (-not [datetime]::TryParse(($_.LastSignIn -replace ' UTC',''), [ref]$dt)) -or (([datetime]::UtcNow - $dt).TotalDays -gt 90)
     })
     if ($_aiStaleGuests.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / Guests' -Text "$($_aiStaleGuests.Count) guest account(s) have not signed in for 90+ days or have no recorded sign-in. Stale guests retain access to shared resources."
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Guests' -Text "$($_aiStaleGuests.Count) guest account(s) have not signed in for 90+ days or have no recorded sign-in. Stale guests retain access to shared resources." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/users/manage-guest-access-with-access-reviews'
     }
 }
 
@@ -507,7 +446,7 @@ $_aiSharedSignInCsv = Join-Path $AuditFolder "Exchange_SharedMailboxSignIn.csv"
 if (Test-Path $_aiSharedSignInCsv) {
     $_aiSharedEnabled = @(Import-Csv $_aiSharedSignInCsv | Where-Object { $_.AccountDisabled -eq "False" })
     if ($_aiSharedEnabled.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Mailboxes' -Text "$($_aiSharedEnabled.Count) shared mailbox(es) have interactive sign-in enabled. Shared mailboxes should have sign-in disabled to prevent direct login and MFA bypass."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Mailboxes' -Text "$($_aiSharedEnabled.Count) shared mailbox(es) have interactive sign-in enabled. Shared mailboxes should have sign-in disabled to prevent direct login and MFA bypass." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/email/about-shared-mailboxes'
     }
 }
 
@@ -516,7 +455,7 @@ $_aiOutboundCsv = Join-Path $AuditFolder "Exchange_OutboundSpamAutoForward.csv"
 if (Test-Path $_aiOutboundCsv) {
     $_aiOutboundOn = @(Import-Csv $_aiOutboundCsv | Where-Object { $_.AutoForwardingMode -eq "On" })
     if ($_aiOutboundOn.Count -gt 0) {
-        Add-ActionItem -Severity 'critical' -Category 'Exchange / Forwarding' -Text "Outbound spam policy is set to always allow auto-forwarding (AutoForwardingMode = On). This permits unrestricted external mail forwarding and is a known data exfiltration vector."
+        Add-ActionItem -Severity 'critical' -Category 'Exchange / Forwarding' -Text "Outbound spam policy is set to always allow auto-forwarding (AutoForwardingMode = On). This permits unrestricted external mail forwarding and is a known data exfiltration vector." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/outbound-spam-protection-about'
     }
 }
 
@@ -526,7 +465,7 @@ if (Test-Path $_aiSafAttCsv) {
     $_aiSafAtt = @(Import-Csv $_aiSafAttCsv)
     $_aiSafAttOn = @($_aiSafAtt | Where-Object { $_.Enable -eq "True" })
     if ($_aiSafAttOn.Count -eq 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Attachments policy is enabled. Attachments are not being detonated/scanned before delivery. Requires Defender for Office 365 P1."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Attachments policy is enabled. Attachments are not being detonated/scanned before delivery. Requires Defender for Office 365 P1." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/safe-attachments-about'
     }
 }
 
@@ -536,7 +475,7 @@ if (Test-Path $_aiSafLnkCsv) {
     $_aiSafLnk = @(Import-Csv $_aiSafLnkCsv)
     $_aiSafLnkOn = @($_aiSafLnk | Where-Object { $_.EnableSafeLinksForEmail -eq "True" })
     if ($_aiSafLnkOn.Count -eq 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Links policy is enabled for email. URLs are not being rewritten or checked at time-of-click. Requires Defender for Office 365 P1."
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Links policy is enabled for email. URLs are not being rewritten or checked at time-of-click. Requires Defender for Office 365 P1." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/safe-links-about'
     }
 }
 
@@ -545,7 +484,7 @@ $_aiSpTenantCsv = Join-Path $AuditFolder "SharePoint_ExternalSharing_Tenant.csv"
 if (Test-Path $_aiSpTenantCsv) {
     $_aiSpTenant = Import-Csv $_aiSpTenantCsv | Select-Object -First 1
     if ($_aiSpTenant.DefaultSharingLinkType -eq "AnonymousAccess") {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "Default sharing link type is set to 'Anyone' (anonymous). Every share defaults to a link accessible by anyone with the URL, with no sign-in required."
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "Default sharing link type is set to 'Anyone' (anonymous). Every share defaults to a link accessible by anyone with the URL, with no sign-in required." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/change-default-sharing-link'
     }
 }
 
@@ -554,7 +493,7 @@ $_aiSpAcpCsv = Join-Path $AuditFolder "SharePoint_AccessControlPolicies.csv"
 if (Test-Path $_aiSpAcpCsv) {
     $_aiSpAcp = Import-Csv $_aiSpAcpCsv | Select-Object -First 1
     if ($_aiSpAcp.IsUnmanagedSyncAppForTenantRestricted -eq "False") {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "OneDrive sync is not restricted to managed/domain-joined devices. Any personal device can sync corporate data to local storage."
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "OneDrive sync is not restricted to managed/domain-joined devices. Any personal device can sync corporate data to local storage." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/control-access-from-unmanaged-devices'
     }
 }
 
@@ -563,7 +502,8 @@ if ($actionItems.Count -gt 0) {
     $aiRows = foreach ($ai in $actionItems) {
         $badgeClass = $ai.Severity
         $badgeLabel = if ($ai.Severity -eq 'critical') { 'CRITICAL' } else { 'WARNING' }
-        "<div class='action-item'><span class='action-badge $badgeClass'>$badgeLabel</span><span class='action-cat'>$($ai.Category)</span><span class='action-text'>$($ai.Text)</span></div>"
+        $docLink    = if ($ai.DocUrl) { " <a href='$($ai.DocUrl)' target='_blank' style='font-size:0.8rem;color:#1565c0;white-space:nowrap;text-decoration:none' title='Microsoft documentation'>&#128279; Docs</a>" } else { "" }
+        "<div class='action-item'><span class='action-badge $badgeClass'>$badgeLabel</span><span class='action-cat'>$($ai.Category)</span><span class='action-text'>$($ai.Text)$docLink</span></div>"
     }
     $html.Add(@"
 <div class='action-items'>
@@ -608,8 +548,52 @@ if ($entraFiles.Count -gt 0) {
         if ($ss) {
             $ssPct   = [double]$ss.Percentage
             $ssColor = if ($ssPct -ge 80) { '#27ae60' } elseif ($ssPct -ge 50) { '#f39c12' } else { '#e74c3c' }
-            $ssBar   = "<div style='background:#e0e0e0;border-radius:4px;height:14px;width:100%;max-width:300px;display:inline-block;vertical-align:middle'><div style='background:$ssColor;width:$($ssPct)%;height:14px;border-radius:4px'></div></div>"
+            $ssBar   = "<div style='background:#e0e0e0;border-radius:4px;height:14px;width:100%;max-width:300px;overflow:hidden;display:inline-block;vertical-align:middle'><div style='background:$ssColor;width:$($ssPct)%;height:14px'></div></div>"
             $entraSummary.Add("<p><b>Identity Secure Score:</b> $($ss.CurrentScore) / $($ss.MaxScore) &nbsp;($($ss.Percentage)%) &nbsp;$ssBar &nbsp;<span style='color:#888;font-size:0.85em'>as of $($ss.Date)</span></p>")
+        }
+    }
+
+    # --- Secure Score Control Breakdown ---
+    $secureScoreControlsCsv = Join-Path $AuditFolder "Entra_SecureScoreControls.csv"
+    if (Test-Path $secureScoreControlsCsv) {
+        $ssControls = @(Import-Csv $secureScoreControlsCsv)
+        if ($ssControls.Count -gt 0) {
+            $toAction    = @($ssControls | Where-Object { [double]$_.Score -le 0 } | Sort-Object ControlName)
+            $implemented = @($ssControls | Where-Object { [double]$_.Score -gt 0 } | Sort-Object { -[double]$_.Score })
+
+            $toActionRows = foreach ($c in $toAction) {
+                "<tr><td style='font-size:0.85rem'>$($c.ControlName)</td><td style='font-size:0.82rem;color:#555'>$($c.Description)</td></tr>"
+            }
+            $implRows = foreach ($c in $implemented) {
+                $scoreColor = if ([double]$c.Score -ge 5) { 'color:#27ae60' } else { 'color:#f39c12' }
+                "<tr><td style='font-size:0.85rem'>$($c.ControlName)</td><td style='text-align:right;$scoreColor;font-weight:bold;width:70px'>$($c.Score)</td><td style='font-size:0.82rem;color:#555'>$($c.Description)</td></tr>"
+            }
+
+            $toActionHtml = if ($toAction.Count -gt 0) { @"
+<details open>
+  <summary style='cursor:pointer;font-weight:600;font-size:0.95rem;padding:0.4rem 0;color:#c0392b;background:transparent;border:none'>&#9888; To Action ($($toAction.Count) control(s) with 0 points)</summary>
+  <table style='margin-top:0.4rem'>
+    <thead><tr><th>Control</th><th>Description</th></tr></thead>
+    <tbody>$($toActionRows -join "`n")</tbody>
+  </table>
+</details>
+"@ } else { "<p class='ok'>All Secure Score controls have been addressed.</p>" }
+
+            $implHtml = if ($implemented.Count -gt 0) { @"
+<details style='margin-top:0.75rem'>
+  <summary style='cursor:pointer;font-weight:600;font-size:0.95rem;padding:0.4rem 0;color:#27ae60;background:transparent;border:none'>&#10003; Implemented ($($implemented.Count) control(s))</summary>
+  <table style='margin-top:0.4rem'>
+    <thead><tr><th>Control</th><th style='text-align:right;width:70px'>Score</th><th>Description</th></tr></thead>
+    <tbody>$($implRows -join "`n")</tbody>
+  </table>
+</details>
+"@ } else { "" }
+
+            $entraSummary.Add(@"
+<h4>Secure Score — Control Breakdown</h4>
+$toActionHtml
+$implHtml
+"@)
         }
     }
 
@@ -791,6 +775,7 @@ if ($entraFiles.Count -gt 0) {
 
             $entraSummary.Add("<p class='$caClass'>$($caPolicies.Count) Conditional Access policies: <b>$caEnabled enabled</b>, $caReport report-only, $caDisabled disabled</p>")
 
+            $entraSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand policy scope and conditions.</p>")
             $caRows = foreach ($policy in ($caPolicies | Sort-Object Name)) {
                 $stateClass = switch ($policy.State) {
                     "enabled"                           { "ok" }
@@ -805,7 +790,23 @@ if ($entraFiles.Count -gt 0) {
                     default                             { $policy.State }
                 }
                 $mfaIcon = if ($policy.RequiresMFA -eq "True") { "Yes" } else { "-" }
-                "<tr><td>$($policy.Name)</td><td class='$stateClass'>$stateLabel</td><td>$($policy.GrantControls)</td><td>$mfaIcon</td></tr>"
+                $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand policy details'><td>$($policy.Name)</td><td class='$stateClass'>$stateLabel</td><td>$($policy.GrantControls)</td><td>$mfaIcon</td></tr>"
+
+                $incUsers    = if ($policy.IncludeUsers  -and $policy.IncludeUsers  -ne '') { $policy.IncludeUsers  } else { '—' }
+                $excUsers    = if ($policy.ExcludeUsers  -and $policy.ExcludeUsers  -ne '') { $policy.ExcludeUsers  } else { '—' }
+                $incGroups   = if ($policy.IncludeGroups -and $policy.IncludeGroups -ne '') { $policy.IncludeGroups } else { '—' }
+                $clientTypes = if ($policy.ClientAppTypes -and $policy.ClientAppTypes -ne '') { $policy.ClientAppTypes } else { 'All' }
+                $detailRow = "<tr class='signin-detail' style='display:none'><td colspan='4'><table class='inner-table'>
+  <thead><tr><th style='width:160px'>Setting</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Include Users</td><td>$incUsers</td></tr>
+    <tr><td>Exclude Users</td><td>$excUsers</td></tr>
+    <tr><td>Include Groups</td><td>$incGroups</td></tr>
+    <tr><td>Client App Types</td><td>$clientTypes</td></tr>
+  </tbody>
+</table></td></tr>"
+                $mainRow
+                $detailRow
             }
             $entraSummary.Add(@"
 <table>
@@ -967,7 +968,7 @@ if ($exchangeFiles.Count -gt 0) {
 
         $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand delegated permissions.</p>")
 
-        $mbxRows = foreach ($mbx in ($mailboxes | Sort-Object DisplayName)) {
+        $mbxRows = foreach ($mbx in ($mailboxes | Sort-Object @{Expression={ switch ($_.RecipientType) { 'UserMailbox' { 0 } 'SharedMailbox' { 1 } default { 2 } } }}, DisplayName)) {
             $upn    = $mbx.UserPrincipalName
             $usedMB = [double]$mbx.TotalSizeMB
             $limitMB = if ($mbx.LimitMB -and $mbx.LimitMB -ne '') { [double]$mbx.LimitMB } else { 0 }
@@ -1231,17 +1232,23 @@ if ($exchangeFiles.Count -gt 0) {
 
                 # Build condition/action detail rows — only show populated fields
                 $details = [System.Collections.Generic.List[string]]::new()
+                $modeDesc = switch ($r.Mode) {
+                    'Enforce' { 'Rule is active and actions are applied to matching messages.' }
+                    'Audit'   { 'Rule is in audit mode — conditions are evaluated and results logged, but no action is taken.' }
+                    'AuditAndNotify' { 'Audit mode with policy tip notification shown to the sender.' }
+                    default   { $r.Mode }
+                }
+                $details.Add("<tr><td>Mode</td><td>$($r.Mode) <span style='color:#666;font-size:0.85rem'>— $modeDesc</span></td></tr>")
                 if ($r.FromAddressContainsWords) { $details.Add("<tr><td>From Contains Words</td><td>$($r.FromAddressContainsWords)</td></tr>") }
                 if ($r.SentTo)                   { $details.Add("<tr><td>Sent To</td><td>$($r.SentTo)</td></tr>") }
                 if ($r.RedirectMessageTo)         { $details.Add("<tr><td>Redirect To</td><td>$($r.RedirectMessageTo)</td></tr>") }
                 if ($r.BlindCopyTo)              { $details.Add("<tr><td>BCC To</td><td>$($r.BlindCopyTo)</td></tr>") }
-                if ($r.ApplyHtmlDisclaimerText)  { $details.Add("<tr><td>Disclaimer</td><td style='max-width:400px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis'>$($r.ApplyHtmlDisclaimerText)</td></tr>") }
-
-                $detailInner = if ($details.Count -gt 0) {
-                    "<table class='inner-table'><thead><tr><th>Condition / Action</th><th>Value</th></tr></thead><tbody>$($details -join '')</tbody></table>"
-                } else {
-                    "<em style='color:#888'>No condition/action details captured for this rule</em>"
+                if ($r.ApplyHtmlDisclaimerText)  {
+                    $disclaimerLoc = if ($r.ApplyHtmlDisclaimerLocation) { " ($($r.ApplyHtmlDisclaimerLocation))" } else { "" }
+                    $details.Add("<tr><td>Disclaimer$disclaimerLoc</td><td style='max-width:400px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:0.82rem'>$($r.ApplyHtmlDisclaimerText)</td></tr>")
                 }
+
+                $detailInner = "<table class='inner-table'><thead><tr><th style='width:160px'>Condition / Action</th><th>Value</th></tr></thead><tbody>$($details -join '')</tbody></table>"
                 $detailRow = "<tr class='signin-detail' style='display:none'><td colspan='4'>$detailInner</td></tr>"
                 $mainRow
                 $detailRow
@@ -1269,8 +1276,8 @@ if ($exchangeFiles.Count -gt 0) {
         }
         $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand the member list.</p>")
         $dlRows = foreach ($dl in ($dls | Sort-Object DisplayName)) {
-            $emptyClass = if ([int]$dl.MemberCount -eq 0) { " class='warn'" } else { "" }
-            $mainRow    = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand members'><td>$($dl.DisplayName)</td><td>$($dl.EmailAddress)</td><td>$($dl.GroupType)</td><td>$($dl.MemberCount)</td></tr>"
+            $warnClass  = if ([int]$dl.MemberCount -eq 0) { " warn" } else { "" }
+            $mainRow    = "<tr class='user-row$warnClass' onclick='togglePerms(this)' title='Click to expand members'><td>$($dl.DisplayName)</td><td>$($dl.EmailAddress)</td><td>$($dl.GroupType)</td><td>$($dl.MemberCount)</td></tr>"
 
             if ($dl.Members -and [int]$dl.MemberCount -gt 0) {
                 $memberRows = ($dl.Members -split '; ' | Where-Object { $_ } | Sort-Object | ForEach-Object { "<tr><td>$_</td></tr>" }) -join ""
@@ -1365,9 +1372,20 @@ if ($exchangeFiles.Count -gt 0) {
         $attEnabled = ($safeAtt | Where-Object { $_.Enable -eq "True" }).Count
         $attClass   = if ($attEnabled -gt 0) { "ok" } else { "warn" }
         $exchangeSummary.Add("<p class='$attClass'>$attEnabled of $($safeAtt.Count) Safe Attachment policy/policies enabled</p>")
+        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand setting descriptions.</p>")
         $attRows = foreach ($p in $safeAtt) {
-            $cls = if ($p.Enable -eq "True") { " class='ok'" } else { " class='warn'" }
-            "<tr$cls><td>$($p.Name)</td><td>$($p.Enable)</td><td>$($p.Action)</td><td>$($p.ActionOnError)</td></tr>"
+            $enableClass = if ($p.Enable -eq "True") { "ok" } else { "warn" }
+            $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand'><td>$($p.Name)</td><td class='$enableClass'>$($p.Enable)</td><td>$($p.Action)</td><td>$($p.ActionOnError)</td></tr>"
+            $detailRow = "<tr class='signin-detail' style='display:none'><td colspan='4'><table class='inner-table'>
+  <thead><tr><th style='width:160px'>Setting</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Enabled</td><td>Whether this Safe Attachments policy is active. Disabled policies do not scan attachments, even if a rule applies the policy to users.</td></tr>
+    <tr><td>Action: $($p.Action)</td><td>$(switch ($p.Action) { 'Block' { 'Quarantines the entire message when a malicious attachment is detected. The recipient never receives the message.' } 'Replace' { 'Strips the attachment from the email and delivers the message body with a notice. The user receives the email but not the file.' } 'DynamicDelivery' { 'Delivers the email immediately with a placeholder attachment while Safe Attachments scans in the background. The real attachment replaces the placeholder if clean. Recommended for minimal delay.' } 'Allow' { 'Delivers the message without scanning. Not recommended.' } default { $p.Action } })</td></tr>
+    <tr><td>Action on Error</td><td>$(if ($p.ActionOnError -eq 'True') { 'Block — if the scanning service errors or times out, the message is held. Recommended to prevent bypass via scanner failure.' } else { 'Pass — if scanning errors, the message is delivered unscanned. Increases risk but reduces false-positive delays.' })</td></tr>
+  </tbody>
+</table></td></tr>"
+            $mainRow
+            $detailRow
         }
         $exchangeSummary.Add(@"
 <table>
@@ -1388,9 +1406,21 @@ if ($exchangeFiles.Count -gt 0) {
         $linkEnabled  = ($safeLink | Where-Object { $_.EnableSafeLinksForEmail -eq "True" }).Count
         $linkClass    = if ($linkEnabled -gt 0) { "ok" } else { "warn" }
         $exchangeSummary.Add("<p class='$linkClass'>$linkEnabled of $($safeLink.Count) Safe Links policy/policies enabled for email</p>")
+        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand setting descriptions.</p>")
         $linkRows = foreach ($p in $safeLink) {
-            $cls = if ($p.EnableSafeLinksForEmail -eq "True") { " class='ok'" } else { " class='warn'" }
-            "<tr$cls><td>$($p.Name)</td><td>$($p.EnableSafeLinksForEmail)</td><td>$($p.EnableSafeLinksForTeams)</td><td>$($p.DisableUrlRewrite)</td><td>$($p.TrackClicks)</td></tr>"
+            $enableClass = if ($p.EnableSafeLinksForEmail -eq "True") { "ok" } else { "warn" }
+            $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand'><td>$($p.Name)</td><td class='$enableClass'>$($p.EnableSafeLinksForEmail)</td><td>$($p.EnableSafeLinksForTeams)</td><td>$($p.DisableUrlRewrite)</td><td>$($p.TrackClicks)</td></tr>"
+            $detailRow = "<tr class='signin-detail' style='display:none'><td colspan='5'><table class='inner-table'>
+  <thead><tr><th style='width:200px'>Setting</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Safe Links for Email</td><td>URLs in incoming emails are rewritten through Microsoft's detonation service and checked at time-of-click. If the link destination is malicious, the user sees a warning page and access is blocked.</td></tr>
+    <tr><td>Safe Links for Teams</td><td>Same time-of-click URL protection applied to links shared in Teams messages and channel posts.</td></tr>
+    <tr><td>URL Rewrite Disabled: $($p.DisableUrlRewrite)</td><td>$(if ($p.DisableUrlRewrite -eq 'True') { '<span class=''warn''>URLs are NOT rewritten in email bodies. Time-of-click protection still occurs via client-side hooks in Outlook, but protection is weaker for forwarded emails or non-Outlook clients.</span>' } else { 'URLs are rewritten through Microsoft — time-of-click protection works across all email clients, including forwarded messages.' })</td></tr>
+    <tr><td>Track Clicks: $($p.TrackClicks)</td><td>Records which URLs users click and whether they were blocked or allowed. Data appears in Threat Explorer and URL trace reports in Microsoft Defender.</td></tr>
+  </tbody>
+</table></td></tr>"
+            $mainRow
+            $detailRow
         }
         $exchangeSummary.Add(@"
 <table>
@@ -1449,12 +1479,13 @@ if ($spFiles.Count -gt 0) {
         }
 
         $usedPct  = if ($quotaMB -gt 0) { [math]::Round(($usedMB / $quotaMB) * 100, 1) } else { 0 }
+        $barPct   = [math]::Min($usedPct, 100)
         $barColor = if ($usedPct -gt 90) { "#e53935" } elseif ($usedPct -gt 75) { "#ff9800" } else { "#4caf50" }
         $usedGB   = [math]::Round($usedMB  / 1024, 1)
         $quotaGB  = [math]::Round($quotaMB / 1024, 1)
         $freeGB   = [math]::Round($freeMB  / 1024, 1)
 
-        $storageBar = "<div style='display:flex;align-items:center;gap:8px;margin-bottom:0.4rem'><div style='background:#e0e0e0;border-radius:4px;width:200px;height:14px;flex-shrink:0'><div style='background:$barColor;width:${usedPct}%;height:14px;border-radius:4px'></div></div><span style='font-size:0.85rem;color:#555'>$usedPct% used &mdash; $usedGB GB of $quotaGB GB ($freeGB GB free)</span></div>"
+        $storageBar = "<div style='display:flex;align-items:center;gap:10px;margin-bottom:0.4rem'><div style='background:#e0e0e0;border-radius:4px;width:240px;height:16px;flex-shrink:0;overflow:hidden'><div style='background:$barColor;width:${barPct}%;height:16px'></div></div><span style='font-size:0.85rem;color:#555'>$usedPct% used &mdash; $usedGB GB of $quotaGB GB ($freeGB GB free)</span></div>"
         $spSummary.Add("<h4>Tenant Storage</h4>$storageBar<p style='font-size:0.85rem;color:#666;margin-top:0'>OneDrive storage quota per user: $odQuotaGB GB</p>")
     }
 
@@ -1507,7 +1538,6 @@ if ($spFiles.Count -gt 0) {
 
             $hubBadge = if ($site.IsHubSite -eq 'True') { " <span style='background:#e3f2fd;color:#1565c0;border:1px solid #90caf9;border-radius:3px;font-size:0.72rem;padding:1px 5px'>Hub</span>" } else { "" }
 
-            $tmpl = $site.Template -replace '#\d+$', '#N'
             $templateLabel = if ($templateLabels.ContainsKey($site.Template)) { $templateLabels[$site.Template] } `
                              elseif ($site.Template -like 'TEAMCHANNEL*') { 'Teams Channel' } `
                              elseif ($site.Template -like 'SPSPERS*')     { 'OneDrive' } `

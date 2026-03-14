@@ -21,32 +21,7 @@
 .NOTES
     Author      : Raymond Slater
     Version     : 1.9.0
-    Change Log  :
-        1.0.0 - Initial release
-        1.0.1 - Refactor output directory initialisation
-        1.0.2 - Helper function refactor
-        1.1.0 - Removed duplicate guard clause; fixed outputDir override;
-                removed alias usage; added CmdletBinding
-        1.2.0 - Fixed mailbox size parsing for EXO v3 deserialized ByteQuantifiedSize;
-                rewrote Get-MailboxPermission to loop per-mailbox with -Identity;
-                removed Get-ReceiveConnector (on-premises only, not available in EXO)
-        1.3.0 - EXO connection check now filters by State eq Connected; stale sessions
-                no longer prevent reconnection; Import-Module uses -ErrorAction Stop
-        1.4.0 - Mailbox inventory now includes LimitMB, FreeMB, ArchiveSizeMB;
-                all three permission CSVs now include MailboxUPN for consistent joining;
-                SendAs now loops per mailbox (REST mode compatible)
-        1.5.0 - Mailbox inventory adds LitigationHoldEnabled; new sections for
-                outbound spam auto-forward policy, shared mailbox sign-in status,
-                Safe Attachments, and Safe Links (latter two gracefully skipped if
-                Defender for Office 365 P1 not licensed)
-        1.6.0 - Exchange Online now uses app-only auth (via Connect-ExchangeOnlineSecure)
-                when -AppId/-AppSecret/-TenantId are provided at launch
-        1.7.0 - Replaced per-section Write-Host progress lines with Write-Progress
-                for cleaner terminal output
-        1.8.0 - Added Step X/Y counter to Write-Progress status strings
-        1.9.0 - Suppress EXO object-not-found warning from Get-DkimSigningConfig
-                (caught by try/catch; warning was still emitted before the exception);
-                suppress Get-MailboxCalendarConfiguration Events-from-Email deprecation warning
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit

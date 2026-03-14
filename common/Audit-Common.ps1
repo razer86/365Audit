@@ -12,34 +12,7 @@
 .NOTES
     Author      : Raymond Slater
     Version     : 1.11.0
-    Change Log  :
-        1.0.0 - Initial creation and migration of shared helpers from launcher
-        1.1.0 - Added CmdletBinding, Invoke-VersionCheck, centralised RemoteBaseUrl
-        1.2.0 - Import required Microsoft Graph sub-modules in Connect-MgGraphSecure
-        1.3.0 - Moved Graph sub-module loading to file scope (wrong approach)
-        1.4.0 - Reverted to install-only at file scope; never explicitly import sub-modules.
-                SilentlyContinue does not catch terminating .NET FileLoadException so
-                any Import-Module on a conflicting assembly caches the failure and blocks
-                auto-loading. Modules are now installed if missing so PowerShell's own
-                auto-loading can resolve them after Connect-MgGraph registers the Auth module.
-        1.5.0 - Auto-loading sub-modules still fails because RequiredModules resolution
-                re-triggers a DLL load even when the DLL is in the AppDomain. Fix: import
-                sub-modules explicitly inside Connect-MgGraphSecure AFTER Connect-MgGraph,
-                at which point Microsoft.Graph.Authentication is in Get-Module and the
-                RequiredModules check finds it without attempting to reload the DLL.
-        1.6.0 - Add AuditLog.Read.All to required Graph scopes (needed for sign-in logs)
-        1.7.0 - Connect-MgGraphSecure auto-detects $AuditAppId/$AuditAppSecret/$AuditTenantId
-                from the launcher scope; uses app-only (ClientSecretCredential) auth when all
-                three are present, falls back to interactive delegated auth otherwise
-        1.8.0 - Add Connect-ExchangeOnlineSecure: uses client-credentials OAuth token for
-                Exchange Online when app credentials are present; falls back to interactive
-        1.11.0 - Initialize-AuditOutput: move output folder from repo root to parent
-                 directory (../.. from common/) to avoid git conflicts on update
-        1.10.0 - Connect-ExchangeOnlineSecure: add missing -AppId to Connect-ExchangeOnline
-                 -AccessToken call; EXO v3 requires -AppId alongside -AccessToken to
-                 recognise the connection as app-only context (omitting it causes UnAuthorized)
-        1.9.0 - Change "Already connected" Write-Host calls to Write-Verbose so they do
-                not add scroll lines when modules reuse an existing session
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
@@ -47,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.11.0"
+$ScriptVersion = "1.13.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -100,21 +73,21 @@ function Connect-MgGraphSecure {
         "SecurityEvents.Read.All"
     )
 
-    # Auto-detect app credentials set by the launcher (-AppId/-AppSecret/-TenantId params).
+    # Auto-detect app credentials set by the launcher (-AppId/-TenantId/-CertFilePath/-CertPassword params).
     # Get-Variable searches the current scope and all parent scopes.
-    $appId     = Get-Variable -Name AuditAppId     -ValueOnly -ErrorAction SilentlyContinue
-    $appSecret = Get-Variable -Name AuditAppSecret -ValueOnly -ErrorAction SilentlyContinue
-    $tenantId  = Get-Variable -Name AuditTenantId  -ValueOnly -ErrorAction SilentlyContinue
+    $appId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
+    $certFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue
+    $certPassword = Get-Variable -Name AuditCertPassword -ValueOnly -ErrorAction SilentlyContinue
+    $tenantId     = Get-Variable -Name AuditTenantId     -ValueOnly -ErrorAction SilentlyContinue
 
-    $useAppAuth = $appId -and $appSecret -and $tenantId
+    $useAppAuth = $appId -and $certFilePath -and $tenantId
 
     if (-not (Get-MgContext)) {
         try {
             if ($useAppAuth) {
                 Write-Host "Connecting to Microsoft Graph (app-only auth)..." -ForegroundColor Cyan
-                $secureSecret = ConvertTo-SecureString $appSecret -AsPlainText -Force
-                $credential   = New-Object System.Management.Automation.PSCredential($appId, $secureSecret)
-                Connect-MgGraph -TenantId $tenantId -ClientSecretCredential $credential -NoWelcome -ErrorAction Stop
+                $_cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certFilePath, $certPassword)
+                Connect-MgGraph -ClientId $appId -TenantId $tenantId -Certificate $_cert -NoWelcome -ErrorAction Stop
             }
             else {
                 Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
@@ -165,8 +138,8 @@ function Connect-MgGraphSecure {
 # ===   Connect to Exchange Online (app-only or UI)   ===
 # =======================================================
 # Must be called AFTER Import-Module ExchangeOnlineManagement.
-# Detects $AuditAppId/$AuditAppSecret/$AuditTenantId from the launcher scope.
-# When present: obtains an OAuth2 client-credentials token and connects via -AccessToken/-AppId.
+# Detects $AuditAppId/$AuditCertFilePath/$AuditCertPassword from the launcher scope.
+# When present: connects via certificate-based app-only auth (-CertificateFilePath).
 # Requires Exchange.ManageAsApp permission + Exchange Administrator Entra role on the SP.
 # Falls back to interactive browser auth when credentials are absent.
 function Connect-ExchangeOnlineSecure {
@@ -183,11 +156,11 @@ function Connect-ExchangeOnlineSecure {
     }
 
     # Auto-detect app credentials from the launcher scope
-    $appId     = Get-Variable -Name AuditAppId     -ValueOnly -ErrorAction SilentlyContinue
-    $appSecret = Get-Variable -Name AuditAppSecret -ValueOnly -ErrorAction SilentlyContinue
-    $tenantId  = Get-Variable -Name AuditTenantId  -ValueOnly -ErrorAction SilentlyContinue
+    $appId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
+    $certFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue
+    $certPassword = Get-Variable -Name AuditCertPassword -ValueOnly -ErrorAction SilentlyContinue
 
-    if ($appId -and $appSecret -and $tenantId) {
+    if ($appId -and $certFilePath) {
         Write-Host "Connecting to Exchange Online (app-only auth)..." -ForegroundColor Cyan
 
         # Resolve the tenant's initial .onmicrosoft.com domain for the -Organization parameter
@@ -195,25 +168,15 @@ function Connect-ExchangeOnlineSecure {
             Where-Object { $_.IsInitial -eq $true } |
             Select-Object -ExpandProperty Name -First 1
 
-        # Obtain an OAuth2 token for Exchange Online using client credentials.
-        # -AppId must be passed alongside -AccessToken in EXO v3 to declare an app-only context;
-        # omitting it causes an UnAuthorized rejection even with a valid token.
-        $_tokenBody = @{
-            grant_type    = 'client_credentials'
-            scope         = 'https://outlook.office365.com/.default'
-            client_id     = $appId
-            client_secret = $appSecret
-        }
-        $_tokenResponse = Invoke-RestMethod `
-            -Uri    "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" `
-            -Method POST `
-            -Body   $_tokenBody `
+        Connect-ExchangeOnline `
+            -AppId               $appId `
+            -Organization        $_orgDomain `
+            -CertificateFilePath $certFilePath `
+            -CertificatePassword $certPassword `
+            -ShowBanner:$false `
             -ErrorAction Stop
 
-        $_secureToken = ConvertTo-SecureString $_tokenResponse.access_token -AsPlainText -Force
-        Connect-ExchangeOnline -AccessToken $_secureToken -AppId $appId -Organization $_orgDomain -ShowBanner:$false -ErrorAction Stop
-
-        Remove-Variable _orgDomain, _tokenBody, _tokenResponse, _secureToken -ErrorAction SilentlyContinue
+        Remove-Variable _orgDomain -ErrorAction SilentlyContinue
     }
     else {
         Write-Host "Connecting to Exchange Online..." -ForegroundColor Cyan

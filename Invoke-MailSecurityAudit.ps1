@@ -22,21 +22,7 @@
 .NOTES
     Author      : Raymond Slater
     Version     : 1.6.0
-    Change Log  :
-        1.0.0 - Initial release (standalone, JSON-only output)
-        1.1.0 - Minor updates
-        1.2.0 - Integrated with launcher and shared output folder;
-                flat data (DKIM, DMARC, SPF) now exported as CSV;
-                JSON retained for nested policy objects;
-                added guard clause and CmdletBinding
-        1.2.1 - Export-Json now skips gracefully on null/empty results
-        1.3.0 - EXO connection check now filters by State eq Connected;
-                Import-Module uses -ErrorAction Stop
-        1.4.0 - Exchange Online now uses app-only auth (via Connect-ExchangeOnlineSecure)
-                when -AppId/-AppSecret/-TenantId are provided at launch
-        1.5.0 - Replaced per-section Write-Host progress lines with Write-Progress
-                for cleaner terminal output
-        1.6.0 - Added Step X/Y counter to Write-Progress status strings
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
