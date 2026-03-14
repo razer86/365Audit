@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.7.0 | Added `-HuduCompanyId` and `-HuduCompanyName` parameter sets — credentials (AppId, TenantId, CertBase64, CertPassword) are fetched automatically from the NeConnect Audit Toolkit Hudu asset; `-HuduBaseUrl` defaults to `$env:HUDU_BASE_URL` then `https://neconnect.huducloud.com`; added system clock drift check on startup (HEAD request to `login.microsoftonline.com`, warn >60s, stop >300s); disconnect existing Graph/EXO/SPO sessions at startup and in `finally` block to prevent stale connections when re-running in the same PS session; removed noisy "Loading local script" print for local module loads |
 | 2.6.1 | Linux/macOS: temp dir falls back to `$env:TMPDIR` then `/tmp` when `$env:TEMP` is absent; `X509KeyStorageFlags` is platform-guarded — Windows keeps `EphemeralKeySet` (key stays in memory only), Linux/macOS use `Exportable\|PersistKeySet` (required by .NET on non-Windows) |
 | 2.6.0 | Validate CertBase64 decodes cleanly before writing to disk (clear error if paste is truncated); check certificate expiry on startup and warn if ≤30 days remaining or already expired |
 | 2.5.0 | `-CertBase64` is now optional; if omitted the script prompts `Read-Host 'Paste certificate Base64'` — same UX as `-CertPassword` |
@@ -33,6 +34,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.3.0 | Added `-HuduCompanyId`, `-HuduCompanyName`, `-HuduBaseUrl`, `-HuduApiKey` parameters; after certificate generation, `Push-HuduAuditAsset` automatically creates or updates the NeConnect Audit Toolkit asset for the specified company using the Hudu REST API (`custom_fields` with snake_case field names); asset named `NeConnect Audit Toolkit - <Company Name>`; Powershell Launch Command field stores both the manual and Hudu-based invocation as HTML; Hudu push is non-fatal (warns and continues on API error); renamed `Ensure-ServicePrincipal` → `Resolve-ServicePrincipal` (approved verb) |
 | 2.2.1 | Linux/macOS: certificate generation now uses `openssl` (`req` + `pkcs12 -legacy`) instead of `New-SelfSignedCertificate`/`Export-PfxCertificate` which are Windows-only; Windows path unchanged; `$rawData` replaces `$cert.RawData` reference for shared Graph upload call |
 | 2.2.0 | `New-AuditCertificate` now returns `CertBase64` (base64-encoded .pfx bytes); `Show-Credentials` displays base64 instead of file path; example run command uses `-CertBase64`; both secrets (base64 + password) stored in Hudu — no file path or SharePoint URL needed at audit time |
 | 2.1.0 | Add `Sites.FullControl.All` (SharePoint Online app permission) to main app; remove `Register-PnPInteractiveApp` and separate PnP app registration; SharePoint audit now uses the same certificate as Graph/Exchange |
@@ -58,6 +60,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.10.3 | Guard against null `controlName` in both the profile title lookup and the `controlScores` loop — prevents "array index evaluated to null" error on tenants where the API returns controls with missing names |
 | 1.10.2 | Add `ConvertTo-ReadableControlName` fallback for controls missing a profile title: strips vendor prefixes (`mdo_`, `AATP_`, `AAD_`, etc.), splits underscores and camelCase, title-cases the result; also skip null/empty titles from the profiles API |
 | 1.10.1 | Fetch `secureScoreControlProfiles` to resolve human-readable control titles; `ControlName` in CSV now uses title (e.g. "Require MFA for admins") instead of API key (e.g. "AdminMFAV2"); falls back to `controlName` if profile not found |
 | 1.10.0 | Add Identity Secure Score collection: `Entra_SecureScore.csv` (date, current, max, percentage) and `Entra_SecureScoreControls.csv` (per-control name, score, description); requires `SecurityEvents.Read.All` |
@@ -80,6 +83,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.9.2 | Use `ExchangeGuid` instead of `PrimarySmtpAddress` for `Get-MailboxStatistics` identity (unambiguous for linked/duplicate mailboxes); suppress `Get-InboxRule` warnings for broken rules via `-WarningVariable` capture; broken rules exported to `Exchange_BrokenInboxRules.csv` with mailbox, rule name, and status |
 | 1.9.1 | Wrap primary `Get-MailboxStatistics` in try/catch; null-guard `TotalItemSize` and `ItemCount` so a single inaccessible mailbox no longer aborts the entire inventory |
 | 1.9.0 | Suppress EXO object-not-found warning from `Get-DkimSigningConfig` (caught by try/catch; warning was still emitted before the exception); suppress `Get-MailboxCalendarConfiguration` Events-from-Email deprecation warning |
 | 1.8.0 | Added Step X/Y counter to `Write-Progress` status strings |
@@ -144,6 +148,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.20.0 | Broken inbox rules: new action item and HTML table in Exchange section (reads `Exchange_BrokenInboxRules.csv`; displays mailbox, rule name, and "Broken — not processing mail" status) |
 | 1.19.0 | Secure Score control breakdown split into To Action (open) and Implemented (collapsed) sub-tables; To Action controls sorted alphabetically, Implemented sorted by score descending |
 | 1.18.0 | Polish pass: center Org Info box; add Secure Score control breakdown table; Teams Rooms Basic SKU display name; CA policy click-to-expand; doc links on all action items; mailbox table sorted `UserMailbox` → `SharedMailbox`; transport rule expander adds Mode description and disclaimer location; Safe Attachments/Links click-to-expand; SharePoint storage bar overflow fix |
 | 1.17.0 | Add Identity Secure Score gauge to Entra section (reads `Entra_SecureScore.csv`; colour-coded progress bar) |
@@ -173,6 +178,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.14.0 | Added "Connected to Exchange Online." confirmation after both app-only and interactive connect paths; `Connect-ExchangeOnlineSecure` no longer silently skips reconnection for changed tenants — session pre-disconnect is handled by the launcher |
 | 1.13.0 | Switch app-only auth from client secret to certificate for both Graph and Exchange Online; `Connect-MgGraphSecure` now uses `X509Certificate2` loaded from `$AuditCertFilePath`; `Connect-ExchangeOnlineSecure` now uses `-CertificateFilePath`/`-CertificatePassword`; removes all OAuth token acquisition code |
 | 1.11.0 | `Initialize-AuditOutput`: move output folder from repo root to parent directory to avoid git conflicts on update |
 | 1.10.0 | `Connect-ExchangeOnlineSecure`: add missing `-AppId` to `Connect-ExchangeOnline -AccessToken` call; EXO v3 requires `-AppId` alongside `-AccessToken` to recognise the connection as app-only context |

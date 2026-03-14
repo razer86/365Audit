@@ -6,34 +6,39 @@ Monthly Microsoft 365 audit toolkit for MSP maintenance reporting. Run per custo
 
 ## First-Time Setup
 
-Before running the toolkit for any customer, run `Setup-365AuditApp.ps1` once in that tenant as a **Global Administrator**:
+Before running the toolkit for any customer, run `Setup-365AuditApp.ps1` once in that tenant as a **Global Administrator**.
+
+The script will:
+1. Create an app registration with all required Microsoft Graph, Exchange Online, and SharePoint permissions and grant admin consent
+2. Generate a self-signed certificate, upload the public key to the app registration
+3. Print all credentials to the terminal
+4. **Automatically push credentials to Hudu** if `HUDU_API_KEY` is set in your environment
+
+### With Hudu integration (recommended)
+
+If your Hudu environment variables are configured (see [Hudu Integration](#hudu-integration)), pass the company slug or ID and credentials are stored automatically:
+
+```powershell
+.\Setup-365AuditApp.ps1 -HuduCompanyId '<company-slug>'
+.\Setup-365AuditApp.ps1 -HuduCompanyName 'Contoso Ltd'
+```
+
+### Without Hudu integration
 
 ```powershell
 .\Setup-365AuditApp.ps1
 ```
 
-The script will:
-1. Create an app registration with the required Microsoft Graph, Exchange Online, and SharePoint permissions, and grant admin consent
-2. Generate a self-signed certificate, upload the public key to the app, and export the `.pfx` to the script folder
-3. Print all credentials to the terminal — **store these in Hudu immediately**
-
-**Credentials to store per customer:**
+Credentials are printed to the terminal — store them in Hudu manually under the **NeConnect Audit Toolkit** asset layout using these fields:
 
 | Field | Used For |
 |---|---|
-| App ID (Client ID) | All modules (silent app-only authentication) |
+| Application ID | All modules (silent app-only authentication) |
 | Tenant ID | All modules |
 | Cert Base64 | Certificate decoded at runtime — no file path needed |
 | Cert Password | Decrypts the certificate |
-| Cert Expiry | Reminder to rotate before expiry (re-run `Setup-365AuditApp.ps1`) |
-
-**Example launch command (printed by Setup script):**
-
-```powershell
-.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>' -CertBase64 '<paste base64>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
-```
-
-`-CertBase64` and `-CertPassword` can both be omitted to be prompted interactively.
+| Cert Expiry | Reminder to rotate before expiry |
+| Powershell Launch Command | Pre-built launch commands (populated automatically) |
 
 ---
 
@@ -42,11 +47,87 @@ The script will:
 Certificates are valid for 2 years by default. Re-run `Setup-365AuditApp.ps1` at any time to rotate:
 
 ```powershell
-.\Setup-365AuditApp.ps1 -Force    # rotate regardless of expiry
-.\Setup-365AuditApp.ps1           # rotate only if expiring within 30 days
+.\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>' -Force    # rotate regardless of expiry
+.\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>'           # rotate only if expiring within 30 days
 ```
 
-Update the Cert Base64 and Cert Password in Hudu with the new values printed to the terminal.
+The updated credentials are pushed to Hudu automatically. Without `-HuduCompanyId`, update the Cert Base64, Cert Password, and Cert Expiry fields in Hudu manually.
+
+---
+
+## Hudu Integration
+
+The toolkit integrates with Hudu to store and retrieve credentials automatically. Each tech needs their own Hudu API key; the base URL can be shared.
+
+### Environment Variables
+
+| Variable | Description |
+|---|---|
+| `HUDU_API_KEY` | Your personal Hudu API key (Profile → API Keys) |
+| `HUDU_BASE_URL` | Hudu instance URL — defaults to `https://neconnect.huducloud.com` if unset |
+
+Add to your PowerShell profile (`$PROFILE`) for persistent configuration:
+
+```powershell
+$env:HUDU_API_KEY  = 'your-api-key-here'
+$env:HUDU_BASE_URL = 'https://hudu.yourcompany.com'   # omit if using neconnect.huducloud.com
+```
+
+For scheduled/automated runs, set these as system environment variables.
+
+### Asset Layout
+
+Credentials are stored in the **NeConnect Audit Toolkit** asset layout (one asset per customer company). The asset is created automatically by `Setup-365AuditApp.ps1` and named `NeConnect Audit Toolkit - <Company Name>`.
+
+---
+
+## Running the Audit
+
+Open a PowerShell 7.4+ terminal, navigate to the toolkit directory, and run using one of the following methods:
+
+### With Hudu API key (recommended)
+
+Credentials are fetched automatically from Hudu — no copy/pasting required:
+
+```powershell
+.\Start-365Audit.ps1 -HuduCompanyId '<company-slug>'
+.\Start-365Audit.ps1 -HuduCompanyName 'Contoso Ltd'    # exact name match
+```
+
+### Without Hudu API key
+
+Copy the App ID, Tenant ID, and certificate details from the Hudu asset:
+
+```powershell
+# Prompts for Base64 and password interactively
+.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>'
+
+# Supply all credentials on the command line
+.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>' `
+    -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
+```
+
+On launch the toolkit will:
+1. Fetch credentials from Hudu (if using `-HuduCompanyId` / `-HuduCompanyName`)
+2. Check system clock drift against Microsoft's servers — certificate auth fails if drift exceeds 5 minutes
+3. Check local script versions against the GitHub version manifest and warn if updates are available
+4. Decode the certificate from base64 to a temp `.pfx` in `$env:TEMP` (deleted on exit)
+5. Present the module selection menu
+
+Select one or more modules by number (comma-separated, e.g. `1,2,3`). All modules connect silently — no browser prompts.
+
+---
+
+## Menu
+
+| Option | Module | Description |
+|---|---|---|
+| 1 | Microsoft Entra Audit | Identity, MFA, roles, Conditional Access, Secure Score |
+| 2 | Exchange Online Audit | Mailboxes, permissions, mail flow |
+| 3 | SharePoint Online Audit | Sites, permissions, storage, OneDrive |
+| 4 | Mail Security Audit | DKIM, DMARC, SPF, anti-spam/phish policies |
+| 9 | Run All (1, 2, 3, 4) | Full audit, then generates the HTML summary once |
+| 0 | Exit | — |
 
 ---
 
@@ -71,7 +152,7 @@ Modules are checked at runtime and installed automatically if missing.
 
 ### Linux / macOS Additional Dependencies
 
-`Setup-365AuditApp.ps1` and `Start-365Audit.ps1` have cross-platform support, but Linux and macOS require two additional system packages:
+All scripts have cross-platform support, but Linux and macOS require two additional system packages:
 
 | Package | Purpose | Install (Debian/Ubuntu) | Install (macOS) |
 |---|---|---|---|
@@ -79,45 +160,6 @@ Modules are checked at runtime and installed automatically if missing.
 | `bind-utils` / `dnsutils` | DNS TXT lookups (`dig`) | `apt install dnsutils` | included with macOS |
 
 Tested with **OpenSSL 3.x**. The `-legacy` flag is used automatically when exporting `.pfx` files for .NET compatibility.
-
----
-
-## Usage
-
-Open a PowerShell 7.4+ terminal, navigate to the toolkit directory, and run:
-
-```powershell
-.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>'
-# → Paste certificate Base64: <paste from Hudu>
-# → Cert Password: <type password>
-```
-
-Or supply credentials on the command line:
-
-```powershell
-.\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>' `
-    -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
-```
-
-On launch the toolkit will:
-1. Check local script versions against the GitHub version manifest and warn if updates are available
-2. Decode the certificate from base64 to a temp `.pfx` in `$env:TEMP` (deleted on exit)
-3. Present the module selection menu
-
-Select one or more modules by number (comma-separated, e.g. `1,2,3`). All modules connect silently — no browser prompts.
-
----
-
-## Menu
-
-| Option | Module | Description |
-|---|---|---|
-| 1 | Microsoft Entra Audit | Identity, MFA, roles, Conditional Access, Secure Score |
-| 2 | Exchange Online Audit | Mailboxes, permissions, mail flow |
-| 3 | SharePoint Online Audit | Sites, permissions, storage, OneDrive |
-| 4 | Mail Security Audit | DKIM, DMARC, SPF, anti-spam/phish policies |
-| 9 | Run All (1, 2, 3, 4) | Full audit, then generates the HTML summary once |
-| 0 | Exit | — |
 
 ---
 
@@ -165,6 +207,7 @@ Connects to Exchange Online and audits mailboxes, permissions, and mail flow.
 | `Exchange_Permissions_SendOnBehalf.csv` | Send on Behalf delegations |
 | `Exchange_DistributionLists.csv` | Distribution groups with member count, type, and filter rules |
 | `Exchange_InboxForwardingRules.csv` | Inbox rules that forward or redirect mail |
+| `Exchange_BrokenInboxRules.csv` | Inbox rules in a broken/non-functional state |
 | `Exchange_TransportRules.csv` | Mail flow (transport) rule summaries |
 | `Exchange_RemoteDomainForwarding.csv` | Auto-forward enabled flag per remote domain |
 | `Exchange_OutboundSpamAutoForward.csv` | Auto-forward mode per outbound spam filter policy |
@@ -248,6 +291,8 @@ The top of the report shows a prioritised list of findings requiring attention:
 | Warning | Entra / Guests | Guest accounts inactive for 90+ days |
 | Warning | Exchange | Shared mailboxes with interactive sign-in enabled |
 | Critical | Exchange | Outbound spam policy allows unrestricted auto-forwarding |
+| Warning | Exchange / Rules | Inbox rules forwarding or redirecting mail |
+| Warning | Exchange / Rules | Inbox rules in a broken/non-functional state |
 | Warning | Exchange | No Safe Attachments or Safe Links policy enabled |
 | Warning | SharePoint | Default sharing link allows anonymous (anyone) access |
 | Warning | SharePoint | OneDrive sync not restricted to managed devices |
@@ -255,7 +300,7 @@ The top of the report shows a prioritised list of findings requiring attention:
 **Report sections:**
 
 - **Microsoft Entra** — MFA coverage, stale licensed accounts, licence table, SSPR status, Security Defaults, global admin count, role summary, guest accounts and stale guest count, CA policies, legacy auth check, Identity Secure Score with control breakdown (To Action / Implemented)
-- **Exchange Online** — Mailbox count and storage, delegated permissions, external forwarding rule alerts, shared mailbox sign-in status, outbound spam auto-forward policy, Safe Attachments and Safe Links status
+- **Exchange Online** — Mailbox count and storage, delegated permissions, external forwarding rule alerts, broken inbox rules, shared mailbox sign-in status, outbound spam auto-forward policy, Safe Attachments and Safe Links status
 - **SharePoint / OneDrive** — Tenant storage gauge, site collection table with expandable groups panel, external sharing policy and site overrides, access control policies, OneDrive usage and unlicensed accounts
 - **Mail Security** — DKIM, DMARC, and SPF coverage per domain
 

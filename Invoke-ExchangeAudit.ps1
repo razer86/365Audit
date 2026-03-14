@@ -20,7 +20,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.1
+    Version     : 1.9.2
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -38,7 +38,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.9.1"
+$ScriptVersion = "1.9.2"
 Write-Verbose "Invoke-ExchangeAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
