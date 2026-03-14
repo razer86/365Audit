@@ -35,7 +35,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.2.0
+    Version     : 2.2.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -54,7 +54,7 @@ param (
     [switch]$Force
 )
 
-$ScriptVersion      = '2.2.0'
+$ScriptVersion      = '2.2.1'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -298,23 +298,54 @@ function New-AuditCertificate {
     $certName  = "365Audit-$AppId"
     $notAfter  = [System.DateTimeOffset]::UtcNow.AddYears($ExpiryYears)
 
-    # -KeySpec KeyExchange forces the legacy CSP provider (not CNG).
-    # EXO Connect-ExchangeOnline -CertificateFilePath requires a CSP cert.
-    $cert = New-SelfSignedCertificate `
-        -Subject           "CN=$certName" `
-        -CertStoreLocation 'Cert:\CurrentUser\My' `
-        -NotAfter          $notAfter.LocalDateTime `
-        -KeySpec           KeyExchange `
-        -ErrorAction Stop
-
     # Generate a random 32-char password for the .pfx
-    $chars    = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%&*'
-    $plainPwd = -join ((1..32) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
+    $chars     = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#%&*'
+    $plainPwd  = -join ((1..32) | ForEach-Object { $chars[(Get-Random -Maximum $chars.Length)] })
     $securePwd = ConvertTo-SecureString $plainPwd -AsPlainText -Force
 
     # Export .pfx alongside this script
     $pfxPath = Join-Path $script:CertOutputDir "$certName.pfx"
-    $cert | Export-PfxCertificate -FilePath $pfxPath -Password $securePwd -ErrorAction Stop | Out-Null
+    $days    = $ExpiryYears * 365
+
+    if ($IsLinux -or $IsMacOS) {
+        # New-SelfSignedCertificate and Cert:\ are Windows-only.
+        # Use openssl (must be installed: apt install openssl / brew install openssl).
+        $tmpKey  = [System.IO.Path]::GetTempFileName() + '.key'
+        $tmpCert = [System.IO.Path]::GetTempFileName() + '.crt'
+        try {
+            & openssl req -x509 -newkey rsa:2048 -keyout $tmpKey -out $tmpCert `
+                -days $days -nodes -subj "/CN=$certName" 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "openssl certificate generation failed (exit $LASTEXITCODE)" }
+
+            # -legacy required on OpenSSL 3.x to produce a .pfx readable by .NET
+            & openssl pkcs12 -export -legacy -out $pfxPath `
+                -inkey $tmpKey -in $tmpCert -passout "pass:$plainPwd" 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "openssl pfx export failed (exit $LASTEXITCODE)" }
+
+            $rawData = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+                [System.IO.File]::ReadAllBytes($tmpCert)
+            ).RawData
+        }
+        finally {
+            Remove-Item $tmpKey, $tmpCert -ErrorAction SilentlyContinue
+        }
+    }
+    else {
+        # -KeySpec KeyExchange forces the legacy CSP provider (not CNG).
+        # EXO Connect-ExchangeOnline -CertificateFilePath requires a CSP cert.
+        $cert = New-SelfSignedCertificate `
+            -Subject           "CN=$certName" `
+            -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -NotAfter          $notAfter.LocalDateTime `
+            -KeySpec           KeyExchange `
+            -ErrorAction Stop
+
+        $cert | Export-PfxCertificate -FilePath $pfxPath -Password $securePwd -ErrorAction Stop | Out-Null
+        $rawData = [byte[]]$cert.RawData
+
+        # Remove from local cert store — the .pfx is the portable copy
+        Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
+    }
 
     # Upload the public key to the Entra app registration.
     # Graph SDK requires DateTimeOffset (not DateTime) for key credential dates.
@@ -322,15 +353,12 @@ function New-AuditCertificate {
         @{
             type          = 'AsymmetricX509Cert'
             usage         = 'Verify'
-            key           = [byte[]]$cert.RawData
+            key           = $rawData
             displayName   = $certName
             startDateTime = [System.DateTimeOffset]::UtcNow
             endDateTime   = $notAfter
         }
     ) -ErrorAction Stop
-
-    # Remove from local cert store — the .pfx is the portable copy
-    Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
 
     # Encode the .pfx as base64 so it can be stored as a Hudu secret
     $certBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($pfxPath))

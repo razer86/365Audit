@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.6.1 | Linux/macOS: temp dir falls back to `$env:TMPDIR` then `/tmp` when `$env:TEMP` is absent; `X509KeyStorageFlags` is platform-guarded — Windows keeps `EphemeralKeySet` (key stays in memory only), Linux/macOS use `Exportable\|PersistKeySet` (required by .NET on non-Windows) |
 | 2.6.0 | Validate CertBase64 decodes cleanly before writing to disk (clear error if paste is truncated); check certificate expiry on startup and warn if ≤30 days remaining or already expired |
 | 2.5.0 | `-CertBase64` is now optional; if omitted the script prompts `Read-Host 'Paste certificate Base64'` — same UX as `-CertPassword` |
 | 2.4.0 | Removed `-CertFilePath` and `-CertSharePointUrl`; `-CertBase64` is now the only cert input method — paste from Hudu, no file path or SharePoint URL needed; temp .pfx written to `$env:TEMP` and deleted on exit |
@@ -32,6 +33,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.2.1 | Linux/macOS: certificate generation now uses `openssl` (`req` + `pkcs12 -legacy`) instead of `New-SelfSignedCertificate`/`Export-PfxCertificate` which are Windows-only; Windows path unchanged; `$rawData` replaces `$cert.RawData` reference for shared Graph upload call |
 | 2.2.0 | `New-AuditCertificate` now returns `CertBase64` (base64-encoded .pfx bytes); `Show-Credentials` displays base64 instead of file path; example run command uses `-CertBase64`; both secrets (base64 + password) stored in Hudu — no file path or SharePoint URL needed at audit time |
 | 2.1.0 | Add `Sites.FullControl.All` (SharePoint Online app permission) to main app; remove `Register-PnPInteractiveApp` and separate PnP app registration; SharePoint audit now uses the same certificate as Graph/Exchange |
 | 2.0.0 | Replace client secret with certificate-based auth: removes `New-AuditSecret`/`Get-SecretStatus`; adds `New-AuditCertificate` (self-signed, CSP key provider, exports .pfx with random password, uploads public key to Entra app); replaces `-SecretExpiryMonths` with `-CertExpiryYears`; `Show-Credentials` now outputs cert path and password for storage in Hudu |
@@ -78,6 +80,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.9.1 | Wrap primary `Get-MailboxStatistics` in try/catch; null-guard `TotalItemSize` and `ItemCount` so a single inaccessible mailbox no longer aborts the entire inventory |
 | 1.9.0 | Suppress EXO object-not-found warning from `Get-DkimSigningConfig` (caught by try/catch; warning was still emitted before the exception); suppress `Get-MailboxCalendarConfiguration` Events-from-Email deprecation warning |
 | 1.8.0 | Added Step X/Y counter to `Write-Progress` status strings |
 | 1.7.0 | Replaced per-section `Write-Host` progress lines with `Write-Progress` for cleaner terminal output |
@@ -125,6 +128,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.6.1 | Linux/macOS: added `Resolve-TxtRecord` helper that uses `dig` when `Resolve-DnsName` is unavailable; DMARC uses `-join ''` to correctly reassemble fragmented TXT records per RFC 7489; SPF fallback label changed from "DNS query failed" to "Not Found" for consistency |
 | 1.6.0 | Added Step X/Y counter to `Write-Progress` status strings |
 | 1.5.0 | Replaced per-section `Write-Host` progress lines with `Write-Progress` for cleaner terminal output |
 | 1.4.0 | Exchange Online now uses app-only auth (via `Connect-ExchangeOnlineSecure`) when `-AppId`/`-AppSecret`/`-TenantId` are provided at launch |

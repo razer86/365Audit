@@ -29,7 +29,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.6.0
+    Version     : 2.6.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -52,7 +52,7 @@ param (
     [SecureString]$CertPassword
 )
 
-$ScriptVersion = "2.6.0"
+$ScriptVersion = "2.6.1"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -83,17 +83,26 @@ catch {
     Write-Error "Certificate Base64 is invalid and could not be decoded. Verify the value copied from Hudu is complete." -ErrorAction Stop
 }
 
-$_tempCertPath = Join-Path $env:TEMP "365Audit-$(New-Guid).pfx"
+$_tempDir      = $env:TEMP ?? $env:TMPDIR ?? '/tmp'
+$_tempCertPath = Join-Path $_tempDir "365Audit-$(New-Guid).pfx"
 [System.IO.File]::WriteAllBytes($_tempCertPath, $certBytes)
 $CertFilePath  = $_tempCertPath
 Write-Verbose "Certificate decoded from base64 to temp file: $_tempCertPath"
 
 # Check certificate expiry and warn if renewal is needed within 30 days.
+# EphemeralKeySet keeps the private key in memory only (Windows).
+# Linux/macOS do not support EphemeralKeySet — use Exportable|PersistKeySet instead.
+$keyStorageFlags = if ($IsLinux -or $IsMacOS) {
+    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
+    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
+} else {
+    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+}
 try {
     $certObj = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
         $certBytes,
         $CertPassword,
-        [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+        $keyStorageFlags
     )
     $daysRemaining = ($certObj.NotAfter - (Get-Date)).Days
     if ($daysRemaining -le 0) {

@@ -1,3 +1,4 @@
 # Certificate files — contain private keys, never commit
 *.pfx
 *.p12
+Test-*

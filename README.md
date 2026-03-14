@@ -69,6 +69,17 @@ Download: https://github.com/PowerShell/PowerShell/releases
 
 Modules are checked at runtime and installed automatically if missing.
 
+### Linux / macOS Additional Dependencies
+
+`Setup-365AuditApp.ps1` and `Start-365Audit.ps1` have cross-platform support, but Linux and macOS require two additional system packages:
+
+| Package | Purpose | Install (Debian/Ubuntu) | Install (macOS) |
+|---|---|---|---|
+| `openssl` | Certificate generation | `apt install openssl` | `brew install openssl` |
+| `bind-utils` / `dnsutils` | DNS TXT lookups (`dig`) | `apt install dnsutils` | included with macOS |
+
+Tested with **OpenSSL 3.x**. The `-legacy` flag is used automatically when exporting `.pfx` files for .NET compatibility.
+
 ---
 
 ## Usage

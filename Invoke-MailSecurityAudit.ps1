@@ -21,7 +21,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.6.0
+    Version     : 1.6.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -39,7 +39,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.6.0"
+$ScriptVersion = "1.6.1"
 Write-Verbose "Invoke-MailSecurityAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -78,6 +78,36 @@ function Export-Json {
         return
     }
     $Data | ConvertTo-Json -Depth 10 | Set-Content -Path $Path -Encoding UTF8
+}
+
+# Helper: cross-platform DNS TXT record resolver.
+# Uses Resolve-DnsName on Windows and dig on Linux/macOS (requires bind-utils / dnsutils).
+# Returns an array of TXT string values, or $null on failure.
+function Resolve-TxtRecord {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)] [string]$Domain,
+        [string]$RecordPrefix   # e.g. '_dmarc' — leave empty for the root domain
+    )
+
+    $queryDomain = if ($RecordPrefix) { "$RecordPrefix.$Domain" } else { $Domain }
+
+    try {
+        if ($IsLinux -or $IsMacOS) {
+            $digOutput = & dig +short $queryDomain TXT 2>$null
+            if ($LASTEXITCODE -ne 0) { throw "dig failed for $queryDomain" }
+            return @($digOutput -split "`n" |
+                     Where-Object { $_ -ne '' } |
+                     ForEach-Object { $_.Trim('"') })
+        }
+        else {
+            return (Resolve-DnsName $queryDomain -Type TXT -ErrorAction Stop).Strings
+        }
+    }
+    catch {
+        Write-Warning "DNS TXT query failed for ${queryDomain}: $_"
+        return $null
+    }
 }
 
 $acceptedDomains = Get-AcceptedDomain
@@ -123,13 +153,9 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking DMARC records..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 $dmarcResults = foreach ($domain in $acceptedDomains) {
-    try {
-        $txt = (Resolve-DnsName "_dmarc.$($domain.DomainName)" -Type TXT -ErrorAction Stop).Strings -join ''
-        [PSCustomObject]@{ Domain = $domain.DomainName; DMARC = $txt }
-    }
-    catch {
-        [PSCustomObject]@{ Domain = $domain.DomainName; DMARC = "Not Found" }
-    }
+    # Join fragments — RFC 7489 permits the policy value to span multiple TXT strings
+    $txt = (Resolve-TxtRecord -Domain $domain.DomainName -RecordPrefix '_dmarc') -join ''
+    [PSCustomObject]@{ Domain = $domain.DomainName; DMARC = if ($txt) { $txt } else { 'Not Found' } }
 }
 $dmarcResults | Export-Csv "$outputDir\MailSec_DMARC.csv" -NoTypeInformation -Encoding UTF8
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking DMARC records..." -CurrentOperation "Saved: MailSec_DMARC.csv" -PercentComplete ([int]($step / $totalSteps * 100))
@@ -142,14 +168,10 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking SPF records..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 $spfResults = foreach ($domain in $acceptedDomains) {
-    try {
-        $txtRecords = (Resolve-DnsName $domain.DomainName -Type TXT -ErrorAction Stop).Strings
-        $spf        = $txtRecords | Where-Object { $_ -like "v=spf1*" } | Select-Object -First 1
-        [PSCustomObject]@{ Domain = $domain.DomainName; SPF = $spf }
-    }
-    catch {
-        [PSCustomObject]@{ Domain = $domain.DomainName; SPF = "DNS query failed" }
-    }
+    $spf = Resolve-TxtRecord -Domain $domain.DomainName |
+           Where-Object { $_ -like 'v=spf1*' } |
+           Select-Object -First 1
+    [PSCustomObject]@{ Domain = $domain.DomainName; SPF = if ($spf) { $spf } else { 'Not Found' } }
 }
 $spfResults | Export-Csv "$outputDir\MailSec_SPF.csv" -NoTypeInformation -Encoding UTF8
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking SPF records..." -CurrentOperation "Saved: MailSec_SPF.csv" -PercentComplete ([int]($step / $totalSteps * 100))

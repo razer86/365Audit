@@ -20,7 +20,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.0
+    Version     : 1.9.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -38,7 +38,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "1.9.1"
 Write-Verbose "Invoke-ExchangeAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -76,9 +76,16 @@ Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Gat
 
 $mailboxes        = Get-Mailbox -ResultSize Unlimited -RecipientTypeDetails UserMailbox, SharedMailbox
 $mailboxInventory = foreach ($mbx in $mailboxes) {
-    $stats = Get-MailboxStatistics -Identity $mbx.PrimarySmtpAddress
+    try {
+        $stats = Get-MailboxStatistics -Identity $mbx.PrimarySmtpAddress -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Could not retrieve mailbox statistics for $($mbx.PrimarySmtpAddress): $_"
+        $stats = $null
+    }
+
     # TotalItemSize is a deserialized ByteQuantifiedSize in EXO v3 — parse bytes from the string representation
-    $sizeStr   = $stats.TotalItemSize.ToString()
+    $sizeStr   = if ($stats) { $stats.TotalItemSize.ToString() } else { '' }
     $sizeBytes = if ($sizeStr -match '\((\d[\d,]+)\s+bytes\)') { [long]($Matches[1] -replace ',') } else { 0 }
     $usedMB    = [math]::Round($sizeBytes / 1MB, 2)
 
@@ -109,7 +116,7 @@ $mailboxInventory = foreach ($mbx in $mailboxes) {
         FreeMB                = $freeMB
         LimitMB               = $limitMB
         ArchiveSizeMB         = $archiveSizeMB
-        ItemCount             = $stats.ItemCount
+        ItemCount             = if ($stats) { $stats.ItemCount } else { $null }
         LitigationHoldEnabled = $mbx.LitigationHoldEnabled
     }
 }
