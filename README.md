@@ -1,4 +1,4 @@
-# 365Audit
+# NeConnect Microsoft 365 Audit Toolkit
 
 Monthly Microsoft 365 audit toolkit for MSP maintenance reporting. Run per customer to generate a report covering identity, messaging, and storage health.
 
