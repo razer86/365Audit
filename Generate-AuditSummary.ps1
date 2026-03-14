@@ -306,6 +306,15 @@ if (Test-Path $_aiInboxCsv) {
     }
 }
 
+# Broken inbox rules
+$_aiBrokenCsv = Join-Path $AuditFolder "Exchange_BrokenInboxRules.csv"
+if (Test-Path $_aiBrokenCsv) {
+    $_aiBrokenRules = @(Import-Csv $_aiBrokenCsv)
+    if ($_aiBrokenRules.Count -gt 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Rules' -Text "$($_aiBrokenRules.Count) inbox rule(s) are in a broken/non-functional state and are not processing mail. Edit or re-create them in Outlook." -DocUrl 'https://support.microsoft.com/en-us/office/manage-email-messages-by-using-rules-c24f5dea-9465-4df4-ad17-a50704d66c59'
+    }
+}
+
 # Remote domain auto-forwarding — only flag named (non-wildcard) domains; the default * entry is present in every tenant
 $_aiRemoteCsv = Join-Path $AuditFolder "Exchange_RemoteDomainForwarding.csv"
 if (Test-Path $_aiRemoteCsv) {
@@ -1037,6 +1046,25 @@ if ($exchangeFiles.Count -gt 0) {
         }
         else {
             $exchangeSummary.Add("<p class='ok'>No external forwarding inbox rules detected</p>")
+        }
+    }
+
+    # --- Broken Inbox Rules ---
+    $brokenCsv = Join-Path $AuditFolder "Exchange_BrokenInboxRules.csv"
+    if (Test-Path $brokenCsv) {
+        $brokenRules = @(Import-Csv $brokenCsv)
+        if ($brokenRules.Count -gt 0) {
+            $brokenRows = foreach ($r in $brokenRules) {
+                "<tr><td>$($r.Mailbox)</td><td>$($r.RuleName)</td><td class='warn'>Broken — not processing mail</td></tr>"
+            }
+            $exchangeSummary.Add("<h4>Broken Inbox Rules</h4>")
+            $exchangeSummary.Add("<p class='warn'>$($brokenRules.Count) inbox rule(s) are in a broken/non-functional state. Edit or re-create them in Outlook.</p>")
+            $exchangeSummary.Add(@"
+<table>
+  <thead><tr><th>Mailbox</th><th>Rule Name</th><th>Status</th></tr></thead>
+  <tbody>$($brokenRows -join "`n")</tbody>
+</table>
+"@)
         }
     }
 

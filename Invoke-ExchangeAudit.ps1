@@ -77,7 +77,8 @@ Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Gat
 $mailboxes        = Get-Mailbox -ResultSize Unlimited -RecipientTypeDetails UserMailbox, SharedMailbox
 $mailboxInventory = foreach ($mbx in $mailboxes) {
     try {
-        $stats = Get-MailboxStatistics -Identity $mbx.PrimarySmtpAddress -ErrorAction Stop
+        # ExchangeGuid is always unique; PrimarySmtpAddress can be ambiguous for linked mailboxes
+        $stats = Get-MailboxStatistics -Identity $mbx.ExchangeGuid.ToString() -ErrorAction Stop
     }
     catch {
         Write-Warning "Could not retrieve mailbox statistics for $($mbx.PrimarySmtpAddress): $_"
@@ -99,7 +100,7 @@ $mailboxInventory = foreach ($mbx in $mailboxes) {
     $archiveSizeMB = $null
     if ($mbx.ArchiveStatus -eq "Active") {
         try {
-            $archStats     = Get-MailboxStatistics -Identity $mbx.PrimarySmtpAddress -Archive -ErrorAction Stop
+            $archStats     = Get-MailboxStatistics -Identity $mbx.ExchangeGuid.ToString() -Archive -ErrorAction Stop
             $archSizeStr   = $archStats.TotalItemSize.ToString()
             $archBytes     = if ($archSizeStr -match '\((\d[\d,]+)\s+bytes\)') { [long]($Matches[1] -replace ',') } else { 0 }
             $archiveSizeMB = [math]::Round($archBytes / 1MB, 2)
@@ -206,9 +207,26 @@ Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Gat
 $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking inbox rules for forwarding..." -PercentComplete ([int]($step / $totalSteps * 100))
 
+$brokenInboxRules = [System.Collections.Generic.List[PSObject]]::new()
+
 $inboxRules = foreach ($mbx in $mailboxes) {
     try {
-        foreach ($rule in (Get-InboxRule -Mailbox $mbx.UserPrincipalName)) {
+        $ruleWarnings = @()
+        $rules = Get-InboxRule -Mailbox $mbx.UserPrincipalName `
+            -WarningAction SilentlyContinue -WarningVariable ruleWarnings
+
+        # Warnings of the form: The Inbox rule "Name" contains errors.
+        foreach ($w in $ruleWarnings) {
+            if ("$w" -match 'Inbox rule\s+"(.+?)"\s+contains errors') {
+                $brokenInboxRules.Add([PSCustomObject]@{
+                    Mailbox  = $mbx.DisplayName
+                    RuleName = $Matches[1]
+                    Status   = 'Broken — rule contains configuration errors, edit or re-create it'
+                })
+            }
+        }
+
+        foreach ($rule in $rules) {
             $fwdTo      = $rule.ForwardTo             | ForEach-Object { $_.Name }
             $fwdCc      = $rule.ForwardAsAttachmentTo | ForEach-Object { $_.Name }
             $redirectTo = $rule.RedirectTo            | ForEach-Object { $_.Name }
@@ -229,7 +247,8 @@ $inboxRules = foreach ($mbx in $mailboxes) {
         Write-Warning "Failed to get inbox rules for $($mbx.DisplayName)"
     }
 }
-$inboxRules | Export-Csv "$outputDir\Exchange_InboxForwardingRules.csv" -NoTypeInformation -Encoding UTF8
+$inboxRules       | Export-Csv "$outputDir\Exchange_InboxForwardingRules.csv" -NoTypeInformation -Encoding UTF8
+$brokenInboxRules | Export-Csv "$outputDir\Exchange_BrokenInboxRules.csv"     -NoTypeInformation -Encoding UTF8
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking inbox rules for forwarding..." -CurrentOperation "Saved: Exchange_InboxForwardingRules.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 
 

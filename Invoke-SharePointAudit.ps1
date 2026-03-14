@@ -85,6 +85,7 @@ else {
     Write-Host "  No app credentials found — falling back to interactive sign-in." -ForegroundColor DarkCyan
     Connect-PnPOnline -Url $spoAdminUrl -Interactive -ErrorAction Stop
 }
+Write-Host "Connected to SharePoint Online." -ForegroundColor Green
 
 Write-Host "`nStarting SharePoint Online Audit for $($context.OrgName)..." -ForegroundColor Cyan
 

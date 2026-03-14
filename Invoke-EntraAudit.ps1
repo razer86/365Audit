@@ -621,7 +621,7 @@ try {
         while ($profileUri) {
             $profilePage = Invoke-MgGraphRequest -Method GET -Uri $profileUri -OutputType PSObject -ErrorAction Stop
             foreach ($p in $profilePage.value) {
-                if ($p.title) { $profileTitles[$p.controlName] = $p.title }
+                if ($p.controlName -and $p.title) { $profileTitles[$p.controlName] = $p.title }
             }
             $profileUri = $profilePage.'@odata.nextLink'
         }
@@ -640,6 +640,7 @@ try {
         }
 
         $controlRows = foreach ($ctrl in $latestScore.controlScores) {
+            if (-not $ctrl.controlName) { continue }
             $title = if ($profileTitles.ContainsKey($ctrl.controlName)) {
                          $profileTitles[$ctrl.controlName]
                      } else {

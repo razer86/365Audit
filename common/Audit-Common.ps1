@@ -177,10 +177,12 @@ function Connect-ExchangeOnlineSecure {
             -ErrorAction Stop
 
         Remove-Variable _orgDomain -ErrorAction SilentlyContinue
+        Write-Host "Connected to Exchange Online." -ForegroundColor Green
     }
     else {
         Write-Host "Connecting to Exchange Online..." -ForegroundColor Cyan
         Connect-ExchangeOnline -ShowBanner:$false
+        Write-Host "Connected to Exchange Online." -ForegroundColor Green
     }
 }
 

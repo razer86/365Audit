@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Interactive launcher for the Microsoft 365 Audit toolkit.
 
@@ -6,6 +6,9 @@
     Presents a menu of available audit modules. Modules are loaded from local disk;
     missing modules are downloaded from GitHub as a fallback. On startup, compares
     local script versions against the GitHub version manifest and warns if any are outdated.
+
+    Credentials can be supplied manually or retrieved automatically from Hudu using
+    -HuduCompanyId (slug or numeric ID) or -HuduCompanyName (exact match).
 
 .PARAMETER AppId
     Azure AD application (client) ID for app-only authentication.
@@ -21,15 +24,45 @@
     If omitted, the script will prompt for it interactively.
 
 .PARAMETER CertPassword
-    Password for the .pfx certificate file.
+    Password for the .pfx certificate file. If omitted, you will be prompted.
+
+.PARAMETER HuduCompanyId
+    Hudu company slug (alphanumeric) or numeric database ID.
+    All credentials are retrieved automatically from the 'NeConnect Audit Toolkit'
+    asset for that company. Requires HUDU_API_KEY in the environment.
+
+.PARAMETER HuduCompanyName
+    Exact Hudu company name (case-sensitive).
+    All credentials are retrieved automatically from the 'NeConnect Audit Toolkit'
+    asset for that company. Requires HUDU_API_KEY in the environment.
+
+.PARAMETER HuduBaseUrl
+    Hudu instance base URL. Falls back to HUDU_BASE_URL env var, then
+    'https://neconnect.huducloud.com'. Only used with -HuduCompanyId or -HuduCompanyName.
+
+.PARAMETER HuduApiKey
+    Hudu API key. Falls back to HUDU_API_KEY env var.
+    Only used with -HuduCompanyId or -HuduCompanyName.
 
 .EXAMPLE
-    .\Start-365Audit.ps1 -AppId '<guid>' -TenantId '<guid>' -CertPassword (Read-Host -AsSecureString)
-    Prompts interactively for the certificate Base64 (paste from Hudu) and certificate password.
+    .\Start-365Audit.ps1 -AppId '<guid>' -TenantId '<guid>' -CertBase64 '<base64>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
+    Supply all credentials on the command line.
+
+.EXAMPLE
+    .\Start-365Audit.ps1 -AppId '<guid>' -TenantId '<guid>'
+    Prompts interactively for the certificate Base64 and password.
+
+.EXAMPLE
+    .\Start-365Audit.ps1 -HuduCompanyId '44706357047c'
+    Fetches all credentials from Hudu using the company slug. Requires HUDU_API_KEY env var.
+
+.EXAMPLE
+    .\Start-365Audit.ps1 -HuduCompanyName 'Contoso Ltd'
+    Fetches all credentials from Hudu using the exact company name. Requires HUDU_API_KEY env var.
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.6.1
+    Version     : 2.7.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -38,21 +71,44 @@
 
 #Requires -Version 7.2
 
+[CmdletBinding(DefaultParameterSetName = 'Manual')]
 param (
-    [Parameter(Mandatory, HelpMessage = 'Azure AD application (client) ID. Run Setup-365AuditApp.ps1 to obtain.')]
+    # ── Manual credential parameters ──────────────────────────────────────────
+    [Parameter(Mandatory, ParameterSetName = 'Manual',
+        HelpMessage = 'Azure AD application (client) ID. Run Setup-365AuditApp.ps1 to obtain.')]
     [string]$AppId,
 
-    [Parameter(Mandatory, HelpMessage = 'Azure AD tenant ID (GUID or .onmicrosoft.com domain). Run Setup-365AuditApp.ps1 to obtain.')]
+    [Parameter(Mandatory, ParameterSetName = 'Manual',
+        HelpMessage = 'Azure AD tenant ID (GUID or .onmicrosoft.com domain).')]
     [string]$TenantId,
 
-    [Parameter(HelpMessage = 'Base64-encoded .pfx certificate (output by Setup-365AuditApp.ps1, stored in Hudu). Omit to be prompted.')]
+    [Parameter(ParameterSetName = 'Manual',
+        HelpMessage = 'Base64-encoded .pfx certificate. Omit to be prompted.')]
     [string]$CertBase64,
 
-    [Parameter(Mandatory, HelpMessage = 'Password for the .pfx certificate file.')]
-    [SecureString]$CertPassword
+    [Parameter(ParameterSetName = 'Manual',
+        HelpMessage = 'Password for the .pfx certificate file. Omit to be prompted.')]
+    [SecureString]$CertPassword,
+
+    # ── Hudu parameters ────────────────────────────────────────────────────────
+    [Parameter(Mandatory, ParameterSetName = 'HuduById',
+        HelpMessage = 'Hudu company slug or numeric ID. Credentials fetched from NeConnect Audit Toolkit asset.')]
+    [string]$HuduCompanyId,
+
+    [Parameter(Mandatory, ParameterSetName = 'HuduByName',
+        HelpMessage = 'Exact Hudu company name. Credentials fetched from NeConnect Audit Toolkit asset.')]
+    [string]$HuduCompanyName,
+
+    [Parameter(ParameterSetName = 'HuduById')]
+    [Parameter(ParameterSetName = 'HuduByName')]
+    [string]$HuduBaseUrl = ($env:HUDU_BASE_URL ?? 'https://neconnect.huducloud.com'),
+
+    [Parameter(ParameterSetName = 'HuduById')]
+    [Parameter(ParameterSetName = 'HuduByName')]
+    [string]$HuduApiKey = $env:HUDU_API_KEY
 )
 
-$ScriptVersion = "2.6.1"
+$ScriptVersion = "2.7.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -68,9 +124,136 @@ else {
 }
 
 # === Config ===
-$localPath = $PSScriptRoot
+$localPath     = $PSScriptRoot
+$_tempCertPath = $null   # populated after cert decode; used in finally block
 
-# === Decode base64 cert to a temp .pfx (deleted on exit) ===
+
+# === Fetch credentials from Hudu =============================================
+if ($PSCmdlet.ParameterSetName -in 'HuduById', 'HuduByName') {
+
+    if (-not $HuduApiKey) {
+        Write-Error ("HUDU_API_KEY environment variable is not set.`n" +
+            "  Set it with: `$env:HUDU_API_KEY = (Read-Host 'Hudu API key')") -ErrorAction Stop
+    }
+
+    $HuduBaseUrl  = $HuduBaseUrl.TrimEnd('/')
+    $huduHeaders  = @{ 'x-api-key' = $HuduApiKey; 'Content-Type' = 'application/json' }
+
+    Write-Host "`n  Fetching credentials from Hudu..." -ForegroundColor Cyan
+
+    # Resolve company
+    $huduCompany = $null
+    if ($PSCmdlet.ParameterSetName -eq 'HuduById') {
+        try {
+            if ($HuduCompanyId -match '^\d+$') {
+                $r = Invoke-RestMethod -Uri "$HuduBaseUrl/api/v1/companies/$HuduCompanyId" `
+                    -Headers $huduHeaders -Method Get -ErrorAction Stop
+                $huduCompany = $r.company
+            }
+            else {
+                $encoded = [uri]::EscapeDataString($HuduCompanyId)
+                $r = Invoke-RestMethod -Uri "$HuduBaseUrl/api/v1/companies?slug=$encoded&page_size=1" `
+                    -Headers $huduHeaders -Method Get -ErrorAction Stop
+                $huduCompany = @($r.companies) | Select-Object -First 1
+            }
+        }
+        catch { Write-Error "Hudu company lookup failed: $_" -ErrorAction Stop }
+
+        if (-not $huduCompany) {
+            Write-Error "No Hudu company found for ID/slug '$HuduCompanyId'." -ErrorAction Stop
+        }
+    }
+    else {
+        # HuduByName — search then require exact match
+        try {
+            $encoded = [uri]::EscapeDataString($HuduCompanyName)
+            $r = Invoke-RestMethod -Uri "$HuduBaseUrl/api/v1/companies?search=$encoded&page_size=25" `
+                -Headers $huduHeaders -Method Get -ErrorAction Stop
+            $huduCompany = @($r.companies) | Where-Object { $_.name -eq $HuduCompanyName } |
+                Select-Object -First 1
+        }
+        catch { Write-Error "Hudu company lookup failed: $_" -ErrorAction Stop }
+
+        if (-not $huduCompany) {
+            Write-Error "No Hudu company found with exact name '$HuduCompanyName'." -ErrorAction Stop
+        }
+    }
+
+    Write-Host "  Company : $($huduCompany.name) (id: $($huduCompany.id))" -ForegroundColor Green
+
+    # Find the NeConnect Audit Toolkit asset (layout ID 67)
+    try {
+        $assetsResult = Invoke-RestMethod `
+            -Uri     "$HuduBaseUrl/api/v1/assets?company_id=$($huduCompany.id)&asset_layout_id=67&page_size=5" `
+            -Headers $huduHeaders -Method Get -ErrorAction Stop
+    }
+    catch { Write-Error "Hudu asset lookup failed: $_" -ErrorAction Stop }
+
+    $huduAsset = @($assetsResult.assets) | Sort-Object updated_at -Descending | Select-Object -First 1
+    if (-not $huduAsset) {
+        Write-Error ("No '365Audit' asset found for '$($huduCompany.name)' in Hudu.`n" +
+            "  Run Setup-365AuditApp.ps1 to create the app registration and populate the asset.") -ErrorAction Stop
+    }
+
+    # Map field labels to values
+    $fieldMap = @{}
+    foreach ($f in $huduAsset.fields) { $fieldMap[$f.label] = "$($f.value)" }
+
+    $AppId      = $fieldMap['Application ID']
+    $TenantId   = $fieldMap['Tenant ID']
+    $CertBase64 = $fieldMap['Cert Base64']
+    $plainPwd   = $fieldMap['Cert Password']
+
+    foreach ($pair in @(@('Application ID', $AppId), @('Tenant ID', $TenantId),
+                        @('Cert Base64', $CertBase64), @('Cert Password', $plainPwd))) {
+        if (-not $pair[1]) {
+            Write-Error ("Hudu asset '$($huduAsset.name)' is missing field: $($pair[0]).`n" +
+                "  Run Setup-365AuditApp.ps1 to repopulate the asset.") -ErrorAction Stop
+        }
+    }
+
+    $CertPassword = ConvertTo-SecureString $plainPwd -AsPlainText -Force
+    Write-Host "  Credentials loaded from Hudu asset: $($huduAsset.name)" -ForegroundColor Green
+}
+
+
+# === System clock drift check ================================================
+# Certificate-based auth fails when the local clock differs from Microsoft's servers
+# by more than ~5 minutes. Warn at >60 s, stop at >300 s.
+try {
+    $response    = Invoke-WebRequest -Uri 'https://login.microsoftonline.com' -Method Head `
+                       -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+    $serverUtc   = [datetime]::ParseExact(
+        $response.Headers['Date'],
+        'ddd, dd MMM yyyy HH:mm:ss \G\M\T',
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [System.Globalization.DateTimeStyles]::AssumeUniversal).ToUniversalTime()
+    $driftSec = [math]::Abs(([datetime]::UtcNow - $serverUtc).TotalSeconds)
+
+    if ($driftSec -gt 300) {
+        Write-Error ("System clock is $([math]::Round($driftSec))s out of sync with Microsoft servers " +
+            "(limit: 300s). Certificate authentication will fail — correct the system time and retry.") -ErrorAction Stop
+    }
+    elseif ($driftSec -gt 60) {
+        Write-Warning "System clock is $([math]::Round($driftSec))s out of sync with Microsoft servers. Authentication may fail if drift exceeds 300s."
+    }
+    else {
+        Write-Verbose "Clock drift: $([math]::Round($driftSec))s (OK)."
+    }
+}
+catch [System.Net.WebException] {
+    Write-Warning "Could not check clock drift (no network): $_"
+}
+catch [System.Management.Automation.ErrorRecord] {
+    # Already handled above (Stop error from drift > 300s)
+    throw
+}
+catch {
+    Write-Warning "Clock drift check skipped: $_"
+}
+
+
+# === Decode base64 cert to a temp .pfx (deleted on exit) =====================
 if (-not $CertBase64) {
     $CertBase64 = Read-Host 'Paste certificate Base64'
 }
@@ -88,6 +271,11 @@ $_tempCertPath = Join-Path $_tempDir "365Audit-$(New-Guid).pfx"
 [System.IO.File]::WriteAllBytes($_tempCertPath, $certBytes)
 $CertFilePath  = $_tempCertPath
 Write-Verbose "Certificate decoded from base64 to temp file: $_tempCertPath"
+
+# Prompt for cert password if not supplied (Hudu path pre-populates this)
+if (-not $CertPassword) {
+    $CertPassword = Read-Host 'Cert Password' -AsSecureString
+}
 
 # Check certificate expiry and warn if renewal is needed within 30 days.
 # EphemeralKeySet keeps the private key in memory only (Windows).
@@ -125,6 +313,22 @@ $AuditAppId        = $AppId
 $AuditTenantId     = $TenantId
 $AuditCertFilePath = $CertFilePath
 $AuditCertPassword = $CertPassword
+
+# === Drop any existing sessions from a prior run in this PS session ===
+# The connect helpers skip reconnecting if a session is already active, so we must
+# disconnect before setting new credentials — otherwise the wrong tenant is audited.
+if (Get-MgContext -ErrorAction SilentlyContinue) {
+    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+    Write-Verbose "Disconnected existing Microsoft Graph session."
+}
+if (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' }) {
+    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    Write-Verbose "Disconnected existing Exchange Online session."
+}
+try {
+    Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null
+    Write-Verbose "Disconnected existing SharePoint Online session."
+} catch {}
 
 # === Check for updates ===
 Invoke-VersionCheck -ScriptRoot $PSScriptRoot
@@ -183,7 +387,6 @@ try {
             Write-Host "================================================================"
 
             if (Test-Path $localScriptPath) {
-                Write-Host "Loading local script: $localScriptPath`n"
                 . $localScriptPath
             }
             else {
@@ -215,8 +418,15 @@ try {
     }
 }
 finally {
-    if (Test-Path $_tempCertPath) {
+    if ($_tempCertPath -and (Test-Path $_tempCertPath)) {
         Remove-Item $_tempCertPath -Force -ErrorAction SilentlyContinue
         Write-Verbose "Temp certificate file removed: $_tempCertPath"
     }
+    if (Get-MgContext -ErrorAction SilentlyContinue) {
+        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+    }
+    if (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' }) {
+        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+    try { Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null } catch {}
 }
