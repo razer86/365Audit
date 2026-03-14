@@ -35,7 +35,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.10.1
+    Version     : 1.10.2
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -53,7 +53,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.10.1"
+$ScriptVersion = "1.10.2"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -614,17 +614,37 @@ try {
             Percentage   = $percentage
         } | Export-Csv "$outputDir\Entra_SecureScore.csv" -NoTypeInformation -Encoding UTF8
 
-        # Fetch human-readable titles from control profiles (paginated)
+        # Fetch human-readable titles from control profiles (paginated).
+        # Only store non-empty titles; some controls have null titles in the API.
         $profileTitles = @{}
         $profileUri = 'https://graph.microsoft.com/v1.0/security/secureScoreControlProfiles?$select=controlName,title&$top=250'
         while ($profileUri) {
             $profilePage = Invoke-MgGraphRequest -Method GET -Uri $profileUri -OutputType PSObject -ErrorAction Stop
-            foreach ($p in $profilePage.value) { $profileTitles[$p.controlName] = $p.title }
+            foreach ($p in $profilePage.value) {
+                if ($p.title) { $profileTitles[$p.controlName] = $p.title }
+            }
             $profileUri = $profilePage.'@odata.nextLink'
         }
 
+        # Fallback: convert raw API key to a readable label by stripping vendor
+        # prefixes (mdo_, AATP_, AAD_, etc.) then splitting underscores and
+        # camelCase, and title-casing the result.
+        $titleInfo = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo
+        $knownPrefixes = '^(mdo|aatp|aad|azure|intune|teams|dlp|mcas|mdca|defender|compliancepolicy)_'
+        filter ConvertTo-ReadableControlName {
+            $clean  = $_ -ireplace $knownPrefixes, ''
+            $words  = ($clean -split '_') | ForEach-Object {
+                        $_ -creplace '(?<=[a-z])(?=[A-Z])', ' '
+                      }
+            $titleInfo.ToTitleCase(($words -join ' ').ToLower())
+        }
+
         $controlRows = foreach ($ctrl in $latestScore.controlScores) {
-            $title = if ($profileTitles.ContainsKey($ctrl.controlName)) { $profileTitles[$ctrl.controlName] } else { $ctrl.controlName }
+            $title = if ($profileTitles.ContainsKey($ctrl.controlName)) {
+                         $profileTitles[$ctrl.controlName]
+                     } else {
+                         $ctrl.controlName | ConvertTo-ReadableControlName
+                     }
             [PSCustomObject]@{
                 ControlName  = $title
                 Score        = $ctrl.score

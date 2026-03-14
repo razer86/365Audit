@@ -55,6 +55,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.10.2 | Add `ConvertTo-ReadableControlName` fallback for controls missing a profile title: strips vendor prefixes (`mdo_`, `AATP_`, `AAD_`, etc.), splits underscores and camelCase, title-cases the result; also skip null/empty titles from the profiles API |
 | 1.10.1 | Fetch `secureScoreControlProfiles` to resolve human-readable control titles; `ControlName` in CSV now uses title (e.g. "Require MFA for admins") instead of API key (e.g. "AdminMFAV2"); falls back to `controlName` if profile not found |
 | 1.10.0 | Add Identity Secure Score collection: `Entra_SecureScore.csv` (date, current, max, percentage) and `Entra_SecureScoreControls.csv` (per-control name, score, description); requires `SecurityEvents.Read.All` |
 | 1.9.0 | `Write-Progress -Status` now includes "Step X/Y — " prefix |
