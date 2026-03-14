@@ -4,26 +4,26 @@
 
 .DESCRIPTION
     First run  : Creates the 'NeConnect MSA Audit Toolkit' app registration with all
-                 required permissions (Graph, Exchange), grants admin consent, registers a
-                 dedicated PnP interactive auth app for SharePoint, and prints both sets of
-                 credentials for storage in Hudu.
+                 required permissions (Graph, Exchange, SharePoint), grants admin consent,
+                 generates a self-signed certificate (.pfx), and prints all credentials
+                 (AppId, TenantId, CertBase64, CertPassword) for storage in Hudu.
 
-    Subsequent : Checks the existing app's secret expiry. If expiring within 30 days
-                 (or -Force is used), generates a new secret.
+    Subsequent : Checks the existing certificate's expiry. If expiring within 30 days
+                 (or -Force is used), generates and uploads a new certificate.
 
-    The app credentials (AppId/AppSecret/TenantId) are optional at audit runtime.
-    When provided via -AppId/-AppSecret/-TenantId, Entra and Exchange modules authenticate
-    silently without interactive prompts. SharePoint always uses interactive sign-in.
+    At audit runtime, techs provide -AppId, -TenantId, -CertBase64, and -CertPassword
+    to Start-365Audit.ps1. The script decodes the Base64 cert to a temporary .pfx,
+    uses it for all module connections, and deletes the temp file on exit.
 
 .PARAMETER AppName
     Display name for the Azure app registration.
     Default: 'NeConnect MSA Audit Toolkit'
 
-.PARAMETER SecretExpiryMonths
-    Validity period for the generated client secret (1–24 months). Default: 24.
+.PARAMETER CertExpiryYears
+    Validity period for the generated certificate (1–5 years). Default: 2.
 
 .PARAMETER Force
-    Generate a new client secret even when the existing one is not near expiry.
+    Generate a new certificate even when the existing one is not near expiry.
 
 .EXAMPLE
     .\Setup-365AuditApp.ps1
@@ -31,7 +31,7 @@
 
 .EXAMPLE
     .\Setup-365AuditApp.ps1 -Force
-    Force a new secret even when the current one is healthy.
+    Force certificate renewal even when the current certificate is healthy.
 
 .NOTES
     Author      : Raymond Slater
@@ -395,7 +395,7 @@ function Request-AdminConsent {
 # ============================================================
 # Print credentials in a clearly formatted block
 # ============================================================
-function Show-Credentials {
+function Write-CredentialSummary {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'CertPassword',
         Justification = 'Intentionally plain text — displayed once so the operator can store it in the password manager.')]
     [CmdletBinding()]
@@ -518,12 +518,12 @@ try {
             if ($certStatus.ExpiresWithin30Days) {
                 Write-Status "Certificate expiring within $script:ExpiryWarnDays days — generating new certificate." -Type Warning
                 $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-                Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
             }
             elseif ($Force) {
                 Write-Status '-Force specified — generating new certificate.' -Type Warning
                 $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-                Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
             }
             else {
                 Write-Status "Certificate is healthy — re-run the audit with your existing .pfx file." -Type Success
@@ -539,7 +539,7 @@ try {
         else {
             Write-Status 'No active certificate found — generating new certificate.' -Type Warning
             $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-            Show-Credentials -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+            Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
         }
     }
     else {
@@ -595,7 +595,7 @@ try {
             Write-Status "Generating $CertExpiryYears-year certificate..."
             $newCert = New-AuditCertificate -AppObjectId $newApp.Id -AppId $newApp.AppId -ExpiryYears $CertExpiryYears
 
-            Show-Credentials -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+            Write-CredentialSummary -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
         }
     }
 }

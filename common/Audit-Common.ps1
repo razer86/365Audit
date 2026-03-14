@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.11.0
+    Version     : 1.13.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -73,7 +73,7 @@ function Connect-MgGraphSecure {
         "SecurityEvents.Read.All"
     )
 
-    # Auto-detect app credentials set by the launcher (-AppId/-TenantId/-CertFilePath/-CertPassword params).
+    # Auto-detect app credentials set by the launcher (-AppId/-TenantId/-CertBase64/-CertPassword params).
     # Get-Variable searches the current scope and all parent scopes.
     $appId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
     $certFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue

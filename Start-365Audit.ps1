@@ -23,6 +23,10 @@
 .PARAMETER CertPassword
     Password for the .pfx certificate file.
 
+.EXAMPLE
+    .\Start-365Audit.ps1 -AppId '<guid>' -TenantId '<guid>' -CertPassword (Read-Host -AsSecureString)
+    Prompts interactively for the certificate Base64 (paste from Hudu) and certificate password.
+
 .NOTES
     Author      : Raymond Slater
     Version     : 2.5.0

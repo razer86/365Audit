@@ -97,7 +97,7 @@ $mailboxInventory = foreach ($mbx in $mailboxes) {
             $archBytes     = if ($archSizeStr -match '\((\d[\d,]+)\s+bytes\)') { [long]($Matches[1] -replace ',') } else { 0 }
             $archiveSizeMB = [math]::Round($archBytes / 1MB, 2)
         }
-        catch { }
+        catch { } # Archive mailbox may not exist or may be disabled — skip silently
     }
 
     [PSCustomObject]@{

@@ -3,8 +3,8 @@
     Performs a SharePoint Online and OneDrive audit.
 
 .DESCRIPTION
-    Connects to SharePoint Online using PnP.PowerShell with interactive authentication
-    and exports:
+    Connects to SharePoint Online using PnP.PowerShell with certificate-based app-only
+    authentication and exports:
     - Tenant storage summary
     - Site collection list (URL, template, storage, owner)
     - SharePoint groups and members per site
@@ -18,67 +18,8 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.7.0
-    Change Log  :
-        1.0.0 - Initial release
-        1.0.1 - Refactor output directory initialisation
-        1.0.2 - Helper function refactor
-        1.1.0 - Removed duplicate guard clause; fixed outputDir override;
-                replaced deprecated Get-MsolUser with Microsoft Graph;
-                removed alias usage; added CmdletBinding
-        1.2.0 - Fixed Connect-PnPOnline (removed invalid -Scopes param);
-                derive SharePoint admin URL from tenant .onmicrosoft.com domain;
-                replaced Get-SPOSite/Get-SPOTenant (SPO Management Shell) with
-                PnP equivalents (Get-PnPTenantSite, Get-PnPTenant)
-        1.3.0 - PnP.PowerShell v2+ requires -ClientId with -Interactive;
-                using PnP Management Shell public app (31359c7f-bd7e-475c-86db-fdb8c937548e)
-        1.4.0 - Conditional auth: app-only (ClientId/Secret) when launcher provides
-                -AppId/-AppSecret/-TenantId; falls back to interactive PnP Management Shell
-        1.5.0 - Extend ExternalSharing_Tenant CSV with DefaultSharingLinkType and
-                RequireAnonymousLinksExpireInDays; extend AccessControlPolicies CSV
-                with IsUnmanagedSyncAppForTenantRestricted and BlockMacSync
-        1.6.0 - Replaced PnP.PowerShell with OAuth2 client-credentials token approach
-        1.7.0 - Replaced PnP.PowerShell entirely with Microsoft.Online.SharePoint.PowerShell
-                (the official Microsoft SPO admin module); Connect-SPOService -AccessToken
-                correctly handles tenant admin APIs; all PnP cmdlets replaced with SPO equivalents
-        1.8.0 - Reverted to PnP.PowerShell; connect to admin URL for tenant-wide operations;
-                reconnect per-site for group/user queries
-        1.9.0 - Replaced all module dependencies with direct SharePoint REST API calls;
-                enum mapping functions for string compatibility
-        2.0.0 - Root cause identified: SharePoint admin APIs block tokens with azpacr=0
-                (client-secret credentials) with "Unsupported app only token" regardless of
-                REST vs CSOM; switched to PnP.PowerShell with certificate-based app-only auth
-                which produces azpacr=1 tokens; requires $AuditCertThumbprint from launcher
-        2.1.0 - Reverted to interactive authentication; certificate-based app-only auth is
-                not portable across technician machines; interactive sign-in is sufficient
-                for manual monthly audit runs; MSAL token cache prevents repeated prompts
-                for per-site reconnections
-        2.2.0 - Added pre-flight check: verifies PnP Management Shell is registered in the
-                tenant before attempting interactive auth; prints setup guidance if missing
-        2.3.0 - PnP Management Shell app deprecated in PnP.PowerShell v2; switched to
-                using $AuditPnPAppId (registered via Register-PnPEntraIDAppForInteractiveLogin
-                in Setup-365AuditApp.ps1) as the ClientId for Connect-PnPOnline -Interactive;
-                requires Setup to have been run and -PnPAppId provided at launch;
-                bumped #Requires to 7.4 (PnP.PowerShell v3 requires PowerShell 7.4+);
-                updated PnP module check to enforce MinimumVersion 3.0.0
-        2.4.0 - Replaced per-section Write-Host progress lines with Write-Progress
-                for cleaner terminal output
-        2.5.0 - Per-site connections use -ReturnConnection so each connection is a
-                named object; admin cmdlets pin to $adminConn, per-site cmdlets pin
-                to $siteConn; guarantees exactly one browser sign-in (MSAL reuses
-                the cached token for all subsequent site connections silently)
-        2.6.0 - Added Step X/Y counter to Write-Progress status strings
-        2.8.0 - Switched to certificate-based app-only auth: reads $AuditAppId/
-                $AuditCertFilePath/$AuditCertPassword from launcher scope; uses
-                Connect-PnPOnline -CertificatePath/-CertificatePassword (portable .pfx,
-                no cert store required); removes interactive auth, PnP app ID pre-flight,
-                and Get-PnPAccessToken; falls back to interactive when cert vars absent
-        2.7.0 - Replaced -ReturnConnection MSAL caching strategy with explicit
-                -AccessToken pass-through: authenticate interactively once to the
-                admin URL, capture the SPO access token via Get-PnPAccessToken, then
-                connect to each site with -AccessToken (no browser prompt per site);
-                also removed Disconnect-PnPOnline -Connection which is not a valid
-                parameter in PnP.PowerShell v3
+    Version     : 2.8.0
+    Change Log  : See CHANGELOG.md
 
 .LINK
     https://github.com/razer86/365Audit
