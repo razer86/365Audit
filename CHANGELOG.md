@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.6.0 | Validate CertBase64 decodes cleanly before writing to disk (clear error if paste is truncated); check certificate expiry on startup and warn if ≤30 days remaining or already expired |
 | 2.5.0 | `-CertBase64` is now optional; if omitted the script prompts `Read-Host 'Paste certificate Base64'` — same UX as `-CertPassword` |
 | 2.4.0 | Removed `-CertFilePath` and `-CertSharePointUrl`; `-CertBase64` is now the only cert input method — paste from Hudu, no file path or SharePoint URL needed; temp .pfx written to `$env:TEMP` and deleted on exit |
 | 2.3.0 | Add `-CertBase64` parameter set; add `-CertSharePointUrl` (browser open) |

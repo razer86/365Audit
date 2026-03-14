@@ -29,7 +29,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.5.0
+    Version     : 2.6.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -52,7 +52,7 @@ param (
     [SecureString]$CertPassword
 )
 
-$ScriptVersion = "2.5.0"
+$ScriptVersion = "2.6.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -74,10 +74,42 @@ $localPath = $PSScriptRoot
 if (-not $CertBase64) {
     $CertBase64 = Read-Host 'Paste certificate Base64'
 }
+
+# Validate the base64 string decodes correctly before writing anything to disk.
+try {
+    $certBytes = [Convert]::FromBase64String($CertBase64)
+}
+catch {
+    Write-Error "Certificate Base64 is invalid and could not be decoded. Verify the value copied from Hudu is complete." -ErrorAction Stop
+}
+
 $_tempCertPath = Join-Path $env:TEMP "365Audit-$(New-Guid).pfx"
-[System.IO.File]::WriteAllBytes($_tempCertPath, [Convert]::FromBase64String($CertBase64))
+[System.IO.File]::WriteAllBytes($_tempCertPath, $certBytes)
 $CertFilePath  = $_tempCertPath
 Write-Verbose "Certificate decoded from base64 to temp file: $_tempCertPath"
+
+# Check certificate expiry and warn if renewal is needed within 30 days.
+try {
+    $certObj = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+        $certBytes,
+        $CertPassword,
+        [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+    )
+    $daysRemaining = ($certObj.NotAfter - (Get-Date)).Days
+    if ($daysRemaining -le 0) {
+        Write-Warning "The audit certificate EXPIRED $([math]::Abs($daysRemaining)) day(s) ago. Authentication will fail. Run Setup-365AuditApp.ps1 -Force to renew."
+    }
+    elseif ($daysRemaining -le 30) {
+        Write-Warning "The audit certificate expires in $daysRemaining day(s) ($($certObj.NotAfter.ToString('yyyy-MM-dd'))). Run Setup-365AuditApp.ps1 -Force soon to renew."
+    }
+    else {
+        Write-Verbose "Certificate valid until $($certObj.NotAfter.ToString('yyyy-MM-dd')) ($daysRemaining days remaining)."
+    }
+    $certObj.Dispose()
+}
+catch {
+    Write-Warning "Could not read certificate expiry: $_"
+}
 
 # Expose app credentials so dot-sourced modules can access them.
 $AuditAppId        = $AppId

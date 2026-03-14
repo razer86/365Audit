@@ -1,5 +1,5 @@
 {
-    "Start-365Audit.ps1": "2.5.0",
+    "Start-365Audit.ps1": "2.6.0",
     "Setup-365AuditApp.ps1": "2.2.0",
     "common/Audit-Common.ps1": "1.13.0",
     "Invoke-EntraAudit.ps1": "1.10.2",
