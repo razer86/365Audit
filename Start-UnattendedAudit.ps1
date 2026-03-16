@@ -54,7 +54,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.1.0
+    Version     : 2.2.0
 
 .LINK
     https://github.com/razer86/365Audit
@@ -74,7 +74,7 @@ param (
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.1.0"
+$ScriptVersion = "2.2.0"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -120,55 +120,56 @@ foreach ($scriptPath in @($setupScript, $auditScript)) {
 
 $totalCustomers = $customerList.Count
 $currentIndex   = 0
+$failed         = @()
 
 foreach ($entry in $customerList) {
-    $currentIndex++
-    $customerId   = $entry.HuduCompanySlug
-    $customerMods = if ($Modules) { $Modules } else { [int[]]($entry.Modules ?? @(1, 2, 3, 4)) }
-    $customerLabel = "[$currentIndex/$totalCustomers] $customerId"
+        $currentIndex++
+        $customerId   = $entry.HuduCompanySlug
+        $customerMods = if ($Modules) { $Modules } else { [int[]]($entry.Modules ?? @(1, 2, 3, 4)) }
+        $customerLabel = "[$currentIndex/$totalCustomers] $customerId"
 
-    Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
-    Write-Host "  $customerLabel  (modules: $($customerMods -join ','))" -ForegroundColor Cyan
-    Write-Host "$('=' * 72)" -ForegroundColor Cyan
+        Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
+        Write-Host "  $customerLabel  (modules: $($customerMods -join ','))" -ForegroundColor Cyan
+        Write-Host "$('=' * 72)" -ForegroundColor Cyan
 
-    $result = [PSCustomObject]@{
-        Customer    = $customerId
-        Modules     = $customerMods -join ','
-        CertRenewed = $false
-        AuditStatus = 'Pending'
-        Error       = $null
-    }
+        $result = [PSCustomObject]@{
+            Customer    = $customerId
+            Modules     = $customerMods -join ','
+            CertRenewed = $false
+            AuditStatus = 'Pending'
+            Error       = $null
+        }
 
-    try {
-        # --- Step 1: Cert check and renewal ---
-        if (-not $SkipCertCheck) {
-            Write-Host "  Checking certificate expiry..." -ForegroundColor DarkCyan
-            & $setupScript `
+        try {
+            # --- Step 1: Cert check and renewal ---
+            if (-not $SkipCertCheck) {
+                Write-Host "  Checking certificate expiry..." -ForegroundColor DarkCyan
+                & $setupScript `
+                    -HuduCompanyId $customerId `
+                    -HuduBaseUrl   $HuduBaseUrl `
+                    -HuduApiKey    $HuduApiKey `
+                    -ErrorAction Stop
+            }
+
+            # --- Step 2: Run audit ---
+            Write-Host "  Starting audit (modules: $($customerMods -join ','))..." -ForegroundColor DarkCyan
+            & $auditScript `
                 -HuduCompanyId $customerId `
                 -HuduBaseUrl   $HuduBaseUrl `
                 -HuduApiKey    $HuduApiKey `
+                -Modules       $customerMods `
                 -ErrorAction Stop
+
+            $result.AuditStatus = 'Completed'
+            Write-Host "  $customerLabel — DONE" -ForegroundColor Green
+        }
+        catch {
+            $result.AuditStatus = 'Failed'
+            $result.Error       = $_.Exception.Message
+            Write-Host "  $customerLabel — FAILED: $($_.Exception.Message)" -ForegroundColor Red
         }
 
-        # --- Step 2: Run audit ---
-        Write-Host "  Starting audit (modules: $($customerMods -join ','))..." -ForegroundColor DarkCyan
-        & $auditScript `
-            -HuduCompanyId $customerId `
-            -HuduBaseUrl   $HuduBaseUrl `
-            -HuduApiKey    $HuduApiKey `
-            -Modules       $customerMods `
-            -ErrorAction Stop
-
-        $result.AuditStatus = 'Completed'
-        Write-Host "  $customerLabel — DONE" -ForegroundColor Green
-    }
-    catch {
-        $result.AuditStatus = 'Failed'
-        $result.Error       = $_.Exception.Message
-        Write-Host "  $customerLabel — FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-
-    $results.Add($result)
+        $results.Add($result)
 }
 
 # ── Final summary ─────────────────────────────────────────────────────────────

@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.8.0
+    Version     : 2.9.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -118,10 +118,22 @@ param (
     [int[]]$Modules
 )
 
-$ScriptVersion = "2.8.0"
+$ScriptVersion = "2.9.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# === Transcript logging ===
+# Capture all console output to a temp file; moved to the audit output folder as AuditLog.txt on exit.
+$_transcriptActive = $false
+$_transcriptPath   = $null
+$_logTempDir       = $env:TEMP ?? $env:TMPDIR ?? '/tmp'
+$_transcriptPath   = Join-Path $_logTempDir "365Audit-$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+try {
+    Start-Transcript -Path $_transcriptPath -UseMinimalHeader | Out-Null
+    $_transcriptActive = $true
+}
+catch { Write-Verbose "Could not start transcript: $_" }
 
 # === Load shared helper functions ===
 $commonPath = Join-Path $PSScriptRoot "common\Audit-Common.ps1"
@@ -442,6 +454,15 @@ finally {
     if ($_tempCertPath -and (Test-Path $_tempCertPath)) {
         Remove-Item $_tempCertPath -Force -ErrorAction SilentlyContinue
         Write-Verbose "Temp certificate file removed: $_tempCertPath"
+    }
+    if ($_transcriptActive) {
+        try { Stop-Transcript | Out-Null } catch {}
+        $logCtx = try { Initialize-AuditOutput } catch { $null }
+        if ($logCtx -and $_transcriptPath -and (Test-Path $_transcriptPath -ErrorAction SilentlyContinue)) {
+            $logDest = Join-Path $logCtx.OutputPath 'AuditLog.txt'
+            Move-Item -Path $_transcriptPath -Destination $logDest -Force -ErrorAction SilentlyContinue
+            Write-Verbose "Audit log saved: $logDest"
+        }
     }
     if (Get-MgContext -ErrorAction SilentlyContinue) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null

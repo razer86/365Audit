@@ -1,6 +1,6 @@
 {
-    "Start-365Audit.ps1": "2.8.0",
-    "Start-UnattendedAudit.ps1": "2.1.0",
+    "Start-365Audit.ps1": "2.9.0",
+    "Start-UnattendedAudit.ps1": "2.2.0",
     "Setup-365AuditApp.ps1": "2.4.1",
     "common/Audit-Common.ps1": "1.14.0",
     "Invoke-EntraAudit.ps1": "1.10.3",

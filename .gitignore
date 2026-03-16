@@ -7,4 +7,6 @@ Test-*
 *.docx
 *.dotx
 *.html
-*.py   
+*.py
+# Audit transcript logs
+*.log
