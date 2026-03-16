@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.5.3
+    Version     : 2.5.4
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey  = $env:HUDU_API_KEY
 )
 
-$ScriptVersion      = '2.5.3'
+$ScriptVersion      = '2.5.4'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -117,6 +117,10 @@ $script:GraphPermissions = @(
     'AuditLog.Read.All',
     'SecurityEvents.Read.All',
     'DelegatedAdminRelationship.Read.All',
+    'DeviceManagementManagedDevices.Read.All',
+    'DeviceManagementConfiguration.Read.All',
+    'DeviceManagementApps.Read.All',
+    'DeviceManagementServiceConfig.Read.All',
     'Application.ReadWrite.OwnedBy'
 )
 

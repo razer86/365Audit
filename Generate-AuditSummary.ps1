@@ -38,10 +38,20 @@
     - Entra_PartnerRelationships.csv
     - Entra_EnterpriseApps.csv
     - Exchange_MailConnectors.csv
+    - Intune_LicenceCheck.csv
+    - Intune_Devices.csv
+    - Intune_DeviceComplianceStates.csv
+    - Intune_CompliancePolicies.csv
+    - Intune_CompliancePolicySettings.csv
+    - Intune_ConfigProfiles.csv
+    - Intune_ConfigProfileSettings.csv
+    - Intune_Apps.csv
+    - Intune_AutopilotDevices.csv
+    - Intune_EnrollmentRestrictions.csv
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.23.0
+    Version     : 1.26.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -62,7 +72,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.23.0"
+$ScriptVersion = "1.26.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -71,6 +81,13 @@ if (-not (Test-Path $AuditFolder)) {
     Write-Error "Provided audit folder does not exist: $AuditFolder"
     exit 1
 }
+
+# Module output subfolders
+$entraDir    = Join-Path $AuditFolder "Entra"
+$exchangeDir = Join-Path $AuditFolder "Exchange"
+$spDir       = Join-Path $AuditFolder "SharePoint"
+$mailSecDir  = Join-Path $AuditFolder "MailSecurity"
+$intuneDir   = Join-Path $AuditFolder "Intune"
 
 # =========================================
 # ===   HTML Section Helper             ===
@@ -263,7 +280,7 @@ if ($orgInfo -and $orgInfo.TechnicalNotificationMails.Count -gt 0) {
 # Guest accounts in privileged roles
 # #EXT# in the UPN identifies a guest account. Guests holding admin roles may be
 # a previous MSP's staff who retained access after the engagement ended.
-$_aiAdminRolesCsv = Join-Path $AuditFolder "Entra_AdminRoles.csv"
+$_aiAdminRolesCsv = Join-Path $entraDir "Entra_AdminRoles.csv"
 if (Test-Path $_aiAdminRolesCsv) {
     $_guestAdmins = @(Import-Csv $_aiAdminRolesCsv | Where-Object { $_.MemberUserPrincipalName -like '*#EXT#*' })
     if ($_guestAdmins.Count -gt 0) {
@@ -275,7 +292,7 @@ if (Test-Path $_aiAdminRolesCsv) {
 }
 
 # MFA coverage
-$_aiUsersCsv = Join-Path $AuditFolder "Entra_Users.csv"
+$_aiUsersCsv = Join-Path $entraDir "Entra_Users.csv"
 if (Test-Path $_aiUsersCsv) {
     $_aiUsers   = @(Import-Csv $_aiUsersCsv)
     $_aiTotal   = $_aiUsers.Count
@@ -288,8 +305,8 @@ if (Test-Path $_aiUsersCsv) {
 }
 
 # Security Defaults + Conditional Access enforcement
-$_aiSdCsv = Join-Path $AuditFolder "Entra_SecurityDefaults.csv"
-$_aiCaCsv = Join-Path $AuditFolder "Entra_CA_Policies.csv"
+$_aiSdCsv = Join-Path $entraDir "Entra_SecurityDefaults.csv"
+$_aiCaCsv = Join-Path $entraDir "Entra_CA_Policies.csv"
 $_aiSdEnabled = $false
 if (Test-Path $_aiSdCsv) {
     $_aiSd = Import-Csv $_aiSdCsv | Select-Object -First 1
@@ -312,7 +329,7 @@ if (-not $_aiSdEnabled -and (Test-Path $_aiCaCsv)) {
 }
 
 # Global Admin count
-$_aiGaCsv = Join-Path $AuditFolder "Entra_GlobalAdmins.csv"
+$_aiGaCsv = Join-Path $entraDir "Entra_GlobalAdmins.csv"
 if (Test-Path $_aiGaCsv) {
     $_aiGaCount = @(Import-Csv $_aiGaCsv).Count
     if ($_aiGaCount -eq 0) {
@@ -327,7 +344,7 @@ if (Test-Path $_aiGaCsv) {
 }
 
 # SSPR
-$_aiSsprCsv = Join-Path $AuditFolder "Entra_SSPR.csv"
+$_aiSsprCsv = Join-Path $entraDir "Entra_SSPR.csv"
 if (Test-Path $_aiSsprCsv) {
     $_aiSspr = Import-Csv $_aiSsprCsv | Select-Object -First 1
     if ($_aiSspr.SSPREnabled -ne "Enabled") {
@@ -340,7 +357,7 @@ if (Test-Path $_aiSsprCsv) {
 # Webb Bros (trading as NeConnect group brands) appears as an indirect reseller under Ingram Micro.
 $_knownPartners = @('Ingram Micro Pty Ltd', 'Webb Bros')
 
-$_partnerCsv = Join-Path $AuditFolder "Entra_PartnerRelationships.csv"
+$_partnerCsv = Join-Path $entraDir "Entra_PartnerRelationships.csv"
 if (Test-Path $_partnerCsv) {
     $_partners = @(Import-Csv $_partnerCsv)
     $_unknownPartners = @($_partners | Where-Object {
@@ -374,7 +391,7 @@ if (Test-Path $_partnerCsv) {
 
 # Third-party enterprise apps with admin-consented permissions
 # Apps with admin consent have been granted API access to the tenant. Review for unknown or MSP-installed apps.
-$_aiAppsCsv = Join-Path $AuditFolder "Entra_EnterpriseApps.csv"
+$_aiAppsCsv = Join-Path $entraDir "Entra_EnterpriseApps.csv"
 if (Test-Path $_aiAppsCsv) {
     $_aiApps         = @(Import-Csv $_aiAppsCsv)
     $_aiConsentedApps = @($_aiApps | Where-Object { $_.AdminConsented -eq 'True' })
@@ -389,7 +406,7 @@ if (Test-Path $_aiAppsCsv) {
 # --- Exchange checks ---
 
 # Inbox forwarding rules
-$_aiInboxCsv = Join-Path $AuditFolder "Exchange_InboxForwardingRules.csv"
+$_aiInboxCsv = Join-Path $exchangeDir "Exchange_InboxForwardingRules.csv"
 if (Test-Path $_aiInboxCsv) {
     $_aiInboxRules = @(Import-Csv $_aiInboxCsv)
     if ($_aiInboxRules.Count -gt 0) {
@@ -398,7 +415,7 @@ if (Test-Path $_aiInboxCsv) {
 }
 
 # Broken inbox rules
-$_aiBrokenCsv = Join-Path $AuditFolder "Exchange_BrokenInboxRules.csv"
+$_aiBrokenCsv = Join-Path $exchangeDir "Exchange_BrokenInboxRules.csv"
 if (Test-Path $_aiBrokenCsv) {
     $_aiBrokenRules = @(Import-Csv $_aiBrokenCsv)
     if ($_aiBrokenRules.Count -gt 0) {
@@ -407,7 +424,7 @@ if (Test-Path $_aiBrokenCsv) {
 }
 
 # Remote domain auto-forwarding — only flag named (non-wildcard) domains; the default * entry is present in every tenant
-$_aiRemoteCsv = Join-Path $AuditFolder "Exchange_RemoteDomainForwarding.csv"
+$_aiRemoteCsv = Join-Path $exchangeDir "Exchange_RemoteDomainForwarding.csv"
 if (Test-Path $_aiRemoteCsv) {
     $_aiRemoteNamed = @(Import-Csv $_aiRemoteCsv | Where-Object { $_.AutoForwardEnabled -eq "True" -and $_.DomainName -ne "*" })
     if ($_aiRemoteNamed.Count -gt 0) {
@@ -417,7 +434,7 @@ if (Test-Path $_aiRemoteCsv) {
 }
 
 # Unified Audit Log / retention
-$_aiAuditCfgCsv = Join-Path $AuditFolder "Exchange_AuditConfig.csv"
+$_aiAuditCfgCsv = Join-Path $exchangeDir "Exchange_AuditConfig.csv"
 if (Test-Path $_aiAuditCfgCsv) {
     $_aiAuditCfg = Import-Csv $_aiAuditCfgCsv | Select-Object -First 1
     if ($_aiAuditCfg.UnifiedAuditLogIngestionEnabled -eq "False") {
@@ -433,7 +450,7 @@ if (Test-Path $_aiAuditCfgCsv) {
 }
 
 # Mailbox audit status
-$_aiMbxAuditCsv = Join-Path $AuditFolder "Exchange_MailboxAuditStatus.csv"
+$_aiMbxAuditCsv = Join-Path $exchangeDir "Exchange_MailboxAuditStatus.csv"
 if (Test-Path $_aiMbxAuditCsv) {
     $_aiMbxAudit   = @(Import-Csv $_aiMbxAuditCsv | Where-Object { $_.UserPrincipalName -notlike 'DiscoverySearchMailbox*' })
     $_aiAuditOff   = @($_aiMbxAudit | Where-Object { $_.AuditEnabled -eq "False" })
@@ -443,7 +460,7 @@ if (Test-Path $_aiMbxAuditCsv) {
 }
 
 # DKIM
-$_aiDkimCsv = Join-Path $AuditFolder "Exchange_DKIM_Status.csv"
+$_aiDkimCsv = Join-Path $exchangeDir "Exchange_DKIM_Status.csv"
 if (Test-Path $_aiDkimCsv) {
     $_aiDkim        = @(Import-Csv $_aiDkimCsv)
     $_aiDkimOff     = @($_aiDkim | Where-Object { $_.DKIMEnabled -ne "True" -and $_.Domain -notlike "*.onmicrosoft.com" })
@@ -454,7 +471,7 @@ if (Test-Path $_aiDkimCsv) {
 }
 
 # Anti-phish: Spoof Intelligence
-$_aiPhishCsv = Join-Path $AuditFolder "Exchange_AntiPhishPolicies.csv"
+$_aiPhishCsv = Join-Path $exchangeDir "Exchange_AntiPhishPolicies.csv"
 if (Test-Path $_aiPhishCsv) {
     $_aiPhish      = @(Import-Csv $_aiPhishCsv)
     $_aiNoSpoof    = @($_aiPhish | Where-Object { $_.EnableSpoofIntelligence -eq "False" })
@@ -466,7 +483,7 @@ if (Test-Path $_aiPhishCsv) {
 # Mail connectors
 # Custom connectors are often created by MSPs to route mail through their filtering/archiving infrastructure.
 # Flag any enabled custom connector so the tech can confirm it still belongs here.
-$_aiConnectorsCsv = Join-Path $AuditFolder "Exchange_MailConnectors.csv"
+$_aiConnectorsCsv = Join-Path $exchangeDir "Exchange_MailConnectors.csv"
 if (Test-Path $_aiConnectorsCsv) {
     $_aiCustomConnectors = @(Import-Csv $_aiConnectorsCsv | Where-Object {
         $_.Enabled -eq 'True' -and $_.ConnectorSource -ne 'HybridWizard' -and $_.ConnectorSource -ne 'Default'
@@ -481,7 +498,7 @@ if (Test-Path $_aiConnectorsCsv) {
 
 # --- Mail Security checks (MailSec module) ---
 
-$_aiDmarcCsv = Join-Path $AuditFolder "MailSec_DMARC.csv"
+$_aiDmarcCsv = Join-Path $mailSecDir "MailSec_DMARC.csv"
 if (Test-Path $_aiDmarcCsv) {
     $_aiDmarc    = @(Import-Csv $_aiDmarcCsv)
     $_aiNoDmarc  = @($_aiDmarc | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" -and ($_.DMARC -eq "Not Found" -or $_.DMARC -eq "" -or $null -eq $_.DMARC) })
@@ -491,7 +508,7 @@ if (Test-Path $_aiDmarcCsv) {
     }
 }
 
-$_aiSpfCsv = Join-Path $AuditFolder "MailSec_SPF.csv"
+$_aiSpfCsv = Join-Path $mailSecDir "MailSec_SPF.csv"
 if (Test-Path $_aiSpfCsv) {
     $_aiSpf   = @(Import-Csv $_aiSpfCsv)
     $_aiNoSpf = @($_aiSpf | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" -and ($_.SPF -eq "DNS query failed" -or $_.SPF -eq "" -or $null -eq $_.SPF) })
@@ -503,7 +520,7 @@ if (Test-Path $_aiSpfCsv) {
 
 # --- SharePoint checks ---
 
-$_aiExtShareCsv = Join-Path $AuditFolder "SharePoint_ExternalSharing_SiteOverrides.csv"
+$_aiExtShareCsv = Join-Path $spDir "SharePoint_ExternalSharing_SiteOverrides.csv"
 if (Test-Path $_aiExtShareCsv) {
     $_aiExtShare    = @(Import-Csv $_aiExtShareCsv)
     $_aiPermissive  = @($_aiExtShare | Where-Object { $_.SharingCapability -eq "ExternalUserAndGuestSharing" })
@@ -512,7 +529,7 @@ if (Test-Path $_aiExtShareCsv) {
     }
 }
 
-$_aiOdUnlicCsv = Join-Path $AuditFolder "SharePoint_OneDrive_Unlicensed.csv"
+$_aiOdUnlicCsv = Join-Path $spDir "SharePoint_OneDrive_Unlicensed.csv"
 if (Test-Path $_aiOdUnlicCsv) {
     $_aiOdUnlic = @(Import-Csv $_aiOdUnlicCsv)
     if ($_aiOdUnlic.Count -gt 0) {
@@ -545,7 +562,7 @@ if (Test-Path $_aiUsersCsv) {
 }
 
 # Stale guest accounts (no sign-in for 90+ days)
-$_aiGuestCsv = Join-Path $AuditFolder "Entra_GuestUsers.csv"
+$_aiGuestCsv = Join-Path $entraDir "Entra_GuestUsers.csv"
 if (Test-Path $_aiGuestCsv) {
     $_aiGuests      = @(Import-Csv $_aiGuestCsv)
     $_aiStaleGuests = @($_aiGuests | Where-Object {
@@ -558,7 +575,7 @@ if (Test-Path $_aiGuestCsv) {
 }
 
 # Shared mailbox sign-in enabled
-$_aiSharedSignInCsv = Join-Path $AuditFolder "Exchange_SharedMailboxSignIn.csv"
+$_aiSharedSignInCsv = Join-Path $exchangeDir "Exchange_SharedMailboxSignIn.csv"
 if (Test-Path $_aiSharedSignInCsv) {
     $_aiSharedEnabled = @(Import-Csv $_aiSharedSignInCsv | Where-Object { $_.AccountDisabled -eq "False" })
     if ($_aiSharedEnabled.Count -gt 0) {
@@ -567,7 +584,7 @@ if (Test-Path $_aiSharedSignInCsv) {
 }
 
 # Outbound spam auto-forward policy
-$_aiOutboundCsv = Join-Path $AuditFolder "Exchange_OutboundSpamAutoForward.csv"
+$_aiOutboundCsv = Join-Path $exchangeDir "Exchange_OutboundSpamAutoForward.csv"
 if (Test-Path $_aiOutboundCsv) {
     $_aiOutboundOn = @(Import-Csv $_aiOutboundCsv | Where-Object { $_.AutoForwardingMode -eq "On" })
     if ($_aiOutboundOn.Count -gt 0) {
@@ -576,7 +593,7 @@ if (Test-Path $_aiOutboundCsv) {
 }
 
 # Safe Attachments
-$_aiSafAttCsv = Join-Path $AuditFolder "Exchange_SafeAttachments.csv"
+$_aiSafAttCsv = Join-Path $exchangeDir "Exchange_SafeAttachments.csv"
 if (Test-Path $_aiSafAttCsv) {
     $_aiSafAtt = @(Import-Csv $_aiSafAttCsv)
     $_aiSafAttOn = @($_aiSafAtt | Where-Object { $_.Enable -eq "True" })
@@ -586,7 +603,7 @@ if (Test-Path $_aiSafAttCsv) {
 }
 
 # Safe Links
-$_aiSafLnkCsv = Join-Path $AuditFolder "Exchange_SafeLinks.csv"
+$_aiSafLnkCsv = Join-Path $exchangeDir "Exchange_SafeLinks.csv"
 if (Test-Path $_aiSafLnkCsv) {
     $_aiSafLnk = @(Import-Csv $_aiSafLnkCsv)
     $_aiSafLnkOn = @($_aiSafLnk | Where-Object { $_.EnableSafeLinksForEmail -eq "True" })
@@ -596,7 +613,7 @@ if (Test-Path $_aiSafLnkCsv) {
 }
 
 # SharePoint default sharing link type
-$_aiSpTenantCsv = Join-Path $AuditFolder "SharePoint_ExternalSharing_Tenant.csv"
+$_aiSpTenantCsv = Join-Path $spDir "SharePoint_ExternalSharing_Tenant.csv"
 if (Test-Path $_aiSpTenantCsv) {
     $_aiSpTenant = Import-Csv $_aiSpTenantCsv | Select-Object -First 1
     if ($_aiSpTenant.DefaultSharingLinkType -eq "AnonymousAccess") {
@@ -605,11 +622,118 @@ if (Test-Path $_aiSpTenantCsv) {
 }
 
 # SharePoint sync restriction
-$_aiSpAcpCsv = Join-Path $AuditFolder "SharePoint_AccessControlPolicies.csv"
+$_aiSpAcpCsv = Join-Path $spDir "SharePoint_AccessControlPolicies.csv"
 if (Test-Path $_aiSpAcpCsv) {
     $_aiSpAcp = Import-Csv $_aiSpAcpCsv | Select-Object -First 1
     if ($_aiSpAcp.IsUnmanagedSyncAppForTenantRestricted -eq "False") {
         Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "OneDrive sync is not restricted to managed/domain-joined devices. Any personal device can sync corporate data to local storage." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/control-access-from-unmanaged-devices'
+    }
+}
+
+# --- Intune checks ---
+
+$_aiIntuneLicCsv = Join-Path $intuneDir "Intune_LicenceCheck.csv"
+if (Test-Path $_aiIntuneLicCsv) {
+    $_aiIntuneLic = Import-Csv $_aiIntuneLicCsv | Select-Object -First 1
+
+    if ($_aiIntuneLic.HasIntune -ne 'True') {
+        # No licence — suppress further Intune checks; the HTML section will render an info note
+    }
+    else {
+        # No compliance policies
+        $_aiCompPolCsv = Join-Path $intuneDir "Intune_CompliancePolicies.csv"
+        if (Test-Path $_aiCompPolCsv) {
+            $_aiCompPols = @(Import-Csv $_aiCompPolCsv)
+            if ($_aiCompPols.Count -eq 0) {
+                Add-ActionItem -Severity 'critical' -Category 'Intune / Compliance' `
+                    -Text "No compliance policies have been configured in Intune. Without policies, all devices are considered compliant regardless of their actual security state." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/protect/device-compliance-get-started'
+            }
+        }
+
+        # Non-compliant devices
+        $_aiDevicesCsv = Join-Path $intuneDir "Intune_Devices.csv"
+        if (Test-Path $_aiDevicesCsv) {
+            $_aiDevices        = @(Import-Csv $_aiDevicesCsv)
+            $_aiNonCompliant   = @($_aiDevices | Where-Object { $_.ComplianceState -eq 'noncompliant' })
+            $_aiStaleDevices   = @($_aiDevices | Where-Object {
+                $dt = [datetime]::MinValue
+                $_.LastSyncDateTime -and [datetime]::TryParse($_.LastSyncDateTime, [ref]$dt) -and (([datetime]::UtcNow - $dt).TotalDays -gt 30)
+            })
+            if ($_aiNonCompliant.Count -gt 0) {
+                $_ncList = ($_aiNonCompliant | Select-Object -First 10 | ForEach-Object { $_.DeviceName }) -join ', '
+                if ($_aiNonCompliant.Count -gt 10) { $_ncList += ", ..." }
+                Add-ActionItem -Severity 'critical' -Category 'Intune / Compliance' `
+                    -Text "$($_aiNonCompliant.Count) device(s) are currently non-compliant: $($_ncList). Non-compliant devices may retain access to corporate resources if Conditional Access is not enforcing compliance." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/protect/device-compliance-get-started'
+            }
+            if ($_aiStaleDevices.Count -gt 0) {
+                Add-ActionItem -Severity 'warning' -Category 'Intune / Devices' `
+                    -Text "$($_aiStaleDevices.Count) device(s) have not checked in with Intune for more than 30 days. Stale devices may not receive policy updates or be accurately reflected in compliance reports." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/remote-actions/devices-wipe'
+            }
+        }
+
+        # Encryption not required by any compliance policy
+        $_aiCompSettingsCsv = Join-Path $intuneDir "Intune_CompliancePolicySettings.csv"
+        if (Test-Path $_aiCompSettingsCsv) {
+            $_aiCompSettings = @(Import-Csv $_aiCompSettingsCsv)
+            $_aiNoEncrypt = @($_aiCompSettings | Where-Object {
+                ($_.SettingName -eq 'storageRequireEncryption' -or $_.SettingName -eq 'bitLockerEnabled') -and
+                $_.SettingValue -eq 'False'
+            })
+            if ($_aiNoEncrypt.Count -gt 0) {
+                $_encPolicies = ($_aiNoEncrypt.PolicyName | Sort-Object -Unique) -join ', '
+                Add-ActionItem -Severity 'warning' -Category 'Intune / Compliance' `
+                    -Text "Storage encryption is explicitly disabled in $($_aiNoEncrypt.Count) compliance policy setting(s): $_encPolicies. Devices governed by these policies are not required to have encryption enabled." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/protect/compliance-policy-create-windows'
+            }
+        }
+
+        # Long grace period (>24 hours)
+        if (Test-Path $_aiCompPolCsv) {
+            $_aiLongGrace = @($_aiCompPols | Where-Object {
+                $g = 0
+                [int]::TryParse($_.GracePeriodHours, [ref]$g) | Out-Null
+                $g -gt 24
+            })
+            if ($_aiLongGrace.Count -gt 0) {
+                $_graceList = ($_aiLongGrace | ForEach-Object { "$($_.PolicyName) ($($_.GracePeriodHours)h)" }) -join ', '
+                Add-ActionItem -Severity 'warning' -Category 'Intune / Compliance' `
+                    -Text "$($_aiLongGrace.Count) compliance policy(ies) have a grace period exceeding 24 hours before a device is marked non-compliant: $_graceList. Devices remain in a grace state and are not blocked during this window." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/protect/actions-for-noncompliance'
+            }
+        }
+
+        # Personal device enrolment not blocked
+        $_aiEnrolCsv = Join-Path $intuneDir "Intune_EnrollmentRestrictions.csv"
+        if (Test-Path $_aiEnrolCsv) {
+            $_aiEnrolRows = @(Import-Csv $_aiEnrolCsv)
+            $_aiPersonalAllowed = @($_aiEnrolRows | Where-Object { $_.BlockPersonalDevices -eq 'False' })
+            if ($_aiPersonalAllowed.Count -gt 0) {
+                Add-ActionItem -Severity 'warning' -Category 'Intune / Enrollment' `
+                    -Text "$($_aiPersonalAllowed.Count) enrollment restriction(s) allow personal (BYOD) device enrolment. Personal devices enrolled in Intune may have weaker compliance controls than corporate-owned devices." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/enrollment/enrollment-restrictions-set'
+            }
+        }
+
+        # Apps with install failures
+        $_aiAppsCsv = Join-Path $intuneDir "Intune_Apps.csv"
+        if (Test-Path $_aiAppsCsv) {
+            $_aiApps        = @(Import-Csv $_aiAppsCsv)
+            $_aiFailedApps  = @($_aiApps | Where-Object {
+                $f = 0
+                [int]::TryParse($_.FailedDeviceCount, [ref]$f) | Out-Null
+                $f -gt 0
+            })
+            if ($_aiFailedApps.Count -gt 0) {
+                $_failList = ($_aiFailedApps | Select-Object -First 5 | ForEach-Object { "$($_.AppName) ($($_.FailedDeviceCount) failed)" }) -join ', '
+                if ($_aiFailedApps.Count -gt 5) { $_failList += ", ..." }
+                Add-ActionItem -Severity 'warning' -Category 'Intune / Apps' `
+                    -Text "$($_aiFailedApps.Count) app(s) have deployment failures: $_failList. Failed installations may leave required security or business apps absent from affected devices." `
+                    -DocUrl 'https://learn.microsoft.com/en-us/mem/intune/apps/troubleshoot-app-install'
+            }
+        }
     }
 }
 
@@ -641,7 +765,7 @@ else {
 # =========================================
 # ===   Entra Section                   ===
 # =========================================
-$entraFiles = @(Get-ChildItem "$AuditFolder\Entra_*.csv" -ErrorAction SilentlyContinue)
+$entraFiles = @(Get-ChildItem "$entraDir\Entra_*.csv" -ErrorAction SilentlyContinue)
 
 if ($entraFiles.Count -gt 0) {
     $entraSummary = [System.Collections.Generic.List[string]]::new()
@@ -650,7 +774,7 @@ if ($entraFiles.Count -gt 0) {
     $_auditPremiumSkus = @("AAD_PREMIUM", "AAD_PREMIUM_P2", "ENTERPRISEPREMIUM", "ENTERPRISEPACK",
                            "EMS", "EMS_PREMIUM", "SPB", "O365_BUSINESS_PREMIUM", "M365_F3", "IDENTITY_GOVERNANCE")
     $auditWindowDays = 7
-    $_licCheck = Join-Path $AuditFolder "Entra_Licenses.csv"
+    $_licCheck = Join-Path $entraDir "Entra_Licenses.csv"
     if (Test-Path $_licCheck) {
         $_skuList = @(Import-Csv $_licCheck | Select-Object -ExpandProperty SkuPartNumber)
         if (($_skuList | Where-Object { $_ -in $_auditPremiumSkus }).Count -gt 0) { $auditWindowDays = 30 }
@@ -658,7 +782,7 @@ if ($entraFiles.Count -gt 0) {
     $auditWindowLabel = "last $auditWindowDays days"
 
     # --- Identity Secure Score ---
-    $secureScoreCsv = Join-Path $AuditFolder "Entra_SecureScore.csv"
+    $secureScoreCsv = Join-Path $entraDir "Entra_SecureScore.csv"
     if (Test-Path $secureScoreCsv) {
         $ss = Import-Csv $secureScoreCsv | Select-Object -First 1
         if ($ss) {
@@ -670,7 +794,7 @@ if ($entraFiles.Count -gt 0) {
     }
 
     # --- Secure Score Control Breakdown ---
-    $secureScoreControlsCsv = Join-Path $AuditFolder "Entra_SecureScoreControls.csv"
+    $secureScoreControlsCsv = Join-Path $entraDir "Entra_SecureScoreControls.csv"
     if (Test-Path $secureScoreControlsCsv) {
         $ssControls = @(Import-Csv $secureScoreControlsCsv)
         if ($ssControls.Count -gt 0) {
@@ -714,7 +838,7 @@ $implHtml
     }
 
     # --- Security Defaults ---
-    $secDefaultsCsv = Join-Path $AuditFolder "Entra_SecurityDefaults.csv"
+    $secDefaultsCsv = Join-Path $entraDir "Entra_SecurityDefaults.csv"
     if (Test-Path $secDefaultsCsv) {
         $secDef = Import-Csv $secDefaultsCsv | Select-Object -First 1
         if ($secDef.SecurityDefaultsEnabled -eq "True") {
@@ -726,7 +850,7 @@ $implHtml
     }
 
     # --- SSPR ---
-    $ssprCsv = Join-Path $AuditFolder "Entra_SSPR.csv"
+    $ssprCsv = Join-Path $entraDir "Entra_SSPR.csv"
     if (Test-Path $ssprCsv) {
         $ssprData = Import-Csv $ssprCsv | Select-Object -First 1
         if ($ssprData.SSPREnabled -eq "Enabled") {
@@ -739,7 +863,7 @@ $implHtml
 
     # --- MFA and User Table ---
     # Entra_Users.csv contains licensed members only (guests and unlicensed users are separate)
-    $entraUsersCsv = Join-Path $AuditFolder "Entra_Users.csv"
+    $entraUsersCsv = Join-Path $entraDir "Entra_Users.csv"
     if (Test-Path $entraUsersCsv) {
         $userSummary = Import-Csv $entraUsersCsv
         $mfaTotal    = $userSummary.Count
@@ -751,7 +875,7 @@ $implHtml
 
         # Load sign-in history for expandable rows (keyed by UPN)
         $signInsByUpn = @{}
-        $signInsCsv   = Join-Path $AuditFolder "Entra_SignIns.csv"
+        $signInsCsv   = Join-Path $entraDir "Entra_SignIns.csv"
         if (Test-Path $signInsCsv) {
             foreach ($entry in (Import-Csv $signInsCsv)) {
                 if (-not $signInsByUpn.ContainsKey($entry.UPN)) {
@@ -810,7 +934,7 @@ $implHtml
     }
 
     # Unlicensed member accounts
-    $unlicensedUsersCsv = Join-Path $AuditFolder "Entra_Users_Unlicensed.csv"
+    $unlicensedUsersCsv = Join-Path $entraDir "Entra_Users_Unlicensed.csv"
     if (Test-Path $unlicensedUsersCsv) {
         $unlicCount = @(Import-Csv $unlicensedUsersCsv).Count
         if ($unlicCount -gt 0) {
@@ -819,7 +943,7 @@ $implHtml
     }
 
     # --- License Summary ---
-    $licensesCsv = Join-Path $AuditFolder "Entra_Licenses.csv"
+    $licensesCsv = Join-Path $entraDir "Entra_Licenses.csv"
     if (Test-Path $licensesCsv) {
         $licenses = Import-Csv $licensesCsv
         if ($licenses.Count -gt 0) {
@@ -837,7 +961,7 @@ $implHtml
     }
 
     # --- Global Admin count ---
-    $globalAdminsCsv = Join-Path $AuditFolder "Entra_GlobalAdmins.csv"
+    $globalAdminsCsv = Join-Path $entraDir "Entra_GlobalAdmins.csv"
     if (Test-Path $globalAdminsCsv) {
         $gaData  = @(Import-Csv $globalAdminsCsv)
         $gaCount = $gaData.Count
@@ -856,7 +980,7 @@ $implHtml
     }
 
     # --- Admin role assignments table ---
-    $adminRolesCsv = Join-Path $AuditFolder "Entra_AdminRoles.csv"
+    $adminRolesCsv = Join-Path $entraDir "Entra_AdminRoles.csv"
     if (Test-Path $adminRolesCsv) {
         $adminRoles  = Import-Csv $adminRolesCsv
         $roleCount   = ($adminRoles | Select-Object -ExpandProperty RoleName -Unique).Count
@@ -875,7 +999,7 @@ $implHtml
     }
 
     # --- Conditional Access Policies ---
-    $caPoliciesCsv  = Join-Path $AuditFolder "Entra_CA_Policies.csv"
+    $caPoliciesCsv  = Join-Path $entraDir "Entra_CA_Policies.csv"
     # SKUs that include Azure AD Premium P1 or higher (required for Conditional Access)
     $caCapableSkus  = @("AAD_PREMIUM", "AAD_PREMIUM_P2", "ENTERPRISEPREMIUM", "ENTERPRISEPACK",
                         "EMS", "EMS_PREMIUM", "SPB", "O365_BUSINESS_PREMIUM", "M365_F3", "IDENTITY_GOVERNANCE")
@@ -933,7 +1057,7 @@ $implHtml
         }
         else {
             # File exists but no policies — check whether tenant has a CA-capable licence
-            $licensesCsv  = Join-Path $AuditFolder "Entra_Licenses.csv"
+            $licensesCsv  = Join-Path $entraDir "Entra_Licenses.csv"
             $hasCALicense = $false
             if (Test-Path $licensesCsv) {
                 $tenantSkus   = @(Import-Csv $licensesCsv | Select-Object -ExpandProperty SkuPartNumber)
@@ -950,7 +1074,7 @@ $implHtml
     }
 
     # --- Account Creations ---
-    $creationsCsv = Join-Path $AuditFolder "Entra_AccountCreations.csv"
+    $creationsCsv = Join-Path $entraDir "Entra_AccountCreations.csv"
     if (Test-Path $creationsCsv) {
         $creations = @(Import-Csv $creationsCsv)
         if ($creations.Count -gt 0) {
@@ -971,7 +1095,7 @@ $implHtml
     }
 
     # --- Account Deletions ---
-    $deletionsCsv = Join-Path $AuditFolder "Entra_AccountDeletions.csv"
+    $deletionsCsv = Join-Path $entraDir "Entra_AccountDeletions.csv"
     if (Test-Path $deletionsCsv) {
         $deletions = @(Import-Csv $deletionsCsv)
         if ($deletions.Count -gt 0) {
@@ -1013,7 +1137,7 @@ $implHtml
     }
 
     # --- Notable Audit Events (role changes + MFA/security info changes) ---
-    $auditEventsCsv = Join-Path $AuditFolder "Entra_AuditEvents.csv"
+    $auditEventsCsv = Join-Path $entraDir "Entra_AuditEvents.csv"
     if (Test-Path $auditEventsCsv) {
         $auditEvts = @(Import-Csv $auditEventsCsv)
         if ($auditEvts.Count -gt 0) {
@@ -1042,16 +1166,16 @@ $implHtml
 # =========================================
 # ===   Exchange Section                ===
 # =========================================
-$exchangeFiles = @(Get-ChildItem "$AuditFolder\Exchange_*.csv" -ErrorAction SilentlyContinue)
+$exchangeFiles = @(Get-ChildItem "$exchangeDir\Exchange_*.csv" -ErrorAction SilentlyContinue)
 
 if ($exchangeFiles.Count -gt 0) {
     $exchangeSummary = [System.Collections.Generic.List[string]]::new()
 
-    $mbxCsv          = Join-Path $AuditFolder "Exchange_Mailboxes.csv"
-    $forwardingCsv   = Join-Path $AuditFolder "Exchange_InboxForwardingRules.csv"
-    $fullAccessCsv   = Join-Path $AuditFolder "Exchange_Permissions_FullAccess.csv"
-    $sendAsCsv       = Join-Path $AuditFolder "Exchange_Permissions_SendAs.csv"
-    $sendOnBehalfCsv = Join-Path $AuditFolder "Exchange_Permissions_SendOnBehalf.csv"
+    $mbxCsv          = Join-Path $exchangeDir "Exchange_Mailboxes.csv"
+    $forwardingCsv   = Join-Path $exchangeDir "Exchange_InboxForwardingRules.csv"
+    $fullAccessCsv   = Join-Path $exchangeDir "Exchange_Permissions_FullAccess.csv"
+    $sendAsCsv       = Join-Path $exchangeDir "Exchange_Permissions_SendAs.csv"
+    $sendOnBehalfCsv = Join-Path $exchangeDir "Exchange_Permissions_SendOnBehalf.csv"
 
     # Build permission lookups keyed by MailboxUPN
     $permsByUpn = @{}
@@ -1157,7 +1281,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Broken Inbox Rules ---
-    $brokenCsv = Join-Path $AuditFolder "Exchange_BrokenInboxRules.csv"
+    $brokenCsv = Join-Path $exchangeDir "Exchange_BrokenInboxRules.csv"
     if (Test-Path $brokenCsv) {
         $brokenRules = @(Import-Csv $brokenCsv)
         if ($brokenRules.Count -gt 0) {
@@ -1177,7 +1301,7 @@ if ($exchangeFiles.Count -gt 0) {
 
     # --- Remote Domain Auto-Forwarding ---
     # The wildcard (*) entry is present in every tenant by default — only flag named domains with auto-forward enabled
-    $remoteDomainCsv = Join-Path $AuditFolder "Exchange_RemoteDomainForwarding.csv"
+    $remoteDomainCsv = Join-Path $exchangeDir "Exchange_RemoteDomainForwarding.csv"
     if (Test-Path $remoteDomainCsv) {
         $remoteDomains   = @(Import-Csv $remoteDomainCsv)
         $namedFwdDomains = @($remoteDomains | Where-Object { $_.DomainName -ne '*' -and $_.AutoForwardEnabled -eq 'True' })
@@ -1200,7 +1324,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Audit Configuration ---
-    $auditConfigCsv = Join-Path $AuditFolder "Exchange_AuditConfig.csv"
+    $auditConfigCsv = Join-Path $exchangeDir "Exchange_AuditConfig.csv"
     if (Test-Path $auditConfigCsv) {
         $auditCfg      = Import-Csv $auditConfigCsv | Select-Object -First 1
         $retentionDays = try { [TimeSpan]::Parse($auditCfg.AuditLogAgeLimit).Days } catch { $auditCfg.AuditLogAgeLimit }
@@ -1221,7 +1345,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Mailbox Audit Status ---
-    $mbxAuditCsv = Join-Path $AuditFolder "Exchange_MailboxAuditStatus.csv"
+    $mbxAuditCsv = Join-Path $exchangeDir "Exchange_MailboxAuditStatus.csv"
     if (Test-Path $mbxAuditCsv) {
         # Exclude system mailboxes (Discovery Search is an internal EXO system account, not a user mailbox)
         $mbxAudit      = @(Import-Csv $mbxAuditCsv | Where-Object { $_.UserPrincipalName -notlike 'DiscoverySearchMailbox*' })
@@ -1245,7 +1369,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- DKIM Status ---
-    $dkimExCsv = Join-Path $AuditFolder "Exchange_DKIM_Status.csv"
+    $dkimExCsv = Join-Path $exchangeDir "Exchange_DKIM_Status.csv"
     if (Test-Path $dkimExCsv) {
         # Exclude Microsoft-managed onmicrosoft.com domains — DKIM on these is controlled by Microsoft, not the customer
         $dkimEx      = @(Import-Csv $dkimExCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })
@@ -1266,7 +1390,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Anti-Phish Policies ---
-    $antiPhishCsv = Join-Path $AuditFolder "Exchange_AntiPhishPolicies.csv"
+    $antiPhishCsv = Join-Path $exchangeDir "Exchange_AntiPhishPolicies.csv"
     if (Test-Path $antiPhishCsv) {
         $antiPhish = @(Import-Csv $antiPhishCsv)
         $exchangeSummary.Add("<h4>Anti-Phish Policies</h4>")
@@ -1296,7 +1420,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Spam Policies ---
-    $spamCsv = Join-Path $AuditFolder "Exchange_SpamPolicies.csv"
+    $spamCsv = Join-Path $exchangeDir "Exchange_SpamPolicies.csv"
     if (Test-Path $spamCsv) {
         $spamPolicies = @(Import-Csv $spamCsv)
         $exchangeSummary.Add("<h4>Spam Filter Policies</h4>")
@@ -1326,7 +1450,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Malware Policies ---
-    $malwareCsv = Join-Path $AuditFolder "Exchange_MalwarePolicies.csv"
+    $malwareCsv = Join-Path $exchangeDir "Exchange_MalwarePolicies.csv"
     if (Test-Path $malwareCsv) {
         $malware = @(Import-Csv $malwareCsv)
         $exchangeSummary.Add("<h4>Malware Filter Policies</h4>")
@@ -1353,7 +1477,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Transport Rules ---
-    $transportCsv = Join-Path $AuditFolder "Exchange_TransportRules.csv"
+    $transportCsv = Join-Path $exchangeDir "Exchange_TransportRules.csv"
     if (Test-Path $transportCsv) {
         $transportRules = @(Import-Csv $transportCsv)
         if ($transportRules.Count -gt 0) {
@@ -1401,7 +1525,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Distribution Lists ---
-    $dlCsv = Join-Path $AuditFolder "Exchange_DistributionLists.csv"
+    $dlCsv = Join-Path $exchangeDir "Exchange_DistributionLists.csv"
     if (Test-Path $dlCsv) {
         $dls      = @(Import-Csv $dlCsv)
         $emptyDls = @($dls | Where-Object { [int]$_.MemberCount -eq 0 })
@@ -1433,7 +1557,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Resource Mailboxes ---
-    $resourceCsv = Join-Path $AuditFolder "Exchange_ResourceMailboxes.csv"
+    $resourceCsv = Join-Path $exchangeDir "Exchange_ResourceMailboxes.csv"
     if (Test-Path $resourceCsv) {
         $resources = @(Import-Csv $resourceCsv)
         if ($resources.Count -gt 0) {
@@ -1452,7 +1576,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Outbound Spam Auto-Forward ---
-    $outboundFwdCsv = Join-Path $AuditFolder "Exchange_OutboundSpamAutoForward.csv"
+    $outboundFwdCsv = Join-Path $exchangeDir "Exchange_OutboundSpamAutoForward.csv"
     if (Test-Path $outboundFwdCsv) {
         $outboundFwd  = @(Import-Csv $outboundFwdCsv)
         $fwdOnCount   = ($outboundFwd | Where-Object { $_.AutoForwardingMode -eq "On" }).Count
@@ -1476,7 +1600,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Shared Mailbox Sign-In Status ---
-    $sharedSignInCsv = Join-Path $AuditFolder "Exchange_SharedMailboxSignIn.csv"
+    $sharedSignInCsv = Join-Path $exchangeDir "Exchange_SharedMailboxSignIn.csv"
     if (Test-Path $sharedSignInCsv) {
         $sharedMbx     = @(Import-Csv $sharedSignInCsv)
         $signInEnabled = @($sharedMbx | Where-Object { $_.AccountDisabled -eq "False" })
@@ -1500,7 +1624,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Safe Attachments ---
-    $safeAttCsv = Join-Path $AuditFolder "Exchange_SafeAttachments.csv"
+    $safeAttCsv = Join-Path $exchangeDir "Exchange_SafeAttachments.csv"
     $exchangeSummary.Add("<h4>Defender for Office 365 — Safe Attachments</h4>")
     if (Test-Path $safeAttCsv) {
         $safeAtt    = @(Import-Csv $safeAttCsv)
@@ -1534,7 +1658,7 @@ if ($exchangeFiles.Count -gt 0) {
     }
 
     # --- Safe Links ---
-    $safeLinkCsv = Join-Path $AuditFolder "Exchange_SafeLinks.csv"
+    $safeLinkCsv = Join-Path $exchangeDir "Exchange_SafeLinks.csv"
     $exchangeSummary.Add("<h4>Defender for Office 365 — Safe Links</h4>")
     if (Test-Path $safeLinkCsv) {
         $safeLink     = @(Import-Csv $safeLinkCsv)
@@ -1575,19 +1699,19 @@ if ($exchangeFiles.Count -gt 0) {
 # =========================================
 # ===   SharePoint / OneDrive Section   ===
 # =========================================
-$spFiles = @(Get-ChildItem "$AuditFolder\SharePoint_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
+$spFiles = @(Get-ChildItem "$spDir\SharePoint_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
 
 if ($spFiles.Count -gt 0) {
     $spSummary = [System.Collections.Generic.List[string]]::new()
 
-    $storageCsv     = Join-Path $AuditFolder "SharePoint_TenantStorage.csv"
-    $sitesCsv       = Join-Path $AuditFolder "SharePoint_Sites.csv"
-    $groupsCsv      = Join-Path $AuditFolder "SharePoint_SPGroups.csv"
-    $tenantShareCsv = Join-Path $AuditFolder "SharePoint_ExternalSharing_Tenant.csv"
-    $overridesCsv   = Join-Path $AuditFolder "SharePoint_ExternalSharing_SiteOverrides.csv"
-    $odUsageCsv     = Join-Path $AuditFolder "SharePoint_OneDriveUsage.csv"
-    $unlicensedCsv  = Join-Path $AuditFolder "SharePoint_OneDrive_Unlicensed.csv"
-    $acpCsv         = Join-Path $AuditFolder "SharePoint_AccessControlPolicies.csv"
+    $storageCsv     = Join-Path $spDir "SharePoint_TenantStorage.csv"
+    $sitesCsv       = Join-Path $spDir "SharePoint_Sites.csv"
+    $groupsCsv      = Join-Path $spDir "SharePoint_SPGroups.csv"
+    $tenantShareCsv = Join-Path $spDir "SharePoint_ExternalSharing_Tenant.csv"
+    $overridesCsv   = Join-Path $spDir "SharePoint_ExternalSharing_SiteOverrides.csv"
+    $odUsageCsv     = Join-Path $spDir "SharePoint_OneDriveUsage.csv"
+    $unlicensedCsv  = Join-Path $spDir "SharePoint_OneDrive_Unlicensed.csv"
+    $acpCsv         = Join-Path $spDir "SharePoint_AccessControlPolicies.csv"
 
     # --- 1. Tenant Storage ---
     if (Test-Path $storageCsv) {
@@ -1859,14 +1983,14 @@ if ($spFiles.Count -gt 0) {
 # =========================================
 # ===   Mail Security Section           ===
 # =========================================
-$mailSecFiles = @(Get-ChildItem "$AuditFolder\MailSec_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
+$mailSecFiles = @(Get-ChildItem "$mailSecDir\MailSec_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
 
 if ($mailSecFiles.Count -gt 0) {
     $mailSecSummary = [System.Collections.Generic.List[string]]::new()
 
-    $dkimCsv  = Join-Path $AuditFolder "MailSec_DKIM.csv"
-    $dmarcCsv = Join-Path $AuditFolder "MailSec_DMARC.csv"
-    $spfCsv   = Join-Path $AuditFolder "MailSec_SPF.csv"
+    $dkimCsv  = Join-Path $mailSecDir "MailSec_DKIM.csv"
+    $dmarcCsv = Join-Path $mailSecDir "MailSec_DMARC.csv"
+    $spfCsv   = Join-Path $mailSecDir "MailSec_SPF.csv"
 
     # Load all three into hashtables keyed by domain, excluding onmicrosoft.com
     $dkimByDomain  = @{}
@@ -1941,6 +2065,166 @@ if ($mailSecFiles.Count -gt 0) {
     }
 
     $html.Add((Add-Section -Title "Mail Security" -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n")))
+}
+
+
+# =========================================
+# ===   Intune / Endpoint Section       ===
+# =========================================
+$intuneFiles = @(Get-ChildItem "$intuneDir\Intune_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
+
+if ($intuneFiles.Count -gt 0) {
+    $intuneSummary = [System.Collections.Generic.List[string]]::new()
+
+    $intLicCsv   = Join-Path $intuneDir "Intune_LicenceCheck.csv"
+    $intDevCsv   = Join-Path $intuneDir "Intune_Devices.csv"
+    $intPolCsv   = Join-Path $intuneDir "Intune_CompliancePolicies.csv"
+    $intProfCsv    = Join-Path $intuneDir "Intune_ConfigProfiles.csv"
+    $intProfSetCsv = Join-Path $intuneDir "Intune_ConfigProfileSettings.csv"
+    $intAppCsv     = Join-Path $intuneDir "Intune_Apps.csv"
+    $intApCsv    = Join-Path $intuneDir "Intune_AutopilotDevices.csv"
+    $intEnrolCsv = Join-Path $intuneDir "Intune_EnrollmentRestrictions.csv"
+
+    # Licence check
+    $_intLicRow = $null
+    if (Test-Path $intLicCsv) { $_intLicRow = Import-Csv $intLicCsv | Select-Object -First 1 }
+
+    if ($null -eq $_intLicRow -or $_intLicRow.HasIntune -ne 'True') {
+        $intuneSummary.Add("<p><em>No Intune-capable licence was detected on this tenant. Intune device management data was not collected.</em></p>")
+    }
+    else {
+        $intuneSummary.Add("<p><strong>Licenced SKUs:</strong> $($_intLicRow.LicencedSKUs)</p>")
+
+        # Device inventory
+        if (Test-Path $intDevCsv) {
+            $_intDevices  = @(Import-Csv $intDevCsv)
+            $_totalDev    = $_intDevices.Count
+            $_osCounts    = $_intDevices | Group-Object OS | Sort-Object Count -Descending
+            $_compCounts  = $_intDevices | Group-Object ComplianceState | Sort-Object Count -Descending
+            $_corpDev     = @($_intDevices | Where-Object { $_.OwnerType -eq 'company' }).Count
+            $_persDev     = @($_intDevices | Where-Object { $_.OwnerType -eq 'personal' }).Count
+
+            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Device Inventory ($_totalDev total)</h4>")
+            $intuneSummary.Add("<p>Corporate: $_corpDev &nbsp;|&nbsp; Personal (BYOD): $_persDev</p>")
+
+            # OS breakdown
+            $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Operating System</th><th>Count</th></tr></thead><tbody>")
+            foreach ($_osGroup in $_osCounts) {
+                $intuneSummary.Add("<tr><td>$($_osGroup.Name)</td><td>$($_osGroup.Count)</td></tr>")
+            }
+            $intuneSummary.Add("</tbody></table>")
+
+            # Compliance state summary
+            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Compliance State Summary</h4>")
+            $intuneSummary.Add("<table class='summary-table'><thead><tr><th>State</th><th>Count</th></tr></thead><tbody>")
+            foreach ($_compGroup in $_compCounts) {
+                $_stateColor = switch ($_compGroup.Name) {
+                    'compliant'    { 'color:#388e3c' }
+                    'noncompliant' { 'color:#c62828;font-weight:bold' }
+                    default        { '' }
+                }
+                $intuneSummary.Add("<tr><td style='$_stateColor'>$($_compGroup.Name)</td><td>$($_compGroup.Count)</td></tr>")
+            }
+            $intuneSummary.Add("</tbody></table>")
+
+            # Stale devices list
+            $_intStale = @($_intDevices | Where-Object {
+                $dt = [datetime]::MinValue
+                $_.LastSyncDateTime -and [datetime]::TryParse($_.LastSyncDateTime, [ref]$dt) -and (([datetime]::UtcNow - $dt).TotalDays -gt 30)
+            })
+            if ($_intStale.Count -gt 0) {
+                $intuneSummary.Add("<details style='margin-top:0.75rem'><summary style='cursor:pointer;color:#b71c1c;font-size:0.9rem'>Stale Devices (30+ days since last check-in): $($_intStale.Count)</summary>")
+                $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Device</th><th>OS</th><th>Owner</th><th>Last Sync</th></tr></thead><tbody>")
+                foreach ($_sd in ($_intStale | Sort-Object LastSyncDateTime)) {
+                    $intuneSummary.Add("<tr><td>$($_sd.DeviceName)</td><td>$($_sd.OS)</td><td>$($_sd.OwnerType)</td><td>$($_sd.LastSyncDateTime)</td></tr>")
+                }
+                $intuneSummary.Add("</tbody></table></details>")
+            }
+        }
+
+        # Compliance policies
+        if (Test-Path $intPolCsv) {
+            $_intPols = @(Import-Csv $intPolCsv)
+            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Compliance Policies ($($_intPols.Count))</h4>")
+            if ($_intPols.Count -gt 0) {
+                $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Platform</th><th>Assigned To</th><th>Grace Period (h)</th></tr></thead><tbody>")
+                foreach ($_pol in $_intPols) {
+                    $_graceColor = if ([int]$_pol.GracePeriodHours -gt 24) { "color:#e65100;font-weight:bold" } else { "" }
+                    $intuneSummary.Add("<tr><td>$($_pol.PolicyName)</td><td>$($_pol.Platform)</td><td>$($_pol.AssignedTo)</td><td style='$_graceColor'>$($_pol.GracePeriodHours)</td></tr>")
+                }
+                $intuneSummary.Add("</tbody></table>")
+            } else {
+                $intuneSummary.Add("<p style='color:#b71c1c'><strong>No compliance policies found.</strong> All devices are considered compliant by default.</p>")
+            }
+        }
+
+        # Configuration profiles
+        if (Test-Path $intProfCsv) {
+            $_intProfs = @(Import-Csv $intProfCsv)
+            $_intProfSettings = @()
+            if (Test-Path $intProfSetCsv) { $_intProfSettings = @(Import-Csv $intProfSetCsv) }
+
+            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Configuration Profiles ($($_intProfs.Count))</h4>")
+            if ($_intProfs.Count -gt 0) {
+                $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Profile</th><th>Platform</th><th>Type</th><th>Last Modified</th><th>Assigned To</th><th>Settings</th></tr></thead><tbody>")
+                foreach ($_prof in ($_intProfs | Sort-Object Platform, ProfileName)) {
+                    $_profSettings = @($_intProfSettings | Where-Object { $_.ProfileName -eq $_prof.ProfileName })
+                    if ($_profSettings.Count -gt 0) {
+                        $_settingsHtml  = "<details style='font-size:0.82rem'><summary style='cursor:pointer;color:#1565c0'>$($_profSettings.Count) setting(s)</summary>"
+                        $_settingsHtml += "<table style='margin-top:0.3rem;width:100%;border-collapse:collapse;font-size:0.82rem'><thead><tr><th style='text-align:left;padding:2px 6px;background:#f5f5f5'>Setting</th><th style='text-align:left;padding:2px 6px;background:#f5f5f5'>Value</th></tr></thead><tbody>"
+                        foreach ($_s in $_profSettings) {
+                            $_settingsHtml += "<tr><td style='padding:2px 6px;border-top:1px solid #eee'>$($_s.SettingName)</td><td style='padding:2px 6px;border-top:1px solid #eee'>$($_s.SettingValue)</td></tr>"
+                        }
+                        $_settingsHtml += "</tbody></table></details>"
+                        $intuneSummary.Add("<tr><td>$($_prof.ProfileName)</td><td>$($_prof.Platform)</td><td>$($_prof.ProfileType)</td><td>$($_prof.LastModifiedDateTime)</td><td>$($_prof.AssignedTo)</td><td>$_settingsHtml</td></tr>")
+                    } else {
+                        $intuneSummary.Add("<tr><td>$($_prof.ProfileName)</td><td>$($_prof.Platform)</td><td>$($_prof.ProfileType)</td><td>$($_prof.LastModifiedDateTime)</td><td>$($_prof.AssignedTo)</td><td style='color:#888'>—</td></tr>")
+                    }
+                }
+                $intuneSummary.Add("</tbody></table>")
+            }
+        }
+
+        # Apps
+        if (Test-Path $intAppCsv) {
+            $_intApps = @(Import-Csv $intAppCsv)
+            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Assigned Apps ($($_intApps.Count))</h4>")
+            if ($_intApps.Count -gt 0) {
+                $intuneSummary.Add("<table class='summary-table'><thead><tr><th>App</th><th>Type</th><th>Installed</th><th>Failed</th><th>Pending</th></tr></thead><tbody>")
+                foreach ($_app in ($_intApps | Sort-Object AppName)) {
+                    $_failColor = if ([int]$_app.FailedDeviceCount -gt 0) { "color:#c62828;font-weight:bold" } else { "" }
+                    $intuneSummary.Add("<tr><td>$($_app.AppName)</td><td>$($_app.AppType)</td><td>$($_app.InstalledDeviceCount)</td><td style='$_failColor'>$($_app.FailedDeviceCount)</td><td>$($_app.PendingInstallCount)</td></tr>")
+                }
+                $intuneSummary.Add("</tbody></table>")
+            }
+        }
+
+        # Autopilot
+        if (Test-Path $intApCsv) {
+            $_intAp = @(Import-Csv $intApCsv)
+            if ($_intAp.Count -gt 0) {
+                $intuneSummary.Add("<p><strong>Windows Autopilot:</strong> $($_intAp.Count) device(s) registered.</p>")
+            } else {
+                $intuneSummary.Add("<p><strong>Windows Autopilot:</strong> No devices registered.</p>")
+            }
+        }
+
+        # Enrollment restrictions
+        if (Test-Path $intEnrolCsv) {
+            $_intEnrol = @(Import-Csv $intEnrolCsv)
+            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Enrollment Restrictions ($($_intEnrol.Count))</h4>")
+            if ($_intEnrol.Count -gt 0) {
+                $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Config</th><th>Platform</th><th>Block Personal</th><th>Max Devices/User</th><th>Priority</th><th>Assigned To</th></tr></thead><tbody>")
+                foreach ($_er in $_intEnrol) {
+                    $_blockColor = if ($_er.BlockPersonalDevices -eq 'False') { "color:#e65100" } else { "" }
+                    $intuneSummary.Add("<tr><td>$($_er.ConfigName)</td><td>$($_er.Platform)</td><td style='$_blockColor'>$($_er.BlockPersonalDevices)</td><td>$($_er.MaxDevicesPerUser)</td><td>$($_er.Priority)</td><td>$($_er.AssignedTo)</td></tr>")
+                }
+                $intuneSummary.Add("</tbody></table>")
+            }
+        }
+    }
+
+    $html.Add((Add-Section -Title "Intune / Endpoint Management" -CsvFiles $intuneFiles.FullName -SummaryHtml ($intuneSummary -join "`n")))
 }
 
 

@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.9.0
+    Version     : 2.9.2
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -114,11 +114,11 @@ param (
     [Parameter(ParameterSetName = 'Manual')]
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [ValidateSet(1, 2, 3, 4, 9)]
+    [ValidateSet(1, 2, 3, 4, 5, 9)]
     [int[]]$Modules
 )
 
-$ScriptVersion = "2.9.0"
+$ScriptVersion = "2.9.2"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -364,7 +364,8 @@ $menu = @{
     2 = @{ Name = "Exchange Online Audit";      Script = @("Invoke-ExchangeAudit.ps1") }
     3 = @{ Name = "SharePoint Online Audit";    Script = @("Invoke-SharePointAudit.ps1") }
     4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1") }
-    9 = @{ Name = "Run All Modules (1,2,3,4)";  Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1") }
+    5 = @{ Name = "Intune / Endpoint Audit";    Script = @("Invoke-IntuneAudit.ps1") }
+    9 = @{ Name = "Run All Modules (1-5)";      Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1") }
     0 = @{ Name = "Exit";                       Script = $null }
 }
 
@@ -459,7 +460,9 @@ finally {
         try { Stop-Transcript | Out-Null } catch {}
         $logCtx = try { Initialize-AuditOutput } catch { $null }
         if ($logCtx -and $_transcriptPath -and (Test-Path $_transcriptPath -ErrorAction SilentlyContinue)) {
-            $logDest = Join-Path $logCtx.OutputPath 'AuditLog.txt'
+            $logDir  = Join-Path $logCtx.OutputPath 'Logs'
+            New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue | Out-Null
+            $logDest = Join-Path $logDir 'AuditLog.txt'
             Move-Item -Path $_transcriptPath -Destination $logDest -Force -ErrorAction SilentlyContinue
             Write-Verbose "Audit log saved: $logDest"
         }

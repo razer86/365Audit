@@ -8,6 +8,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.9.2 | Audit transcript now saved to `Logs\AuditLog.txt` inside the customer output folder instead of the root; `Logs\` subfolder is created in the `finally` block before the move |
+| 2.9.1 | Added option 5 "Intune / Endpoint Audit" (`Invoke-IntuneAudit.ps1`); option 9 "Run All" updated to include all five modules (1–5); `ValidateSet` on `-Modules` extended to include 5 |
 | 2.9.0 | Console output is now saved to `AuditLog.txt` in the customer audit output folder; transcript is started early (before any output) and moved to the output folder in the `finally` block; skipped automatically when called from `Start-UnattendedAudit.ps1` (detected via `AUDIT_PARENT_TRANSCRIPT` env var) |
 | 2.8.0 | Added `-Modules` parameter: when supplied, skips the menu entirely for non-interactive/automated runs; HTML summary is generated but not opened (passes `-NoOpen` to `Generate-AuditSummary.ps1`); expired certificate now causes an immediate hard stop in all modes (was warn-and-continue); near-expiry cert days remaining passed to summary as `-CertExpiryDays` so a Toolkit / Certificate action item appears in the report |
 | 2.7.0 | Added `-HuduCompanyId` and `-HuduCompanyName` parameter sets — credentials (AppId, TenantId, CertBase64, CertPassword) are fetched automatically from the NeConnect Audit Toolkit Hudu asset; `-HuduBaseUrl` defaults to `$env:HUDU_BASE_URL` then `https://neconnect.huducloud.com`; added system clock drift check on startup (HEAD request to `login.microsoftonline.com`, warn >60s, stop >300s); disconnect existing Graph/EXO/SPO sessions at startup and in `finally` block to prevent stale connections when re-running in the same PS session; removed noisy "Loading local script" print for local module loads |
@@ -36,6 +38,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.5.4 | Added four Intune Graph application permissions: `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `DeviceManagementApps.Read.All`, `DeviceManagementServiceConfig.Read.All` |
 | 2.5.3 | Added `DelegatedAdminRelationship.Read.All` to required Graph permissions — enables GDAP/partner relationship collection in `Invoke-EntraAudit.ps1` |
 | 2.5.2 | `Connect-GraphForSetup` now runs `Connect-MgGraph` in a `Start-ThreadJob` with a 120-second countdown timer; if the browser sign-in is not completed in time the job is cancelled and an error is thrown, allowing unattended callers to fail fast and continue to the next customer rather than hanging indefinitely |
 | 2.5.1 | `Invoke-PermissionCheck` now handles `Authorization_RequestDenied` from `Update-MgApplication` gracefully — when running app-only and the app lacks write permission to update itself (bootstrapping case: `Application.ReadWrite.OwnedBy` not yet granted), disconnects the app-only session and reopens an interactive browser login, then retries the permission update under the Global Admin session; subsequent steps (`Grant-AdminConsent`, `Invoke-OwnerCheck`) also run under the elevated session |
@@ -72,6 +75,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.12.0 | Output CSVs written to `Entra\` subfolder inside the customer output directory instead of the root |
 | 1.11.0 | Added GDAP/partner relationship collection (`Entra_PartnerRelationships.csv`) — active delegated admin relationships fetched via `Invoke-MgGraphRequest` to `/tenantRelationships/delegatedAdminRelationships`; gracefully skips with a clear warning if `DelegatedAdminRelationship.Read.All` is not yet granted; added third-party enterprise app consent collection (`Entra_EnterpriseApps.csv`) — all non-Microsoft service principals tagged as enterprise apps with admin-consented API permissions; `$totalSteps` updated from 12 to 14 |
 | 1.10.3 | Guard against null `controlName` in both the profile title lookup and the `controlScores` loop — prevents "array index evaluated to null" error on tenants where the API returns controls with missing names |
 | 1.10.2 | Add `ConvertTo-ReadableControlName` fallback for controls missing a profile title: strips vendor prefixes (`mdo_`, `AATP_`, `AAD_`, etc.), splits underscores and camelCase, title-cases the result; also skip null/empty titles from the profiles API |
@@ -96,6 +100,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.11.0 | Output CSVs written to `Exchange\` subfolder inside the customer output directory instead of the root |
 | 1.10.0 | Added mail connector collection (`Exchange_MailConnectors.csv`) — inbound and outbound connectors with direction, name, enabled status, type, source, sender domains, and TLS certificate name; `$totalSteps` updated from 15 to 16 |
 | 1.9.2 | Use `ExchangeGuid` instead of `PrimarySmtpAddress` for `Get-MailboxStatistics` identity (unambiguous for linked/duplicate mailboxes); suppress `Get-InboxRule` warnings for broken rules via `-WarningVariable` capture; broken rules exported to `Exchange_BrokenInboxRules.csv` with mailbox, rule name, and status |
 | 1.9.1 | Wrap primary `Get-MailboxStatistics` in try/catch; null-guard `TotalItemSize` and `ItemCount` so a single inaccessible mailbox no longer aborts the entire inventory |
@@ -118,6 +123,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.9.0 | Output CSVs written to `SharePoint\` subfolder inside the customer output directory instead of the root |
 | 2.8.0 | Switched to certificate-based app-only auth: reads `$AuditAppId`/`$AuditCertFilePath`/`$AuditCertPassword` from launcher scope; uses `Connect-PnPOnline -CertificatePath/-CertificatePassword` (portable .pfx, no cert store required); removes interactive auth, PnP app ID pre-flight, and `Get-PnPAccessToken`; falls back to interactive when cert vars absent |
 | 2.7.0 | Replaced `-ReturnConnection` MSAL caching strategy with explicit `-AccessToken` pass-through: authenticate interactively once to the admin URL, capture the SPO access token via `Get-PnPAccessToken`, then connect to each site with `-AccessToken` (no browser prompt per site); also removed `Disconnect-PnPOnline -Connection` which is not a valid parameter in PnP.PowerShell v3 |
 | 2.6.0 | Added Step X/Y counter to `Write-Progress` status strings |
@@ -146,6 +152,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.7.0 | Output CSVs and JSON files written to `MailSecurity\` subfolder inside the customer output directory instead of the root |
 | 1.6.1 | Linux/macOS: added `Resolve-TxtRecord` helper that uses `dig` when `Resolve-DnsName` is unavailable; DMARC uses `-join ''` to correctly reassemble fragmented TXT records per RFC 7489; SPF fallback label changed from "DNS query failed" to "Not Found" for consistency |
 | 1.6.0 | Added Step X/Y counter to `Write-Progress` status strings |
 | 1.5.0 | Replaced per-section `Write-Host` progress lines with `Write-Progress` for cleaner terminal output |
@@ -158,10 +165,23 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
+## Invoke-IntuneAudit.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.2.0 | Output CSVs written to `Intune\` subfolder inside the customer output directory instead of the root |
+| 1.1.0 | Added configuration profile settings collection — iterates `AdditionalProperties` on each `Get-MgDeviceManagementDeviceConfiguration` object (same approach as compliance policy settings) and exports `Intune_ConfigProfileSettings.csv` (one row per setting per profile: `ProfileName`, `Platform`, `ProfileType`, `SettingName`, `SettingValue`); metadata keys skipped via `$_odataSkipKeys` |
+| 1.0.0 | Initial release — licence check against known Intune-capable SKUs (skips gracefully if unlicensed); managed device inventory with OS/ownership/compliance/last sync; per-device compliance policy states; compliance policies with platform, assignment scope, grace period (hours), and full `AdditionalProperties` key-value settings; configuration profiles with platform, type, last modified, and assignments; assigned app install summary (installed/failed/pending counts); Windows Autopilot device identities (skips gracefully on 403); enrollment restrictions |
+
+---
+
 ## Generate-AuditSummary.ps1
 
 | Version | Notes |
 |---------|-------|
+| 1.26.0 | All CSV path lookups updated to use per-module subfolders (`Entra\`, `Exchange\`, `SharePoint\`, `MailSecurity\`, `Intune\`); subfolder path variables defined near top of script |
+| 1.25.0 | Config profiles table now includes an expandable inline settings panel (reads `Intune_ConfigProfileSettings.csv`; click "N setting(s)" to expand a per-setting name/value table beneath each profile row) |
+| 1.24.0 | Added Intune / Endpoint Management HTML section and action item checks: no compliance policies (critical), non-compliant devices (critical), stale devices >30 days (warning), encryption not required by policy (warning), grace period >24 hours (warning), personal enrolment not blocked (warning), apps with install failures (warning); gracefully renders an info note when no Intune-capable licence is detected |
 | 1.23.0 | Added action items for previous-MSP detection: guest accounts in privileged admin roles (critical, from `Entra_AdminRoles.csv`); active GDAP/partner relationships (critical, from `Entra_PartnerRelationships.csv`); third-party enterprise apps with admin consent (warning, from `Entra_EnterpriseApps.csv`); enabled custom mail connectors (warning, from `Exchange_MailConnectors.csv`) |
 | 1.22.0 | Added critical action item for non-NeConnect Technical Contact domains — if any address in TechnicalNotificationMails is not from ntit.com.au, nqbe.com.au, capconnect.com.au, widebayit.com.au, or neconnect.com.au, a `Tenant / Technical Contact` critical item is raised identifying the address(es) and directing the tech to update the Technical Notification email in the M365 admin centre |
 | 1.21.0 | Added `-NoOpen` switch — suppresses automatic browser launch after report generation (used by `-Modules` automation path in launcher); added `-CertExpiryDays` parameter — when 0–30, inserts a `Toolkit / Certificate` warning action item prompting the tech to run `Setup-365AuditApp.ps1 -Force` before next audit run |
@@ -206,6 +226,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.15.0 | Added `Microsoft.Graph.DeviceManagement`, `Microsoft.Graph.DeviceManagement.Enrolment`, and `Microsoft.Graph.Devices.CorporateManagement` to the `$_graphSubModules` install bootstrap — required by `Invoke-IntuneAudit.ps1` |
 | 1.14.0 | Added "Connected to Exchange Online." confirmation after both app-only and interactive connect paths; `Connect-ExchangeOnlineSecure` no longer silently skips reconnection for changed tenants — session pre-disconnect is handled by the launcher |
 | 1.13.0 | Switch app-only auth from client secret to certificate for both Graph and Exchange Online; `Connect-MgGraphSecure` now uses `X509Certificate2` loaded from `$AuditCertFilePath`; `Connect-ExchangeOnlineSecure` now uses `-CertificateFilePath`/`-CertificatePassword`; removes all OAuth token acquisition code |
 | 1.11.0 | `Initialize-AuditOutput`: move output folder from repo root to parent directory to avoid git conflicts on update |
