@@ -257,7 +257,7 @@ try {
                 PolicyName   = $_pol.DisplayName
                 Platform     = $_platform
                 SettingName  = $_kv.Key
-                SettingValue = $($_kv.Value)
+                SettingValue = $_kv.Value
             })
         }
     }
@@ -309,7 +309,7 @@ try {
             $_profileSettingRows.Add([PSCustomObject]@{
                 ProfileName  = $_prof.DisplayName
                 Platform     = $_profPlatform
-                ProfileType  = $_profOdata -replace '#microsoft.graph.', ''
+                ProfileType  = $_profOdata #-replace '#microsoft.graph.', ''
                 SettingName  = $_kv.Key
                 SettingValue = $($_kv.Value)
             })

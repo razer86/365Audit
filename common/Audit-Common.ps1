@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.15.0
+    Version     : 1.16.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -20,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.15.0"
+$ScriptVersion = "1.16.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -43,13 +43,12 @@ $_graphSubModules = @(
     'Microsoft.Graph.Reports',
     'Microsoft.Graph.Identity.SignIns',
     'Microsoft.Graph.DeviceManagement',
-    'Microsoft.Graph.DeviceManagement.Enrolment',
     'Microsoft.Graph.Devices.CorporateManagement'
 )
 foreach ($_mod in $_graphSubModules) {
     if (-not (Get-Module -ListAvailable -Name $_mod)) {
         Write-Host "Installing $_mod..." -ForegroundColor Yellow
-        Install-Module $_mod -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        Install-Module $_mod -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
 }
 Remove-Variable _graphSubModules, _mod -ErrorAction SilentlyContinue

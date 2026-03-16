@@ -226,6 +226,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.16.0 | Removed `Microsoft.Graph.DeviceManagement.Enrolment` from the sub-module list — that name (British spelling) is a v1.x-only module; its presence caused PowerShellGet to pull `Microsoft.Graph.Authentication` v1.28.0 as a dependency, which conflicts with the v2.x installation; all required Intune cmdlets are available via `Microsoft.Graph.DeviceManagement` and `Microsoft.Graph.Devices.CorporateManagement` in v2.x; added `-SkipPublisherCheck` to `Install-Module` to prevent catalog signing false-positives on Microsoft's own modules |
 | 1.15.0 | Added `Microsoft.Graph.DeviceManagement`, `Microsoft.Graph.DeviceManagement.Enrolment`, and `Microsoft.Graph.Devices.CorporateManagement` to the `$_graphSubModules` install bootstrap — required by `Invoke-IntuneAudit.ps1` |
 | 1.14.0 | Added "Connected to Exchange Online." confirmation after both app-only and interactive connect paths; `Connect-ExchangeOnlineSecure` no longer silently skips reconnection for changed tenants — session pre-disconnect is handled by the launcher |
 | 1.13.0 | Switch app-only auth from client secret to certificate for both Graph and Exchange Online; `Connect-MgGraphSecure` now uses `X509Certificate2` loaded from `$AuditCertFilePath`; `Connect-ExchangeOnlineSecure` now uses `-CertificateFilePath`/`-CertificatePassword`; removes all OAuth token acquisition code |
