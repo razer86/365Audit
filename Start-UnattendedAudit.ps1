@@ -13,12 +13,12 @@
       4. Generates the HTML summary report (not opened automatically).
 
     SETUP:
-      1. Copy this file to Start-UnattendedAudit.ps1 (excluded from git by .gitignore)
-      2. Copy UnattendedCustomers.json.example to UnattendedCustomers.json
-      3. Edit UnattendedCustomers.json — add a HuduCompanySlug + Modules entry per customer
-      4. Set HUDU_API_KEY in your environment or PowerShell profile:
+      1. Copy UnattendedCustomers.json.example to UnattendedCustomers.json
+      2. Edit UnattendedCustomers.json — add a HuduCompanySlug + Modules entry per customer
+         (UnattendedCustomers.json is excluded from git to keep customer data private)
+      3. Set HUDU_API_KEY in your environment or PowerShell profile:
              $env:HUDU_API_KEY = 'your-api-key'
-      5. Run: .\Start-UnattendedAudit.ps1
+      4. Run: .\Start-UnattendedAudit.ps1
 
     NOTE: Non-interactive cert renewal requires that Setup-365AuditApp.ps1
     has been run interactively at least once per customer tenant. This grants

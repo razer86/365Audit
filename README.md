@@ -155,9 +155,8 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
 
 ### Setup
 
-1. Copy `Start-UnattendedAudit.ps1.example` → `Start-UnattendedAudit.ps1` 
-2. Copy `UnattendedCustomers.json.example` → `UnattendedCustomers.json` 
-3. Edit `UnattendedCustomers.json` — add one entry per customer:
+1. Copy `UnattendedCustomers.json.example` → `UnattendedCustomers.json`
+2. Edit `UnattendedCustomers.json` — add one entry per customer:
    ```json
    {
        "customers": [
@@ -167,11 +166,11 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
    }
    ```
    The slug is the 12-character hex string from the Hudu company URL: `https://hudu.example.com/c/<slug>`
-4. Set your Hudu API key in the environment:
+3. Set your Hudu API key in the environment:
    ```powershell
    $env:HUDU_API_KEY = 'your-api-key'
    ```
-5. Run:
+4. Run:
    ```powershell
    .\Start-UnattendedAudit.ps1
    ```
@@ -420,7 +419,7 @@ All modules accept the `-DevMode` switch for standalone testing.
 ```
 365Audit/
 ├── Start-365Audit.ps1                    # Interactive launcher and module menu
-├── Start-UnattendedAudit.ps1.example     # Bulk runner template (copy to Start-UnattendedAudit.ps1, excluded from git)
+├── Start-UnattendedAudit.ps1             # Automated bulk runner (tracked in git)
 ├── UnattendedCustomers.json.example      # Customer list template (copy to UnattendedCustomers.json, excluded from git)
 ├── Setup-365AuditApp.ps1                 # One-time app registration, certificate setup, and renewal
 ├── Invoke-EntraAudit.ps1                 # Entra ID module
