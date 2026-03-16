@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.4.1
+    Version     : 2.5.3
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey  = $env:HUDU_API_KEY
 )
 
-$ScriptVersion      = '2.4.1'
+$ScriptVersion      = '2.5.3'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -116,6 +116,7 @@ $script:GraphPermissions = @(
     'Group.Read.All',
     'AuditLog.Read.All',
     'SecurityEvents.Read.All',
+    'DelegatedAdminRelationship.Read.All',
     'Application.ReadWrite.OwnedBy'
 )
 
@@ -182,10 +183,39 @@ function Connect-GraphForSetup {
         'RoleManagement.ReadWrite.Directory'
     )
 
-    Write-Status 'Connecting to Microsoft Graph (browser window will open)...'
-    Connect-MgGraph -Scopes $scopes -ContextScope Process -NoWelcome -ErrorAction Stop
+    $timeoutSecs = 120
+    Write-Status "Connecting to Microsoft Graph (browser window will open — ${timeoutSecs}s to complete sign-in)..."
+
+    # Run Connect-MgGraph in a thread job so the main thread can show a countdown
+    # and cancel if the sign-in is not completed in time.
+    # Start-ThreadJob runs in the same process, so -ContextScope Process makes the
+    # resulting connection available to the main runspace.
+    $job = Start-ThreadJob -ScriptBlock {
+        Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+        Connect-MgGraph -Scopes $using:scopes -ContextScope Process -NoWelcome -ErrorAction Stop
+    }
+
+    $elapsed = 0
+    while ($job.State -eq 'Running' -and $elapsed -lt $timeoutSecs) {
+        $remaining = $timeoutSecs - $elapsed
+        Write-Host "`r  Complete the browser sign-in... ($remaining seconds remaining)   " -NoNewline -ForegroundColor DarkYellow
+        Start-Sleep -Seconds 1
+        $elapsed++
+    }
+    Write-Host ''  # end countdown line
+
+    if ($job.State -eq 'Running') {
+        Stop-Job  $job
+        Remove-Job $job -Force
+        throw "Interactive login timed out after $timeoutSecs seconds — no sign-in detected."
+    }
+
+    # Surface any error from the thread (e.g. user cancelled in browser)
+    Receive-Job $job -ErrorAction Stop
+    Remove-Job  $job -Force
 
     $ctx = Get-MgContext
+    if (-not $ctx) { throw "Authentication completed but no Graph context was established." }
     Write-Status "Connected — Tenant: $($ctx.TenantId)" -Type Success
     return $ctx.TenantId
 }
@@ -545,7 +575,8 @@ function Get-HuduAuditCredentials {
         -Headers $headers -Method Get -ErrorAction Stop).assets) | Sort-Object updated_at -Descending | Select-Object -First 1
 
     if (-not $asset) {
-        throw "No 365Audit asset found for '$($company.name)' in Hudu. Run Setup-365AuditApp.ps1 interactively first."
+        Write-Status "No existing 365Audit asset found for '$($company.name)' — will run first-time setup." -Type Info
+        return $null
     }
 
     $fieldMap = @{}
@@ -553,7 +584,8 @@ function Get-HuduAuditCredentials {
 
     foreach ($required in @('Application ID', 'Tenant ID', 'Cert Base64', 'Cert Password')) {
         if (-not $fieldMap[$required]) {
-            throw "Hudu asset '$($asset.name)' is missing field: $required. Re-run Setup-365AuditApp.ps1 interactively."
+            Write-Status "Hudu asset '$($asset.name)' is missing field '$required' — will run first-time setup." -Type Warning
+            return $null
         }
     }
 
@@ -720,12 +752,151 @@ function Push-HuduAuditAsset {
 
 
 # ============================================================
+# Shared sequences — called from multiple execution paths
+# ============================================================
+
+# Invoke-PermissionCheck
+# Diffs required vs present permissions and applies any missing ones.
+# Returns $true if any permissions were added (caller may then open admin consent portal).
+function Invoke-PermissionCheck {
+    param ([object]$App)
+
+    $gPerms  = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
+    $ePerms  = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
+    $spPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
+
+    $currentIds  = @($App.RequiredResourceAccess.ResourceAccess | ForEach-Object { $_.Id })
+    $missingG    = @($gPerms  | Where-Object { $_.Id -notin $currentIds })
+    $missingE    = @($ePerms  | Where-Object { $_.Id -notin $currentIds })
+    $missingSP   = @($spPerms | Where-Object { $_.Id -notin $currentIds })
+
+    if ($missingG.Count -gt 0 -or $missingE.Count -gt 0 -or $missingSP.Count -gt 0) {
+        $names = ($missingG + $missingE + $missingSP | ForEach-Object { $_.Name }) -join ', '
+        Write-Status "Missing permissions detected: $names" -Type Warning
+
+        $reqResourceAccess = @(
+            @{ resourceAppId = $script:GraphResourceAppId;      resourceAccess = @($gPerms  | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) },
+            @{ resourceAppId = $script:ExchangeResourceAppId;   resourceAccess = @($ePerms  | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) },
+            @{ resourceAppId = $script:SharePointResourceAppId; resourceAccess = @($spPerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) }
+        )
+        try {
+            Update-MgApplication -ApplicationId $App.Id -RequiredResourceAccess $reqResourceAccess -ErrorAction Stop
+        }
+        catch {
+            if ($_.Exception.Message -match 'Authorization_RequestDenied|Insufficient privileges') {
+                # App-only auth cannot update its own permissions — reconnect interactively and retry.
+                Write-Status "App-only auth cannot update permissions — reconnecting interactively to apply changes..." -Type Warning
+                Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+                Connect-GraphForSetup | Out-Null
+                Update-MgApplication -ApplicationId $App.Id -RequiredResourceAccess $reqResourceAccess -ErrorAction Stop
+            }
+            else { throw }
+        }
+
+        $sp = Resolve-ServicePrincipal -AppId $App.AppId
+        if ($missingG.Count  -gt 0) { Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingG }
+        if ($missingSP.Count -gt 0) { Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingSP }
+        if ($missingE.Count  -gt 0) {
+            Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingE
+            Write-Status 'Assigning Exchange Administrator role...'
+            Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
+        }
+        Write-Status 'Permissions updated.' -Type Success
+        return $true
+    }
+
+    Write-Status 'All required permissions present.' -Type Success
+    return $false
+}
+
+# Invoke-OwnerCheck
+# Ensures the app's own service principal is listed as an owner of the app registration.
+# Required for Application.ReadWrite.OwnedBy to permit non-interactive cert renewal.
+function Invoke-OwnerCheck {
+    param ([object]$App)
+
+    $sp = Resolve-ServicePrincipal -AppId $App.AppId
+    try {
+        New-MgApplicationOwnerByRef -ApplicationId $App.Id -BodyParameter @{
+            '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($sp.Id)"
+        } -ErrorAction Stop
+        Write-Status 'Service principal confirmed as app owner.' -Type Success
+    }
+    catch {
+        if ($_.Exception.Message -match 'already exist') {
+            Write-Verbose 'SP already an owner.'
+        }
+        else {
+            Write-Warning "Could not confirm SP as app owner (non-fatal): $_"
+        }
+    }
+}
+
+# New-EntraApp
+# Creates a brand-new app registration with all required permissions, service
+# principal, owner assignment, programmatic admin consent, and Exchange Admin role.
+# Opens the Azure portal for the operator to confirm consent visually.
+# Returns the created app object.
+function New-EntraApp {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)] [string]$AppName,
+        [Parameter(Mandatory)] [string]$TenantId,
+        [Parameter(Mandatory)] [string]$OrgName
+    )
+
+    Write-Status "Creating app registration: '$AppName'..."
+
+    $gPerms  = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
+    $ePerms  = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
+    $spPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
+
+    $app = New-MgApplication -DisplayName $AppName -RequiredResourceAccess @(
+        @{ resourceAppId = $script:GraphResourceAppId;      resourceAccess = @($gPerms  | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) },
+        @{ resourceAppId = $script:ExchangeResourceAppId;   resourceAccess = @($ePerms  | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) },
+        @{ resourceAppId = $script:SharePointResourceAppId; resourceAccess = @($spPerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) }
+    ) -ErrorAction Stop
+    Write-Status "App created — App ID: $($app.AppId)" -Type Success
+
+    Write-Status 'Waiting for app to replicate across Entra ID...'
+    Start-Sleep -Seconds 10
+
+    $sp = Resolve-ServicePrincipal -AppId $app.AppId
+
+    # Register the SP as an owner so it can renew its own certificate non-interactively
+    # (required for Application.ReadWrite.OwnedBy to work on subsequent unattended runs)
+    try {
+        New-MgApplicationOwnerByRef -ApplicationId $app.Id -BodyParameter @{
+            '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($sp.Id)"
+        } -ErrorAction Stop
+        Write-Status 'Service principal registered as app owner.' -Type Success
+    }
+    catch {
+        if ($_.Exception.Message -match 'already exist') { Write-Verbose 'SP already an owner.' }
+        else { Write-Warning "Could not register SP as app owner (non-fatal): $_" }
+    }
+
+    Write-Status 'Granting admin consent for all permissions...'
+    Grant-AdminConsent -OurSpId $sp.Id -Permissions $gPerms
+    Grant-AdminConsent -OurSpId $sp.Id -Permissions $spPerms
+    Grant-AdminConsent -OurSpId $sp.Id -Permissions $ePerms
+    Write-Status 'Assigning Exchange Administrator role...'
+    Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
+
+    Request-AdminConsent -ApplicationId $app.AppId -TenantName $OrgName
+
+    return $app
+}
+
+
+# ============================================================
 # Main
 # ============================================================
 try {
     Write-Host "`n365Audit App Setup v$ScriptVersion`n" -ForegroundColor Cyan
 
-    # Ensure required Graph modules are installed
+    # ── Ensure required Graph modules ─────────────────────────────────────────
+    Write-Status 'Checking required PowerShell modules... (this can take up to 30 seconds)' -Type Info
     foreach ($mod in @(
             'Microsoft.Graph.Authentication'
             'Microsoft.Graph.Applications'
@@ -739,276 +910,207 @@ try {
         }
     }
 
-    # ----------------------------------------------------------
-    # Hudu-fetch path: resolve credentials from Hudu when HuduCompanyId/Name is
-    # provided but explicit AppId/CertBase64 are not.
-    # Checks cert expiry and populates the non-interactive params if renewal is needed.
-    # ----------------------------------------------------------
-    if (($HuduCompanyId -or $HuduCompanyName) -and -not $AppId) {
-        if (-not $HuduApiKey) {
-            throw "HUDU_API_KEY is required for Hudu-based cert renewal. Set the environment variable or pass -HuduApiKey."
-        }
-
-        Write-Status "Fetching credentials from Hudu for '$($HuduCompanyId ?? $HuduCompanyName)'..."
-        $huduCreds = Get-HuduAuditCredentials -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
-        Write-Status "Company: $($huduCreds.CompanyName)" -Type Success
-
-        # Decode cert to check expiry
-        $fetchedCertBytes = [Convert]::FromBase64String($huduCreds.CertBase64)
-        $fetchedKeyFlags  = if ($IsLinux -or $IsMacOS) {
-            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
-            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
-        } else {
-            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
-        }
-        $fetchedPwd  = ConvertTo-SecureString $huduCreds.CertPassword -AsPlainText -Force
-        $fetchedCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($fetchedCertBytes, $fetchedPwd, $fetchedKeyFlags)
-        $fetchedDays = ($fetchedCert.NotAfter - (Get-Date)).Days
-        $fetchedCert.Dispose()
-
-        if ($fetchedDays -le 0) {
-            Write-Status "Certificate EXPIRED $([math]::Abs($fetchedDays)) day(s) ago — renewing." -Type Warning
-        }
-        elseif ($fetchedDays -le $script:ExpiryWarnDays -or $Force) {
-            Write-Status "Certificate expires in $fetchedDays day(s) — renewing." -Type Warning
-        }
-        else {
-            Write-Status "Certificate valid for $fetchedDays day(s) — no renewal needed." -Type Success
-            return
-        }
-
-        # Populate non-interactive renewal params from Hudu data
-        $AppId        = $huduCreds.AppId
-        $TenantId     = $huduCreds.TenantId
-        $CertBase64   = $huduCreds.CertBase64
-        $CertPassword = $fetchedPwd
-        # Fall through to non-interactive renewal block below
+    # Platform-appropriate key storage flags for X509Certificate2 import
+    $certKeyFlags = if ($IsLinux -or $IsMacOS) {
+        [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
+        [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
+    } else {
+        [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
     }
 
-    # ----------------------------------------------------------
-    # Non-interactive cert renewal path
-    # Triggered when -AppId/-TenantId/-CertBase64/-CertPassword are all provided.
-    # Uses the app's own certificate to authenticate — no browser login required.
-    # Requires Application.ReadWrite.OwnedBy on the app (set during initial setup).
-    # ----------------------------------------------------------
-    if ($AppId -and $TenantId -and $CertBase64 -and $CertPassword) {
-        Write-Host "`n365Audit App Setup v$ScriptVersion — Non-interactive cert renewal`n" -ForegroundColor Cyan
-
-        $certBytes = try { [Convert]::FromBase64String($CertBase64) }
-                     catch { throw "CertBase64 is not valid base64: $_" }
-
-        $keyFlags = if ($IsLinux -or $IsMacOS) {
-            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
-            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
-        } else {
-            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 3 — Explicit AppId + TenantId supplied
+    # App-only connect using the provided cert. No Hudu push.
+    # ══════════════════════════════════════════════════════════════════════════
+    if ($AppId -and $TenantId) {
+        if (-not $CertBase64) {
+            $CertBase64 = Read-Host 'Paste certificate Base64'
         }
-        $existingCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $CertPassword, $keyFlags)
+        if (-not $CertPassword) {
+            $CertPassword = Read-Host 'Certificate password' -AsSecureString
+        }
 
-        Write-Status 'Connecting to Microsoft Graph (app-only auth — no browser required)...'
-        Connect-MgGraph -ClientId $AppId -TenantId $TenantId -Certificate $existingCert -NoWelcome -ErrorAction Stop
-        $existingCert.Dispose()
+        $certBytes   = try { [Convert]::FromBase64String($CertBase64) }
+                       catch { throw "CertBase64 is not valid base64: $_" }
+        $connectCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $CertPassword, $certKeyFlags)
+
+        Write-Status 'Connecting to Microsoft Graph (app-only — no browser required)...'
+        Connect-MgGraph -ClientId $AppId -TenantId $TenantId -Certificate $connectCert -NoWelcome -ErrorAction Stop
+        $connectCert = $null   # MgGraph holds the CNG key handle; do not Dispose here
         Write-Status "Connected." -Type Success
 
         $app = Get-MgApplication -Filter "appId eq '$AppId'" -ErrorAction Stop | Select-Object -First 1
-        if (-not $app) { throw "No app registration found with AppId '$AppId'." }
+        if (-not $app) { throw "No app registration found for AppId '$AppId'." }
+        Write-Status "App: $($app.DisplayName) | AppId: $($app.AppId)" -Type Info
 
-        Write-Status "App: $($app.DisplayName) ($AppId)"
-        Write-Status "Generating $CertExpiryYears-year replacement certificate..."
-        $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $AppId -ExpiryYears $CertExpiryYears
-        Write-Status "Certificate renewed — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+        Invoke-PermissionCheck -App $app | Out-Null
+        Invoke-OwnerCheck      -App $app
 
-        Write-CredentialSummary -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
-        Push-HuduAuditAsset -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
-        return
-    }
-
-    # ----------------------------------------------------------
-    # Interactive path — requires Global Admin browser login
-    # ----------------------------------------------------------
-    $tenantId = Connect-GraphForSetup
-
-    $orgName = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
-    Write-Status "Tenant: $orgName ($tenantId)"
-
-    # ----------------------------------------------------------
-    # Look for existing app
-    # ----------------------------------------------------------
-    Write-Status "Searching for existing app: '$AppName'..."
-    $existingApp = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction Stop |
-        Select-Object -First 1
-
-    if ($existingApp) {
-        Write-Status "App found — App ID: $($existingApp.AppId)" -Type Info
-
-        # ----------------------------------------------------------
-        # Ensure all required Graph and Exchange permissions are present.
-        # Checks per individual permission so new ones added in future
-        # versions are automatically applied on re-run.
-        # ----------------------------------------------------------
-        $graphPerms      = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
-        $exchangePerms   = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
-        $sharePointPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
-
-        $currentIds        = @($existingApp.RequiredResourceAccess.ResourceAccess | ForEach-Object { $_.Id })
-        $missingGraph      = @($graphPerms      | Where-Object { $_.Id -notin $currentIds })
-        $missingExchange   = @($exchangePerms   | Where-Object { $_.Id -notin $currentIds })
-        $missingSharePoint = @($sharePointPerms | Where-Object { $_.Id -notin $currentIds })
-
-        if ($missingGraph.Count -gt 0 -or $missingExchange.Count -gt 0 -or $missingSharePoint.Count -gt 0) {
-            $missingNames = ($missingGraph + $missingExchange + $missingSharePoint | ForEach-Object { $_.Name }) -join ', '
-            Write-Status "Adding missing permissions: $missingNames" -Type Warning
-
-            $resourceAccess = @(
-                @{
-                    resourceAppId  = $script:GraphResourceAppId
-                    resourceAccess = @($graphPerms      | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
-                },
-                @{
-                    resourceAppId  = $script:ExchangeResourceAppId
-                    resourceAccess = @($exchangePerms   | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
-                },
-                @{
-                    resourceAppId  = $script:SharePointResourceAppId
-                    resourceAccess = @($sharePointPerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
-                }
-            )
-
-            Update-MgApplication -ApplicationId $existingApp.Id -RequiredResourceAccess $resourceAccess -ErrorAction Stop
-            $ourSp = Resolve-ServicePrincipal -AppId $existingApp.AppId
-
-            # Ensure SP is an owner so non-interactive cert renewal works
-            try {
-                New-MgApplicationOwnerByRef -ApplicationId $existingApp.Id -BodyParameter @{
-                    '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($ourSp.Id)"
-                } -ErrorAction Stop
-                Write-Verbose "Service principal added as owner of app registration."
-            }
-            catch {
-                if ($_.Exception.Message -match 'already exist') { Write-Verbose 'SP already an owner.' }
-                else { Write-Warning "Could not add SP as app owner (non-fatal): $_" }
-            }
-
-            if ($missingGraph.Count -gt 0)      { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingGraph }
-            if ($missingSharePoint.Count -gt 0) { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingSharePoint }
-            if ($missingExchange.Count -gt 0) {
-                Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingExchange
-                Write-Status 'Assigning Exchange Administrator role to service principal...'
-                Set-ExchangeAdminRole -ServicePrincipalId $ourSp.Id
-            }
-            Write-Status 'Permissions updated and admin consent granted.' -Type Success
-            Request-AdminConsent -ApplicationId $existingApp.AppId -TenantName $orgName
+        # Cert check uses the live app registration (more authoritative than the passed-in cert)
+        $certStatus = Get-CertificateStatus -App $app
+        if (-not $certStatus.HasActive) {
+            Write-Status 'No active certificate on app — generating new certificate.' -Type Warning
+            $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $AppId -ExpiryYears $CertExpiryYears
+            Write-Status "Certificate generated — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+            Write-CredentialSummary -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+        }
+        elseif ($certStatus.ExpiresWithin30Days -or $Force) {
+            $reason = if ($Force) { '-Force specified' } else { "expiring within $script:ExpiryWarnDays days" }
+            Write-Status "Certificate $reason — generating new certificate." -Type Warning
+            $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $AppId -ExpiryYears $CertExpiryYears
+            Write-Status "Certificate renewed — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+            Write-CredentialSummary -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
         }
         else {
-            Write-Verbose 'All required permissions already present on app.'
-        }
-
-        $certStatus = Get-CertificateStatus -App $existingApp
-
-        if ($certStatus.HasActive) {
             $expiry = $certStatus.Soonest.EndDateTime
-            Write-Status "Active certificate expires: $($expiry.ToString('yyyy-MM-dd'))"
+            Write-Status "Certificate healthy — expires $($expiry.ToString('yyyy-MM-dd'))." -Type Success
+        }
+    }
 
-            if ($certStatus.ExpiresWithin30Days) {
-                Write-Status "Certificate expiring within $script:ExpiryWarnDays days — generating new certificate." -Type Warning
-                $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
-                Push-HuduAuditAsset    -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 2 — Hudu company context supplied
+    # ══════════════════════════════════════════════════════════════════════════
+    elseif ($HuduCompanyId -or $HuduCompanyName) {
+        if (-not $HuduApiKey) {
+            throw "HUDU_API_KEY is required when using -HuduCompanyId or -HuduCompanyName. Set the environment variable or pass -HuduApiKey."
+        }
+
+        Write-Status "Looking up Hudu company '$($HuduCompanyId ?? $HuduCompanyName)'..."
+        $huduCreds = Get-HuduAuditCredentials `
+            -HuduCompanyId   $HuduCompanyId `
+            -HuduCompanyName $HuduCompanyName `
+            -HuduBaseUrl     $HuduBaseUrl `
+            -HuduApiKey      $HuduApiKey
+
+        if ($huduCreds) {
+            # ── Mode 2b: Asset found — app-only connect ───────────────────────────
+            Write-Status "Company: $($huduCreds.CompanyName)" -Type Success
+
+            # Load cert once — reused directly for Connect-MgGraph to avoid the Windows CNG
+            # double-import error that occurs when the same EphemeralKeySet PFX bytes are
+            # decoded twice in the same process (second import fails with ERROR_PATH_NOT_FOUND).
+            $certBytes   = [Convert]::FromBase64String($huduCreds.CertBase64)
+            $certPwd     = ConvertTo-SecureString $huduCreds.CertPassword -AsPlainText -Force
+            $connectCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $certPwd, $certKeyFlags)
+
+            $daysRemaining = ($connectCert.NotAfter - (Get-Date)).Days
+            $needsRenewal  = ($daysRemaining -le 0) -or ($daysRemaining -le $script:ExpiryWarnDays) -or $Force
+
+            if ($daysRemaining -le 0) {
+                Write-Status "Certificate EXPIRED $([math]::Abs($daysRemaining)) day(s) ago — will renew after connecting." -Type Warning
+            } elseif ($daysRemaining -le $script:ExpiryWarnDays -or $Force) {
+                $reason = if ($Force) { '-Force' } else { "$daysRemaining day(s) remaining" }
+                Write-Status "Certificate expiring ($reason) — will renew after connecting." -Type Warning
+            } else {
+                Write-Status "Certificate valid — $daysRemaining day(s) remaining." -Type Success
             }
-            elseif ($Force) {
-                Write-Status '-Force specified — generating new certificate.' -Type Warning
-                $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-                Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
-                Push-HuduAuditAsset    -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
-            }
-            else {
-                Write-Status "Certificate is healthy — re-run the audit with your existing .pfx file." -Type Success
-                $sep = '=' * 72
-                Write-Host "`n$sep" -ForegroundColor Cyan
-                Write-Host "  App ID (Client ID) : $($existingApp.AppId)"
-                Write-Host "  Tenant ID          : $tenantId"
-                Write-Host "  Cert Expires       : $($expiry.ToString('yyyy-MM-dd'))"
-                Write-Host "  Use -Force to rotate the certificate regardless of expiry." -ForegroundColor DarkCyan
-                Write-Host "$sep`n" -ForegroundColor Cyan
+
+            $AppId    = $huduCreds.AppId
+            $TenantId = $huduCreds.TenantId
+
+            Write-Status 'Connecting to Microsoft Graph (app-only — no browser required)...'
+            Connect-MgGraph -ClientId $AppId -TenantId $TenantId -Certificate $connectCert -NoWelcome -ErrorAction Stop
+            $connectCert = $null   # MgGraph holds the CNG key handle; do not Dispose here
+            Write-Status "Connected." -Type Success
+
+            $app = Get-MgApplication -Filter "appId eq '$AppId'" -ErrorAction Stop | Select-Object -First 1
+            if (-not $app) { throw "No app registration found for AppId '$AppId'." }
+            Write-Status "App: $($app.DisplayName) | AppId: $($app.AppId)" -Type Info
+
+            Invoke-PermissionCheck -App $app | Out-Null
+            Invoke-OwnerCheck      -App $app
+
+            if ($needsRenewal) {
+                Write-Status "Generating $CertExpiryYears-year replacement certificate..."
+                $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $AppId -ExpiryYears $CertExpiryYears
+                Write-Status "Certificate renewed — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+                Write-CredentialSummary -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+                Push-HuduAuditAsset     -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate `
+                    -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+            } else {
+                Write-Status 'All checks passed — no changes needed.' -Type Success
             }
         }
         else {
-            Write-Status 'No active certificate found — generating new certificate.' -Type Warning
-            $newCert = New-AuditCertificate -AppObjectId $existingApp.Id -AppId $existingApp.AppId -ExpiryYears $CertExpiryYears
-            Write-CredentialSummary -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
-            Push-HuduAuditAsset    -AppId $existingApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+            # ── Mode 2a: No asset found — first-time interactive setup ────────────
+            # HuduCompanyId/Name remain set so Push-HuduAuditAsset fires after cert generation.
+            Write-Status 'No existing Hudu asset — running first-time interactive setup...' -Type Info
+
+            $TenantId = Connect-GraphForSetup
+            $orgName  = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
+            Write-Status "Tenant: $orgName ($TenantId)" -Type Success
+
+            Write-Status "Searching for existing app: '$AppName'..."
+            $app = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction Stop | Select-Object -First 1
+
+            if ($app) {
+                Write-Status "App found — App ID: $($app.AppId)" -Type Info
+                $permAdded = Invoke-PermissionCheck -App $app
+                Invoke-OwnerCheck -App $app
+                if ($permAdded) { Request-AdminConsent -ApplicationId $app.AppId -TenantName $orgName }
+            } else {
+                $app = New-EntraApp -AppName $AppName -TenantId $TenantId -OrgName $orgName
+            }
+
+            $certStatus = Get-CertificateStatus -App $app
+            if (-not $certStatus.HasActive -or $certStatus.ExpiresWithin30Days -or $Force) {
+                $reason = if (-not $certStatus.HasActive) { 'no active certificate' } elseif ($Force) { '-Force' } else { 'expiring soon' }
+                Write-Status "Generating certificate ($reason)..." -Type Warning
+                $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $app.AppId -ExpiryYears $CertExpiryYears
+                Write-Status "Certificate generated — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+                Write-CredentialSummary -AppId $app.AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+                Push-HuduAuditAsset     -AppId $app.AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate `
+                    -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+            } else {
+                $expiry = $certStatus.Soonest.EndDateTime
+                Write-Status "Certificate healthy — expires $($expiry.ToString('yyyy-MM-dd'))." -Type Success
+            }
         }
     }
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 1 — No params: fully interactive, no Hudu push
+    # ══════════════════════════════════════════════════════════════════════════
     else {
-        # ----------------------------------------------------------
-        # App does not exist — create it
-        # ----------------------------------------------------------
-        Write-Status "App not found — creating '$AppName'..." -Type Info
+        $TenantId = Connect-GraphForSetup
+        $orgName  = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
+        Write-Status "Tenant: $orgName ($TenantId)" -Type Success
 
-        Write-Status 'Resolving permission IDs...'
-        $graphPerms      = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
-        $exchangePerms   = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
-        $sharePointPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
+        Write-Status "Searching for existing app: '$AppName'..."
+        $app = Get-MgApplication -Filter "displayName eq '$AppName'" -ErrorAction Stop | Select-Object -First 1
 
-        # Graph SDK v2 requires camelCase keys and explicit string GUIDs in hashtables
-        $resourceAccess = @(
-            @{
-                resourceAppId  = $script:GraphResourceAppId
-                resourceAccess = @($graphPerms      | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
-            },
-            @{
-                resourceAppId  = $script:ExchangeResourceAppId
-                resourceAccess = @($exchangePerms   | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
-            },
-            @{
-                resourceAppId  = $script:SharePointResourceAppId
-                resourceAccess = @($sharePointPerms | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } })
-            }
-        )
+        if ($app) {
+            Write-Status "App found — App ID: $($app.AppId)" -Type Info
+            $permAdded = Invoke-PermissionCheck -App $app
+            Invoke-OwnerCheck -App $app
+            if ($permAdded) { Request-AdminConsent -ApplicationId $app.AppId -TenantName $orgName }
+        } else {
+            $app = New-EntraApp -AppName $AppName -TenantId $TenantId -OrgName $orgName
+        }
 
-        if ($PSCmdlet.ShouldProcess($AppName, 'Create Entra app registration')) {
-            $newApp = New-MgApplication `
-                -DisplayName            $AppName `
-                -RequiredResourceAccess $resourceAccess `
-                -ErrorAction Stop
-
-            Write-Status "App created — App ID: $($newApp.AppId)" -Type Success
-
-            Write-Status 'Creating service principal (waiting for Entra replication)...'
-            $ourSp = Resolve-ServicePrincipal -AppId $newApp.AppId
-            Start-Sleep -Seconds 5   # Allow Entra ID to replicate before granting consent
-
-            # Add SP as owner of the app registration so Application.ReadWrite.OwnedBy
-            # allows the app to renew its own certificate without a browser login.
-            try {
-                New-MgApplicationOwnerByRef -ApplicationId $newApp.Id -BodyParameter @{
-                    '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($ourSp.Id)"
-                } -ErrorAction Stop
-                Write-Verbose "Service principal added as owner of app registration."
-            }
-            catch {
-                if ($_.Exception.Message -match 'already exist') {
-                    Write-Verbose 'Service principal is already an owner — skipping.'
-                }
-                else { Write-Warning "Could not add SP as app owner (non-fatal): $_" }
-            }
-
-            Write-Status 'Granting admin consent for all permissions...'
-            Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $graphPerms
-            Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $exchangePerms
-            Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $sharePointPerms
-
-            Write-Status 'Assigning Exchange Administrator role to service principal...'
-            Set-ExchangeAdminRole -ServicePrincipalId $ourSp.Id
-            Write-Status 'Admin consent granted.' -Type Success
-
-            Request-AdminConsent -ApplicationId $newApp.AppId -TenantName $orgName
-
-            Write-Status "Generating $CertExpiryYears-year certificate..."
-            $newCert = New-AuditCertificate -AppObjectId $newApp.Id -AppId $newApp.AppId -ExpiryYears $CertExpiryYears
-
-            Write-CredentialSummary -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
-            Push-HuduAuditAsset    -AppId $newApp.AppId -TenantId $tenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+        $certStatus = Get-CertificateStatus -App $app
+        if (-not $certStatus.HasActive) {
+            Write-Status 'No active certificate — generating new certificate.' -Type Warning
+            $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $app.AppId -ExpiryYears $CertExpiryYears
+            Write-Status "Certificate generated — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+            Write-CredentialSummary -AppId $app.AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+        }
+        elseif ($certStatus.ExpiresWithin30Days -or $Force) {
+            $reason = if ($Force) { '-Force specified' } else { "expiring within $script:ExpiryWarnDays days" }
+            Write-Status "Certificate $reason — generating new certificate." -Type Warning
+            $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $app.AppId -ExpiryYears $CertExpiryYears
+            Write-Status "Certificate renewed — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+            Write-CredentialSummary -AppId $app.AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+        }
+        else {
+            $expiry = $certStatus.Soonest.EndDateTime
+            $sep = '=' * 72
+            Write-Host "`n$sep" -ForegroundColor Cyan
+            Write-Host "  App ID (Client ID) : $($app.AppId)"
+            Write-Host "  Tenant ID          : $TenantId"
+            Write-Host "  Cert Expires       : $($expiry.ToString('yyyy-MM-dd'))"
+            Write-Host "  Use -Force to rotate the certificate regardless of expiry." -ForegroundColor DarkCyan
+            Write-Host "$sep`n" -ForegroundColor Cyan
         }
     }
 }

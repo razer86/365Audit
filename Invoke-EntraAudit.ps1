@@ -32,10 +32,12 @@
     - Entra_AccountCreations.csv
     - Entra_AccountDeletions.csv
     - Entra_AuditEvents.csv
+    - Entra_PartnerRelationships.csv
+    - Entra_EnterpriseApps.csv
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.10.3
+    Version     : 1.11.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -53,7 +55,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.10.3"
+$ScriptVersion = "1.11.0"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -154,7 +156,7 @@ catch {
 Write-Host "`nStarting Entra Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 12
+$totalSteps = 14
 $activity   = "Entra Audit — $($context.OrgName)"
 
 
@@ -685,6 +687,89 @@ try {
 }
 catch {
     Write-Warning "Unable to retrieve Security Defaults: $_"
+}
+
+
+# ================================
+# ===   Partner / GDAP Relationships ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting partner/GDAP relationships..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+try {
+    $gdapResponse   = Invoke-MgGraphRequest -Method GET -Uri '/v1.0/tenantRelationships/delegatedAdminRelationships?$filter=status eq ''active''' -ErrorAction Stop
+    $gdapData = foreach ($rel in $gdapResponse.value) {
+        [PSCustomObject]@{
+            DisplayName        = $rel.displayName
+            Status             = $rel.status
+            PartnerTenantId    = $rel.partner.tenantId
+            CreatedDateTime    = $rel.createdDateTime
+            ActivatedDateTime  = $rel.activatedDateTime
+            EndDateTime        = $rel.endDateTime
+            AutoExtendDuration = $rel.autoExtendDuration   # PT0S or absent = disabled; e.g. P180D = enabled
+            RoleCount          = @($rel.accessDetails.unifiedRoles).Count
+        }
+    }
+
+    if ($gdapData) {
+        $gdapData | Export-Csv "$outputDir\Entra_PartnerRelationships.csv" -NoTypeInformation -Encoding UTF8
+        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting partner/GDAP relationships..." -CurrentOperation "Saved: Entra_PartnerRelationships.csv ($(@($gdapData).Count) active)" -PercentComplete ([int]($step / $totalSteps * 100))
+    }
+    else {
+        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting partner/GDAP relationships..." -CurrentOperation "No active partner relationships found." -PercentComplete ([int]($step / $totalSteps * 100))
+    }
+}
+catch {
+    if ($_.Exception.Message -match '403|Forbidden|valid permissions|valid roles|Authorization') {
+        Write-Warning "Partner Relationships: permission denied (DelegatedAdminRelationship.Read.All not yet granted). Re-run Setup-365AuditApp.ps1 to add the missing permission."
+    }
+    else {
+        Write-Warning "Unable to retrieve partner relationships: $_"
+    }
+}
+
+
+# ================================
+# ===   Enterprise Applications ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting enterprise app consent grants..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+try {
+    # Microsoft first-party tenant IDs — filter these out to show only third-party apps
+    $msTenantIds = @(
+        'f8cdef31-a31e-4b4a-93e4-5f571e91255a'  # Microsoft Services
+        '72f988bf-86f1-41af-91ab-2d7cd011db47'  # Microsoft
+        '47d73278-e43c-4cc2-a606-c500b66883ef'  # Microsoft Partner Network
+    )
+
+    $thirdPartyApps = Get-MgServicePrincipal -All -ErrorAction Stop |
+        Where-Object {
+            $_.ServicePrincipalType -eq 'Application' -and
+            $_.Tags -contains 'WindowsAzureActiveDirectoryIntegratedApp' -and
+            $_.AppOwnerOrganizationId -notin $msTenantIds
+        }
+
+    $appData = foreach ($app in $thirdPartyApps) {
+        $roleAssignments = @(Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $app.Id -ErrorAction SilentlyContinue)
+        [PSCustomObject]@{
+            DisplayName    = $app.DisplayName
+            AppId          = $app.AppId
+            PublisherName  = $app.PublisherName
+            PublisherDomain = $app.VerifiedPublisher.DisplayName ?? $app.AppOwnerOrganizationId
+            Enabled        = $app.AccountEnabled
+            AdminConsented = $roleAssignments.Count -gt 0
+            ConsentedRoles = $roleAssignments.Count
+        }
+    }
+
+    if ($appData) {
+        $appData | Export-Csv "$outputDir\Entra_EnterpriseApps.csv" -NoTypeInformation -Encoding UTF8
+        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting enterprise app consent grants..." -CurrentOperation "Saved: Entra_EnterpriseApps.csv ($(@($appData).Count) third-party apps)" -PercentComplete ([int]($step / $totalSteps * 100))
+    }
+}
+catch {
+    Write-Warning "Unable to retrieve enterprise applications: $_"
 }
 
 

@@ -35,10 +35,13 @@
     - MailSec_DKIM.csv
     - MailSec_DMARC.csv
     - MailSec_SPF.csv
+    - Entra_PartnerRelationships.csv
+    - Entra_EnterpriseApps.csv
+    - Exchange_MailConnectors.csv
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.21.0
+    Version     : 1.23.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -59,7 +62,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.21.0"
+$ScriptVersion = "1.23.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -239,7 +242,37 @@ if ($CertExpiryDays -ge 0 -and $CertExpiryDays -le 30) {
     Add-ActionItem -Severity 'warning' -Category 'Toolkit / Certificate' -Text "Audit app certificate expires in $CertExpiryDays day(s). Run Setup-365AuditApp.ps1 -Force (requires interactive Global Admin login) to renew before the next audit run."
 }
 
+# --- Technical Contact domain check ---
+# Flags any technical notification email that is not from a NeConnect group domain.
+# A non-NeConnect address likely belongs to a previous MSP and should be removed.
+$_ncDomains = @('ntit.com.au','nqbe.com.au','capconnect.com.au','widebayit.com.au','neconnect.com.au')
+if ($orgInfo -and $orgInfo.TechnicalNotificationMails.Count -gt 0) {
+    $_foreignContacts = @($orgInfo.TechnicalNotificationMails | Where-Object {
+        $domain = ($_ -split '@')[-1].ToLower()
+        $domain -notin $_ncDomains
+    })
+    if ($_foreignContacts.Count -gt 0) {
+        $_contactList = $_foreignContacts -join ', '
+        Add-ActionItem -Severity 'critical' -Category 'Tenant / Technical Contact' `
+            -Text "Technical Contact address(es) are not from a NeConnect domain: $_contactList — this may be a previous MSP's details still on the tenant. Review and update the Technical Notification email in the Microsoft 365 admin centre (Settings &rarr; Org settings &rarr; Organisation profile)."
+    }
+}
+
 # --- Entra checks ---
+
+# Guest accounts in privileged roles
+# #EXT# in the UPN identifies a guest account. Guests holding admin roles may be
+# a previous MSP's staff who retained access after the engagement ended.
+$_aiAdminRolesCsv = Join-Path $AuditFolder "Entra_AdminRoles.csv"
+if (Test-Path $_aiAdminRolesCsv) {
+    $_guestAdmins = @(Import-Csv $_aiAdminRolesCsv | Where-Object { $_.MemberUserPrincipalName -like '*#EXT#*' })
+    if ($_guestAdmins.Count -gt 0) {
+        $_guestList = ($_guestAdmins | ForEach-Object { "$($_.MemberDisplayName) &mdash; $($_.RoleName)" }) -join '<br>'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Admins' `
+            -Text "Guest account(s) hold privileged admin roles — this may indicate a previous MSP's accounts still have admin access. Review and remove if no longer required:<br>$_guestList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
+    }
+}
 
 # MFA coverage
 $_aiUsersCsv = Join-Path $AuditFolder "Entra_Users.csv"
@@ -299,6 +332,57 @@ if (Test-Path $_aiSsprCsv) {
     $_aiSspr = Import-Csv $_aiSsprCsv | Select-Object -First 1
     if ($_aiSspr.SSPREnabled -ne "Enabled") {
         Add-ActionItem -Severity 'warning' -Category 'Entra / SSPR' -Text "Self-Service Password Reset is not fully enabled (current: $($_aiSspr.SSPREnabled)). Users cannot reset passwords without helpdesk intervention." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-sspr-howitworks'
+    }
+}
+
+# Partner / GDAP relationships
+# Expected NeConnect group partners — these are legitimate and should not be flagged.
+# Webb Bros (trading as NeConnect group brands) appears as an indirect reseller under Ingram Micro.
+$_knownPartners = @('Ingram Micro Pty Ltd', 'Webb Bros')
+
+$_partnerCsv = Join-Path $AuditFolder "Entra_PartnerRelationships.csv"
+if (Test-Path $_partnerCsv) {
+    $_partners = @(Import-Csv $_partnerCsv)
+    $_unknownPartners = @($_partners | Where-Object {
+        $name = $_.DisplayName
+        $isKnown = $false
+        foreach ($partner in $_knownPartners) { if ($name -like "*$partner*") { $isKnown = $true; break } }
+        -not $isKnown
+    })
+    if ($_unknownPartners.Count -gt 0) {
+        $_partnerList = ($_unknownPartners | ForEach-Object { "$($_.DisplayName) (expires $($_.EndDateTime -replace 'T.*'))" }) -join '<br>'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Partner Access' `
+            -Text "$($_unknownPartners.Count) unrecognised active GDAP/delegated admin relationship(s) found. These are not NeConnect group partners and may belong to a previous MSP — review and remove if no longer required:<br>$_partnerList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/misc/delegated-admin-privileges'
+    }
+
+    # Check that NeConnect's own partner relationship has auto-extend enabled.
+    # AutoExtendDuration of PT0S or absent means the relationship will expire without manual renewal.
+    $_knownWithoutAutoExtend = @($_partners | Where-Object {
+        $name = $_.DisplayName
+        $isKnown = $false
+        foreach ($partner in $_knownPartners) { if ($name -like "*$partner*") { $isKnown = $true; break } }
+        $isKnown -and ($_.AutoExtendDuration -eq 'PT0S' -or [string]::IsNullOrWhiteSpace($_.AutoExtendDuration))
+    })
+    if ($_knownWithoutAutoExtend.Count -gt 0) {
+        $_noExtendList = ($_knownWithoutAutoExtend | ForEach-Object { "$($_.DisplayName) (expires $($_.EndDateTime -replace 'T.*'))" }) -join '<br>'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Partner Access' `
+            -Text "NeConnect partner relationship(s) do not have auto-extend enabled — the relationship will expire and must be manually renewed before the expiry date or audit access will be lost:<br>$_noExtendList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/misc/delegated-admin-privileges'
+    }
+}
+
+# Third-party enterprise apps with admin-consented permissions
+# Apps with admin consent have been granted API access to the tenant. Review for unknown or MSP-installed apps.
+$_aiAppsCsv = Join-Path $AuditFolder "Entra_EnterpriseApps.csv"
+if (Test-Path $_aiAppsCsv) {
+    $_aiApps         = @(Import-Csv $_aiAppsCsv)
+    $_aiConsentedApps = @($_aiApps | Where-Object { $_.AdminConsented -eq 'True' })
+    if ($_aiConsentedApps.Count -gt 0) {
+        $_appList = ($_aiConsentedApps | ForEach-Object { "$($_.DisplayName) ($($_.PublisherName))" }) -join '<br>'
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Enterprise Apps' `
+            -Text "$($_aiConsentedApps.Count) third-party app(s) have admin-consented API permissions. Review to confirm all are authorised and none were installed by a previous MSP:<br>$_appList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-consent-requests'
     }
 }
 
@@ -376,6 +460,22 @@ if (Test-Path $_aiPhishCsv) {
     $_aiNoSpoof    = @($_aiPhish | Where-Object { $_.EnableSpoofIntelligence -eq "False" })
     if ($_aiNoSpoof.Count -gt 0) {
         Add-ActionItem -Severity 'warning' -Category 'Exchange / Anti-Phish' -Text "$($_aiNoSpoof.Count) anti-phishing policy/policies have Spoof Intelligence disabled. This reduces protection against email spoofing attacks." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/anti-phishing-policies-about'
+    }
+}
+
+# Mail connectors
+# Custom connectors are often created by MSPs to route mail through their filtering/archiving infrastructure.
+# Flag any enabled custom connector so the tech can confirm it still belongs here.
+$_aiConnectorsCsv = Join-Path $AuditFolder "Exchange_MailConnectors.csv"
+if (Test-Path $_aiConnectorsCsv) {
+    $_aiCustomConnectors = @(Import-Csv $_aiConnectorsCsv | Where-Object {
+        $_.Enabled -eq 'True' -and $_.ConnectorSource -ne 'HybridWizard' -and $_.ConnectorSource -ne 'Default'
+    })
+    if ($_aiCustomConnectors.Count -gt 0) {
+        $_connList = ($_aiCustomConnectors | ForEach-Object { "$($_.Direction): $($_.Name) (source: $($_.ConnectorSource))" }) -join '<br>'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Connectors' `
+            -Text "$($_aiCustomConnectors.Count) custom mail connector(s) are active. Connectors may route mail through a previous MSP's filtering or archiving infrastructure. Review to confirm all are still required:<br>$_connList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/exchange/mail-flow-best-practices/use-connectors-to-configure-mail-flow/set-up-connectors-to-route-mail'
     }
 }
 

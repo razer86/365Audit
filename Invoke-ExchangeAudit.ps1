@@ -15,12 +15,13 @@
     - DKIM signing configuration
     - Mailbox audit settings
     - Resource mailboxes (room & equipment)
+    - Mail connectors (inbound and outbound)
 
     Output CSVs are written to the shared audit output folder.
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.2
+    Version     : 1.10.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -38,7 +39,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.9.2"
+$ScriptVersion = "1.10.0"
 Write-Verbose "Invoke-ExchangeAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -66,7 +67,7 @@ Connect-ExchangeOnlineSecure
 Write-Host "`nStarting Exchange Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 15
+$totalSteps = 16
 $activity   = "Exchange Audit — $($context.OrgName)"
 
 
@@ -406,6 +407,42 @@ try {
 }
 catch {
     Write-Warning "  Safe Links not available — requires Defender for Office 365 P1 or higher"
+}
+
+
+# === 16. Mail Connectors ===
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting mail connectors..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+$connectorRows = @()
+$connectorRows += @(Get-InboundConnector  -ErrorAction SilentlyContinue) | ForEach-Object {
+    [PSCustomObject]@{
+        Direction           = 'Inbound'
+        Name                = $_.Name
+        Enabled             = $_.Enabled
+        ConnectorType       = $_.ConnectorType
+        ConnectorSource     = $_.ConnectorSource
+        SenderDomains       = ($_.SenderDomains -join ', ')
+        TlsSenderCertName   = $_.TlsSenderCertificateName
+        Comment             = $_.Comment
+    }
+}
+$connectorRows += @(Get-OutboundConnector -ErrorAction SilentlyContinue) | ForEach-Object {
+    [PSCustomObject]@{
+        Direction           = 'Outbound'
+        Name                = $_.Name
+        Enabled             = $_.Enabled
+        ConnectorType       = $_.ConnectorType
+        ConnectorSource     = $_.ConnectorSource
+        SenderDomains       = ''
+        TlsSenderCertName   = ''
+        Comment             = $_.Comment
+    }
+}
+
+if ($connectorRows.Count -gt 0) {
+    $connectorRows | Export-Csv "$outputDir\Exchange_MailConnectors.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting mail connectors..." -CurrentOperation "Saved: Exchange_MailConnectors.csv ($($connectorRows.Count) connectors)" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 
 
