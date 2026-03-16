@@ -1,6 +1,6 @@
 {
     "Start-365Audit.ps1": "2.8.0",
-    "Setup-365AuditApp.ps1": "2.4.0",
+    "Setup-365AuditApp.ps1": "2.4.1",
     "common/Audit-Common.ps1": "1.14.0",
     "Invoke-EntraAudit.ps1": "1.10.3",
     "Invoke-ExchangeAudit.ps1": "1.9.2",

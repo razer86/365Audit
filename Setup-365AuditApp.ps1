@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.4.0
+    Version     : 2.4.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey  = $env:HUDU_API_KEY
 )
 
-$ScriptVersion      = '2.4.0'
+$ScriptVersion      = '2.4.1'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -138,6 +138,9 @@ $script:ExpiryWarnDays = 30
 
 # Output directory for generated .pfx files (alongside this script)
 $script:CertOutputDir = $PSScriptRoot
+
+# Tracks every .pfx written this run so they can be deleted in finally{}
+$script:GeneratedPfxPaths = [System.Collections.Generic.List[string]]::new()
 
 
 # ============================================================
@@ -406,6 +409,7 @@ function New-AuditCertificate {
 
     # Encode the .pfx as base64 so it can be stored as a Hudu secret
     $certBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($pfxPath))
+    $script:GeneratedPfxPaths.Add($pfxPath)
 
     return [PSCustomObject]@{
         PfxPath       = $pfxPath
@@ -1018,5 +1022,11 @@ catch {
 finally {
     if (Get-MgContext) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+    }
+    foreach ($pfx in $script:GeneratedPfxPaths) {
+        if (Test-Path $pfx) {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+            Write-Verbose "Deleted temporary certificate file: $pfx"
+        }
     }
 }
