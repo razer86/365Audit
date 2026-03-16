@@ -1,0 +1,185 @@
+<#
+.SYNOPSIS
+    Runs the 365Audit toolkit across multiple customers in sequence.
+
+.DESCRIPTION
+    Reads the customer list from UnattendedCustomers.json (one entry per customer),
+    then for each customer:
+      1. Fetches credentials from the Hudu '365Audit' asset automatically.
+      2. Checks the audit certificate expiry — if within 30 days, calls
+         Setup-365AuditApp.ps1 to renew the cert and push new credentials
+         back to Hudu (no browser login required).
+      3. Runs the audit modules defined for that customer via Start-365Audit.ps1.
+      4. Generates the HTML summary report (not opened automatically).
+
+    SETUP:
+      1. Copy this file to Start-UnattendedAudit.ps1 (excluded from git by .gitignore)
+      2. Copy UnattendedCustomers.json.example to UnattendedCustomers.json
+      3. Edit UnattendedCustomers.json — add a HuduCompanySlug + Modules entry per customer
+      4. Set HUDU_API_KEY in your environment or PowerShell profile:
+             $env:HUDU_API_KEY = 'your-api-key'
+      5. Run: .\Start-UnattendedAudit.ps1
+
+    NOTE: Non-interactive cert renewal requires that Setup-365AuditApp.ps1
+    has been run interactively at least once per customer tenant. This grants
+    Application.ReadWrite.OwnedBy and registers the service principal as an
+    owner of the app registration.
+
+.PARAMETER Customers
+    Optional filter — one or more HuduCompanySlugs to process. When omitted,
+    all entries in UnattendedCustomers.json are processed.
+
+.PARAMETER Modules
+    Global module override — applies to every customer this run.
+    When omitted, each customer uses the Modules array from the JSON file.
+    Valid values: 1, 2, 3, 4, 9.
+
+.PARAMETER HuduBaseUrl
+    Hudu instance base URL. Falls back to HUDU_BASE_URL env var, then
+    'https://neconnect.huducloud.com'.
+
+.PARAMETER HuduApiKey
+    Hudu API key. Falls back to HUDU_API_KEY env var.
+
+.PARAMETER SkipCertCheck
+    Skip the certificate expiry check and renewal step.
+
+.EXAMPLE
+    .\Start-UnattendedAudit.ps1
+    Processes all customers in UnattendedCustomers.json using HUDU_API_KEY from env.
+
+.EXAMPLE
+    .\Start-UnattendedAudit.ps1 -Customers 'contoso','fabrikam' -Modules 1,2
+    Runs only Entra and Exchange audits for two specific customers.
+
+.NOTES
+    Author      : Raymond Slater
+    Version     : 2.1.0
+
+.LINK
+    https://github.com/razer86/365Audit
+#>
+
+#Requires -Version 7.2
+
+param (
+    [string[]]$Customers,
+
+    [ValidateSet(1, 2, 3, 4, 9)]
+    [int[]]$Modules,
+
+    [string]$HuduBaseUrl = ($env:HUDU_BASE_URL ?? 'https://neconnect.huducloud.com'),
+    [string]$HuduApiKey  = $env:HUDU_API_KEY,
+
+    [switch]$SkipCertCheck
+)
+
+$ScriptVersion = "2.1.0"
+Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
+
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# ── Load customer list from JSON ───────────────────────────────────────────────
+$customerListPath = Join-Path $PSScriptRoot 'UnattendedCustomers.json'
+if (-not (Test-Path $customerListPath)) {
+    Write-Error ("Customer list not found: $customerListPath`n" +
+        "Copy UnattendedCustomers.json.example to UnattendedCustomers.json " +
+        "and add your customers.") -ErrorAction Stop
+}
+
+$parsed = Get-Content $customerListPath -Raw | ConvertFrom-Json
+$customerList = if ($parsed.PSObject.Properties['customers']) { $parsed.customers } else { $parsed }
+
+if ($customerList.Count -eq 0) {
+    Write-Error "No customers defined in $customerListPath." -ErrorAction Stop
+}
+
+# Optional: filter to specific slugs passed on the command line
+if ($Customers) {
+    $customerList = @($customerList | Where-Object { $_.HuduCompanySlug -in $Customers })
+    if ($customerList.Count -eq 0) {
+        Write-Error "None of the specified customers matched entries in $customerListPath." -ErrorAction Stop
+    }
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
+if (-not $HuduApiKey) {
+    Write-Error "HUDU_API_KEY is not set. Set the environment variable or pass -HuduApiKey." -ErrorAction Stop
+}
+
+$scriptRoot   = $PSScriptRoot
+$setupScript  = Join-Path $scriptRoot 'Setup-365AuditApp.ps1'
+$auditScript  = Join-Path $scriptRoot 'Start-365Audit.ps1'
+$results      = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+foreach ($scriptPath in @($setupScript, $auditScript)) {
+    if (-not (Test-Path $scriptPath)) {
+        Write-Error "Required script not found: $scriptPath" -ErrorAction Stop
+    }
+}
+
+$totalCustomers = $customerList.Count
+$currentIndex   = 0
+
+foreach ($entry in $customerList) {
+    $currentIndex++
+    $customerId   = $entry.HuduCompanySlug
+    $customerMods = if ($Modules) { $Modules } else { [int[]]($entry.Modules ?? @(1, 2, 3, 4)) }
+    $customerLabel = "[$currentIndex/$totalCustomers] $customerId"
+
+    Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
+    Write-Host "  $customerLabel  (modules: $($customerMods -join ','))" -ForegroundColor Cyan
+    Write-Host "$('=' * 72)" -ForegroundColor Cyan
+
+    $result = [PSCustomObject]@{
+        Customer    = $customerId
+        Modules     = $customerMods -join ','
+        CertRenewed = $false
+        AuditStatus = 'Pending'
+        Error       = $null
+    }
+
+    try {
+        # --- Step 1: Cert check and renewal ---
+        if (-not $SkipCertCheck) {
+            Write-Host "  Checking certificate expiry..." -ForegroundColor DarkCyan
+            & $setupScript `
+                -HuduCompanyId $customerId `
+                -HuduBaseUrl   $HuduBaseUrl `
+                -HuduApiKey    $HuduApiKey `
+                -ErrorAction Stop
+        }
+
+        # --- Step 2: Run audit ---
+        Write-Host "  Starting audit (modules: $($customerMods -join ','))..." -ForegroundColor DarkCyan
+        & $auditScript `
+            -HuduCompanyId $customerId `
+            -HuduBaseUrl   $HuduBaseUrl `
+            -HuduApiKey    $HuduApiKey `
+            -Modules       $customerMods `
+            -ErrorAction Stop
+
+        $result.AuditStatus = 'Completed'
+        Write-Host "  $customerLabel — DONE" -ForegroundColor Green
+    }
+    catch {
+        $result.AuditStatus = 'Failed'
+        $result.Error       = $_.Exception.Message
+        Write-Host "  $customerLabel — FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    }
+
+    $results.Add($result)
+}
+
+# ── Final summary ─────────────────────────────────────────────────────────────
+Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
+Write-Host "  Bulk run complete — $($results.Count) customer(s)" -ForegroundColor Cyan
+Write-Host "$('=' * 72)" -ForegroundColor Cyan
+
+$results | Format-Table -AutoSize
+
+$failed = @($results | Where-Object { $_.AuditStatus -eq 'Failed' })
+if ($failed.Count -gt 0) {
+    Write-Host "  $($failed.Count) customer(s) failed — review errors above." -ForegroundColor Red
+    exit 1
+}

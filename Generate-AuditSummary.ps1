@@ -38,7 +38,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.20.0
+    Version     : 1.21.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -50,14 +50,16 @@
 param (
     [Parameter(Mandatory)]
     [string]$AuditFolder,
-    [switch]$DevMode = $false
+    [switch]$DevMode = $false,
+    [switch]$NoOpen,
+    [int]$CertExpiryDays = -1
 )
 
 if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.20.0"
+$ScriptVersion = "1.21.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -230,6 +232,11 @@ $actionItems = [System.Collections.Generic.List[hashtable]]::new()
 function Add-ActionItem {
     param([string]$Severity, [string]$Category, [string]$Text, [string]$DocUrl = "")
     $script:actionItems.Add(@{ Severity = $Severity; Category = $Category; Text = $Text; DocUrl = $DocUrl })
+}
+
+# --- Audit certificate expiry ---
+if ($CertExpiryDays -ge 0 -and $CertExpiryDays -le 30) {
+    Add-ActionItem -Severity 'warning' -Category 'Toolkit / Certificate' -Text "Audit app certificate expires in $CertExpiryDays day(s). Run Setup-365AuditApp.ps1 -Force (requires interactive Global Admin login) to renew before the next audit run."
 }
 
 # --- Entra checks ---
@@ -1864,10 +1871,12 @@ function togglePerms(row) {
 $html -join "`n" | Set-Content -Path $reportPath -Encoding UTF8
 
 Write-Host "Summary report written to: $reportPath" -ForegroundColor Green
-if ($IsLinux) {
-    xdg-open $reportPath
-} elseif ($IsMacOS) {
-    open $reportPath
-} else {
-    Start-Process $reportPath
+if (-not $NoOpen) {
+    if ($IsLinux) {
+        xdg-open $reportPath
+    } elseif ($IsMacOS) {
+        open $reportPath
+    } else {
+        Start-Process $reportPath
+    }
 }

@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.7.0
+    Version     : 2.8.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -105,10 +105,20 @@ param (
 
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [string]$HuduApiKey = $env:HUDU_API_KEY
+    [string]$HuduApiKey = $env:HUDU_API_KEY,
+
+    # ── Automation ────────────────────────────────────────────────────────────
+    # Provide module numbers to skip the menu and run non-interactively.
+    # The HTML summary is generated but not opened automatically.
+    # Example: -Modules 1,2,3,4  or  -Modules 9
+    [Parameter(ParameterSetName = 'Manual')]
+    [Parameter(ParameterSetName = 'HuduById')]
+    [Parameter(ParameterSetName = 'HuduByName')]
+    [ValidateSet(1, 2, 3, 4, 9)]
+    [int[]]$Modules
 )
 
-$ScriptVersion = "2.7.0"
+$ScriptVersion = "2.8.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -286,21 +296,23 @@ $keyStorageFlags = if ($IsLinux -or $IsMacOS) {
 } else {
     [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
 }
+$certDaysRemaining = -1
 try {
     $certObj = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
         $certBytes,
         $CertPassword,
         $keyStorageFlags
     )
-    $daysRemaining = ($certObj.NotAfter - (Get-Date)).Days
-    if ($daysRemaining -le 0) {
-        Write-Warning "The audit certificate EXPIRED $([math]::Abs($daysRemaining)) day(s) ago. Authentication will fail. Run Setup-365AuditApp.ps1 -Force to renew."
+    $certDaysRemaining = ($certObj.NotAfter - (Get-Date)).Days
+    if ($certDaysRemaining -le 0) {
+        Write-Error ("The audit certificate EXPIRED $([math]::Abs($certDaysRemaining)) day(s) ago. " +
+            "Authentication will fail. Run Setup-365AuditApp.ps1 -Force (requires interactive Global Admin login) to renew.") -ErrorAction Stop
     }
-    elseif ($daysRemaining -le 30) {
-        Write-Warning "The audit certificate expires in $daysRemaining day(s) ($($certObj.NotAfter.ToString('yyyy-MM-dd'))). Run Setup-365AuditApp.ps1 -Force soon to renew."
+    elseif ($certDaysRemaining -le 30) {
+        Write-Warning "The audit certificate expires in $certDaysRemaining day(s) ($($certObj.NotAfter.ToString('yyyy-MM-dd'))). Run Setup-365AuditApp.ps1 -Force soon to renew."
     }
     else {
-        Write-Verbose "Certificate valid until $($certObj.NotAfter.ToString('yyyy-MM-dd')) ($daysRemaining days remaining)."
+        Write-Verbose "Certificate valid until $($certObj.NotAfter.ToString('yyyy-MM-dd')) ($certDaysRemaining days remaining)."
     }
     $certObj.Dispose()
 }
@@ -308,11 +320,12 @@ catch {
     Write-Warning "Could not read certificate expiry: $_"
 }
 
-# Expose app credentials so dot-sourced modules can access them.
+# Expose app credentials so dot-sourced modules can access them via Get-Variable.
 $AuditAppId        = $AppId
 $AuditTenantId     = $TenantId
 $AuditCertFilePath = $CertFilePath
 $AuditCertPassword = $CertPassword
+Write-Verbose "Audit credentials set in launcher scope (AppId=$AuditAppId, TenantId=$AuditTenantId, CertFilePath=$AuditCertFilePath, CertPassword=$(if ($AuditCertPassword) {'set'} else {'not set'}))"
 
 # === Drop any existing sessions from a prior run in this PS session ===
 # The connect helpers skip reconnecting if a session is already active, so we must
@@ -343,27 +356,32 @@ $menu = @{
     0 = @{ Name = "Exit";                       Script = $null }
 }
 
-# === Display Menu ===
-Write-Host "`n╔════════════════════════════════════╗"
-Write-Host "║    Microsoft 365 Audit Launcher    ║"
-Write-Host "╚════════════════════════════════════╝"
-
-foreach ($key in ($menu.Keys | Sort-Object { [int]$_ })) {
-    Write-Host "$key. $($menu[$key].Name)"
+# === Select Modules ===
+if ($Modules) {
+    # Non-interactive: use the provided module list directly
+    $selectedIndexes = $Modules
 }
+else {
+    # Interactive: display menu and prompt
+    Write-Host "`n╔════════════════════════════════════╗"
+    Write-Host "║    Microsoft 365 Audit Launcher    ║"
+    Write-Host "╚════════════════════════════════════╝"
 
-# === User Selection ===
-$selection = Read-Host "`nSelect one or more modules (comma separated, e.g. 1,2)"
-if ($selection -eq "0") {
-    Write-Host "Exiting. Goodbye!"
-    return
+    foreach ($key in ($menu.Keys | Sort-Object { [int]$_ })) {
+        Write-Host "$key. $($menu[$key].Name)"
+    }
+
+    $selection = Read-Host "`nSelect one or more modules (comma separated, e.g. 1,2)"
+    if ($selection -eq "0") {
+        Write-Host "Exiting. Goodbye!"
+        return
+    }
+
+    $selectedIndexes = $selection -split "," |
+        ForEach-Object { $_.Trim() } |
+        Where-Object    { $_ -match '^\d+$' } |
+        ForEach-Object  { [int]$_ }
 }
-
-# === Parse Selection ===
-$selectedIndexes = $selection -split "," |
-    ForEach-Object { $_.Trim() } |
-    Where-Object    { $_ -match '^\d+$' } |
-    ForEach-Object  { [int]$_ }
 
 # === Execute Selected Modules ===
 try {
@@ -411,7 +429,10 @@ try {
         Write-Host "`n================================================================"
         Write-Host "  Starting: Generate-AuditSummary.ps1" -ForegroundColor Cyan
         Write-Host "================================================================"
-        & $summaryScript -AuditFolder $auditContext.OutputPath
+        $summaryParams = @{ AuditFolder = $auditContext.OutputPath }
+        if ($Modules) { $summaryParams['NoOpen'] = $true }
+        if ($certDaysRemaining -ge 0 -and $certDaysRemaining -le 30) { $summaryParams['CertExpiryDays'] = $certDaysRemaining }
+        & $summaryScript @summaryParams
     }
     else {
         Write-Warning "No audit output context found — summary report skipped."

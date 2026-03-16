@@ -2,6 +2,7 @@
 *.pfx
 *.p12
 Test-*
+Start-UnattendedAudit.ps1
 *.json
 *.csv
 *.docx

@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.8.0 | Added `-Modules` parameter: when supplied, skips the menu entirely for non-interactive/automated runs; HTML summary is generated but not opened (passes `-NoOpen` to `Generate-AuditSummary.ps1`); expired certificate now causes an immediate hard stop in all modes (was warn-and-continue); near-expiry cert days remaining passed to summary as `-CertExpiryDays` so a Toolkit / Certificate action item appears in the report |
 | 2.7.0 | Added `-HuduCompanyId` and `-HuduCompanyName` parameter sets — credentials (AppId, TenantId, CertBase64, CertPassword) are fetched automatically from the NeConnect Audit Toolkit Hudu asset; `-HuduBaseUrl` defaults to `$env:HUDU_BASE_URL` then `https://neconnect.huducloud.com`; added system clock drift check on startup (HEAD request to `login.microsoftonline.com`, warn >60s, stop >300s); disconnect existing Graph/EXO/SPO sessions at startup and in `finally` block to prevent stale connections when re-running in the same PS session; removed noisy "Loading local script" print for local module loads |
 | 2.6.1 | Linux/macOS: temp dir falls back to `$env:TMPDIR` then `/tmp` when `$env:TEMP` is absent; `X509KeyStorageFlags` is platform-guarded — Windows keeps `EphemeralKeySet` (key stays in memory only), Linux/macOS use `Exportable\|PersistKeySet` (required by .NET on non-Windows) |
 | 2.6.0 | Validate CertBase64 decodes cleanly before writing to disk (clear error if paste is truncated); check certificate expiry on startup and warn if ≤30 days remaining or already expired |
@@ -34,6 +35,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.4.0 | Non-interactive cert renewal: added `-AppId`/`-TenantId`/`-CertBase64`/`-CertPassword` params — when all four are supplied, connects to Graph app-only using the existing cert and renews without a browser login; added `Get-HuduAuditCredentials` helper — when only `-HuduCompanyId`/`-HuduCompanyName` are provided, fetches credentials from the Hudu asset, checks cert expiry, and triggers non-interactive renewal if ≤30 days (or `-Force`); added `Application.ReadWrite.OwnedBy` to Graph permissions; service principal now registered as owner of the app registration during both new-app creation and existing-app update paths (required for `OwnedBy` to allow self-renewal) |
 | 2.3.0 | Added `-HuduCompanyId`, `-HuduCompanyName`, `-HuduBaseUrl`, `-HuduApiKey` parameters; after certificate generation, `Push-HuduAuditAsset` automatically creates or updates the NeConnect Audit Toolkit asset for the specified company using the Hudu REST API (`custom_fields` with snake_case field names); asset named `NeConnect Audit Toolkit - <Company Name>`; Powershell Launch Command field stores both the manual and Hudu-based invocation as HTML; Hudu push is non-fatal (warns and continues on API error); renamed `Ensure-ServicePrincipal` → `Resolve-ServicePrincipal` (approved verb) |
 | 2.2.1 | Linux/macOS: certificate generation now uses `openssl` (`req` + `pkcs12 -legacy`) instead of `New-SelfSignedCertificate`/`Export-PfxCertificate` which are Windows-only; Windows path unchanged; `$rawData` replaces `$cert.RawData` reference for shared Graph upload call |
 | 2.2.0 | `New-AuditCertificate` now returns `CertBase64` (base64-encoded .pfx bytes); `Show-Credentials` displays base64 instead of file path; example run command uses `-CertBase64`; both secrets (base64 + password) stored in Hudu — no file path or SharePoint URL needed at audit time |
@@ -148,6 +150,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.21.0 | Added `-NoOpen` switch — suppresses automatic browser launch after report generation (used by `-Modules` automation path in launcher); added `-CertExpiryDays` parameter — when 0–30, inserts a `Toolkit / Certificate` warning action item prompting the tech to run `Setup-365AuditApp.ps1 -Force` before next audit run |
 | 1.20.0 | Broken inbox rules: new action item and HTML table in Exchange section (reads `Exchange_BrokenInboxRules.csv`; displays mailbox, rule name, and "Broken — not processing mail" status) |
 | 1.19.0 | Secure Score control breakdown split into To Action (open) and Implemented (collapsed) sub-tables; To Action controls sorted alphabetically, Implemented sorted by score descending |
 | 1.18.0 | Polish pass: center Org Info box; add Secure Score control breakdown table; Teams Rooms Basic SKU display name; CA policy click-to-expand; doc links on all action items; mailbox table sorted `UserMailbox` → `SharedMailbox`; transport rule expander adds Mode description and disclaimer location; Safe Attachments/Links click-to-expand; SharePoint storage bar overflow fix |
@@ -171,6 +174,16 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 | 1.1.0 | Added `Entra_RiskyUsers` and `Entra_AdminRoles` summaries |
 | 1.0.1 | Updated Entra audit sources |
 | 1.0.0 | Initial release |
+
+---
+
+## Start-UnattendedAudit.ps1
+
+| Version | Notes |
+|---------|-------|
+| 2.1.0 | Customer list extracted to `UnattendedCustomers.json` — techs edit the JSON file rather than the script; each entry has `HuduCompanySlug` and `Modules` (per-customer module selection); `-Modules` param now acts as a global override for all customers; `-Customers` param filters by slug; summary table includes per-customer modules column; script hard-errors with copy hint if JSON file is not found |
+| 2.0.0 | Full rewrite: Hudu-based credential management — customer list uses Hudu company IDs/slugs, no credentials stored in the script; per-customer flow: (1) call `Setup-365AuditApp.ps1 -HuduCompanyId` to check/renew cert automatically, (2) call `Start-365Audit.ps1 -HuduCompanyId -Modules` with fresh credentials from Hudu; supports `-Customers` override, `-Modules` selection, `-SkipCertCheck`, and `-HuduApiKey`/`-HuduBaseUrl`; per-customer error isolation (one failure does not stop remaining customers); final summary table with status per customer |
+| 1.0.0 | Initial version (hardcoded credentials per customer, deprecated) |
 
 ---
 

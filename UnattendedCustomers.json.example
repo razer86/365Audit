@@ -1,0 +1,22 @@
+{
+    "_reference": {
+        "HuduCompanySlug": "12-character hex slug from the Hudu company URL — https://hudu.example.com/c/<slug>",
+        "Modules": {
+            "1": "Microsoft Entra Audit    — Identity, MFA, roles, Conditional Access",
+            "2": "Exchange Online Audit    — Mailboxes, permissions, mail flow",
+            "3": "SharePoint Online Audit  — Sites, permissions, storage, OneDrive (requires PnPAppId)",
+            "4": "Mail Security Audit      — DKIM, DMARC, SPF, anti-spam/phish policies",
+            "9": "Run All                  — Modules 1, 2, 3, 4 + summary"
+        }
+    },
+    "customers": [
+        {
+            "HuduCompanySlug": "a1b2c3d4e5f6",
+            "Modules": [ 9 ]
+        },
+        {
+            "HuduCompanySlug": "f6e5d4c3b2a1",
+            "Modules": [ 1, 2 ]
+        }
+    ]
+}

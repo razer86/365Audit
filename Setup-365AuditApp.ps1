@@ -25,6 +25,21 @@
 .PARAMETER Force
     Generate a new certificate even when the existing one is not near expiry.
 
+.PARAMETER AppId
+    Existing app registration client ID. When combined with -TenantId, -CertBase64,
+    and -CertPassword, skips the browser login and renews the certificate using the
+    app's own credentials (requires Application.ReadWrite.OwnedBy on the app).
+    Use this for fully automated cert renewal — no Global Admin login required.
+
+.PARAMETER TenantId
+    Tenant ID for non-interactive cert renewal. Required with -AppId.
+
+.PARAMETER CertBase64
+    Base64-encoded current .pfx for non-interactive cert renewal. Required with -AppId.
+
+.PARAMETER CertPassword
+    Password for the current .pfx. Required with -AppId.
+
 .PARAMETER HuduCompanyId
     Hudu company slug (alphanumeric) or numeric ID. When provided, credentials are pushed
     to the matching Hudu company's 'NeConnect Audit Toolkit' asset automatically without
@@ -50,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.3.0
+    Version     : 2.4.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -68,6 +83,13 @@ param (
 
     [switch]$Force,
 
+    # ── Non-interactive cert renewal (optional) ────────────────────────────────
+    # When all four are supplied, the browser login is skipped entirely.
+    [string]$AppId,
+    [string]$TenantId,
+    [string]$CertBase64,
+    [SecureString]$CertPassword,
+
     # ── Hudu integration (optional) ────────────────────────────────────────────
     [string]$HuduCompanyId,
     [string]$HuduCompanyName,
@@ -75,7 +97,7 @@ param (
     [string]$HuduApiKey  = $env:HUDU_API_KEY
 )
 
-$ScriptVersion      = '2.3.0'
+$ScriptVersion      = '2.4.0'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -93,7 +115,8 @@ $script:GraphPermissions = @(
     'RoleManagement.Read.Directory',
     'Group.Read.All',
     'AuditLog.Read.All',
-    'SecurityEvents.Read.All'
+    'SecurityEvents.Read.All',
+    'Application.ReadWrite.OwnedBy'
 )
 
 # Office 365 Exchange Online service principal app ID (constant in all Azure tenants)
@@ -472,6 +495,74 @@ function Write-CredentialSummary {
 }
 
 
+# ============================================================
+# Fetch audit credentials from a Hudu asset
+# Returns: [PSCustomObject] AppId, TenantId, CertBase64, CertPassword, CompanyName
+# ============================================================
+function Get-HuduAuditCredentials {
+    [CmdletBinding()]
+    param (
+        [string]$HuduCompanyId,
+        [string]$HuduCompanyName,
+        [string]$HuduBaseUrl,
+        [string]$HuduApiKey
+    )
+
+    if (-not $HuduApiKey) {
+        throw "HUDU_API_KEY is not set. Provide -HuduApiKey or set the HUDU_API_KEY environment variable."
+    }
+
+    $huduUrl = $HuduBaseUrl.TrimEnd('/')
+    $headers = @{ 'x-api-key' = $HuduApiKey; 'Content-Type' = 'application/json' }
+
+    # Resolve company
+    $company = $null
+    if ($HuduCompanyId) {
+        if ($HuduCompanyId -match '^\d+$') {
+            $company = (Invoke-RestMethod -Uri "$huduUrl/api/v1/companies/$HuduCompanyId" -Headers $headers -Method Get -ErrorAction Stop).company
+        }
+        else {
+            $encoded = [uri]::EscapeDataString($HuduCompanyId)
+            $company = @((Invoke-RestMethod -Uri "$huduUrl/api/v1/companies?slug=$encoded&page_size=1" -Headers $headers -Method Get -ErrorAction Stop).companies) | Select-Object -First 1
+        }
+    }
+    elseif ($HuduCompanyName) {
+        $encoded = [uri]::EscapeDataString($HuduCompanyName)
+        $company = @((Invoke-RestMethod -Uri "$huduUrl/api/v1/companies?search=$encoded&page_size=25" -Headers $headers -Method Get -ErrorAction Stop).companies) |
+            Where-Object { $_.name -eq $HuduCompanyName } | Select-Object -First 1
+    }
+    else {
+        throw "Either -HuduCompanyId or -HuduCompanyName must be provided."
+    }
+
+    if (-not $company) { throw "No Hudu company found for '$($HuduCompanyId ?? $HuduCompanyName)'." }
+
+    $asset = @((Invoke-RestMethod -Uri "$huduUrl/api/v1/assets?company_id=$($company.id)&asset_layout_id=67&page_size=5" `
+        -Headers $headers -Method Get -ErrorAction Stop).assets) | Sort-Object updated_at -Descending | Select-Object -First 1
+
+    if (-not $asset) {
+        throw "No 365Audit asset found for '$($company.name)' in Hudu. Run Setup-365AuditApp.ps1 interactively first."
+    }
+
+    $fieldMap = @{}
+    foreach ($f in $asset.fields) { $fieldMap[$f.label] = "$($f.value)" }
+
+    foreach ($required in @('Application ID', 'Tenant ID', 'Cert Base64', 'Cert Password')) {
+        if (-not $fieldMap[$required]) {
+            throw "Hudu asset '$($asset.name)' is missing field: $required. Re-run Setup-365AuditApp.ps1 interactively."
+        }
+    }
+
+    return [PSCustomObject]@{
+        AppId        = $fieldMap['Application ID']
+        TenantId     = $fieldMap['Tenant ID']
+        CertBase64   = $fieldMap['Cert Base64']
+        CertPassword = $fieldMap['Cert Password']
+        CompanyName  = $company.name
+        CompanyId    = $company.id
+    }
+}
+
 
 # ============================================================
 # Push credentials to Hudu
@@ -644,6 +735,93 @@ try {
         }
     }
 
+    # ----------------------------------------------------------
+    # Hudu-fetch path: resolve credentials from Hudu when HuduCompanyId/Name is
+    # provided but explicit AppId/CertBase64 are not.
+    # Checks cert expiry and populates the non-interactive params if renewal is needed.
+    # ----------------------------------------------------------
+    if (($HuduCompanyId -or $HuduCompanyName) -and -not $AppId) {
+        if (-not $HuduApiKey) {
+            throw "HUDU_API_KEY is required for Hudu-based cert renewal. Set the environment variable or pass -HuduApiKey."
+        }
+
+        Write-Status "Fetching credentials from Hudu for '$($HuduCompanyId ?? $HuduCompanyName)'..."
+        $huduCreds = Get-HuduAuditCredentials -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+        Write-Status "Company: $($huduCreds.CompanyName)" -Type Success
+
+        # Decode cert to check expiry
+        $fetchedCertBytes = [Convert]::FromBase64String($huduCreds.CertBase64)
+        $fetchedKeyFlags  = if ($IsLinux -or $IsMacOS) {
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
+        } else {
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+        }
+        $fetchedPwd  = ConvertTo-SecureString $huduCreds.CertPassword -AsPlainText -Force
+        $fetchedCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($fetchedCertBytes, $fetchedPwd, $fetchedKeyFlags)
+        $fetchedDays = ($fetchedCert.NotAfter - (Get-Date)).Days
+        $fetchedCert.Dispose()
+
+        if ($fetchedDays -le 0) {
+            Write-Status "Certificate EXPIRED $([math]::Abs($fetchedDays)) day(s) ago — renewing." -Type Warning
+        }
+        elseif ($fetchedDays -le $script:ExpiryWarnDays -or $Force) {
+            Write-Status "Certificate expires in $fetchedDays day(s) — renewing." -Type Warning
+        }
+        else {
+            Write-Status "Certificate valid for $fetchedDays day(s) — no renewal needed." -Type Success
+            return
+        }
+
+        # Populate non-interactive renewal params from Hudu data
+        $AppId        = $huduCreds.AppId
+        $TenantId     = $huduCreds.TenantId
+        $CertBase64   = $huduCreds.CertBase64
+        $CertPassword = $fetchedPwd
+        # Fall through to non-interactive renewal block below
+    }
+
+    # ----------------------------------------------------------
+    # Non-interactive cert renewal path
+    # Triggered when -AppId/-TenantId/-CertBase64/-CertPassword are all provided.
+    # Uses the app's own certificate to authenticate — no browser login required.
+    # Requires Application.ReadWrite.OwnedBy on the app (set during initial setup).
+    # ----------------------------------------------------------
+    if ($AppId -and $TenantId -and $CertBase64 -and $CertPassword) {
+        Write-Host "`n365Audit App Setup v$ScriptVersion — Non-interactive cert renewal`n" -ForegroundColor Cyan
+
+        $certBytes = try { [Convert]::FromBase64String($CertBase64) }
+                     catch { throw "CertBase64 is not valid base64: $_" }
+
+        $keyFlags = if ($IsLinux -or $IsMacOS) {
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet
+        } else {
+            [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+        }
+        $existingCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $CertPassword, $keyFlags)
+
+        Write-Status 'Connecting to Microsoft Graph (app-only auth — no browser required)...'
+        Connect-MgGraph -ClientId $AppId -TenantId $TenantId -Certificate $existingCert -NoWelcome -ErrorAction Stop
+        $existingCert.Dispose()
+        Write-Status "Connected." -Type Success
+
+        $app = Get-MgApplication -Filter "appId eq '$AppId'" -ErrorAction Stop | Select-Object -First 1
+        if (-not $app) { throw "No app registration found with AppId '$AppId'." }
+
+        Write-Status "App: $($app.DisplayName) ($AppId)"
+        Write-Status "Generating $CertExpiryYears-year replacement certificate..."
+        $newCert = New-AuditCertificate -AppObjectId $app.Id -AppId $AppId -ExpiryYears $CertExpiryYears
+        Write-Status "Certificate renewed — expires $($newCert.ExpiryDate.ToString('yyyy-MM-dd'))." -Type Success
+
+        Write-CredentialSummary -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate
+        Push-HuduAuditAsset -AppId $AppId -TenantId $TenantId -CertBase64 $newCert.CertBase64 -CertPassword $newCert.PlainPassword -CertExpiry $newCert.ExpiryDate -HuduCompanyId $HuduCompanyId -HuduCompanyName $HuduCompanyName -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey
+        return
+    }
+
+    # ----------------------------------------------------------
+    # Interactive path — requires Global Admin browser login
+    # ----------------------------------------------------------
     $tenantId = Connect-GraphForSetup
 
     $orgName = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
@@ -694,6 +872,18 @@ try {
 
             Update-MgApplication -ApplicationId $existingApp.Id -RequiredResourceAccess $resourceAccess -ErrorAction Stop
             $ourSp = Resolve-ServicePrincipal -AppId $existingApp.AppId
+
+            # Ensure SP is an owner so non-interactive cert renewal works
+            try {
+                New-MgApplicationOwnerByRef -ApplicationId $existingApp.Id -BodyParameter @{
+                    '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($ourSp.Id)"
+                } -ErrorAction Stop
+                Write-Verbose "Service principal added as owner of app registration."
+            }
+            catch {
+                if ($_.Exception.Message -match 'already exist') { Write-Verbose 'SP already an owner.' }
+                else { Write-Warning "Could not add SP as app owner (non-fatal): $_" }
+            }
 
             if ($missingGraph.Count -gt 0)      { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingGraph }
             if ($missingSharePoint.Count -gt 0) { Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $missingSharePoint }
@@ -783,6 +973,21 @@ try {
             Write-Status 'Creating service principal (waiting for Entra replication)...'
             $ourSp = Resolve-ServicePrincipal -AppId $newApp.AppId
             Start-Sleep -Seconds 5   # Allow Entra ID to replicate before granting consent
+
+            # Add SP as owner of the app registration so Application.ReadWrite.OwnedBy
+            # allows the app to renew its own certificate without a browser login.
+            try {
+                New-MgApplicationOwnerByRef -ApplicationId $newApp.Id -BodyParameter @{
+                    '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($ourSp.Id)"
+                } -ErrorAction Stop
+                Write-Verbose "Service principal added as owner of app registration."
+            }
+            catch {
+                if ($_.Exception.Message -match 'already exist') {
+                    Write-Verbose 'Service principal is already an owner — skipping.'
+                }
+                else { Write-Warning "Could not add SP as app owner (non-fatal): $_" }
+            }
 
             Write-Status 'Granting admin consent for all permissions...'
             Grant-AdminConsent -OurSpId $ourSp.Id -Permissions $graphPerms

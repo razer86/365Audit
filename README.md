@@ -44,14 +44,31 @@ Credentials are printed to the terminal — store them in Hudu manually under th
 
 ## Rotating the Certificate
 
-Certificates are valid for 2 years by default. Re-run `Setup-365AuditApp.ps1` at any time to rotate:
+Certificates are valid for 2 years by default (`-CertExpiryYears 1–5`).
+
+### Interactive rotation (requires Global Admin browser login)
 
 ```powershell
-.\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>' -Force    # rotate regardless of expiry
 .\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>'           # rotate only if expiring within 30 days
+.\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>' -Force    # rotate regardless of expiry
 ```
 
-The updated credentials are pushed to Hudu automatically. Without `-HuduCompanyId`, update the Cert Base64, Cert Password, and Cert Expiry fields in Hudu manually.
+### Non-interactive rotation (no browser — automated-friendly)
+
+Once the initial setup has been run interactively (which grants `Application.ReadWrite.OwnedBy` and registers the service principal as owner of the app registration), future renewals can be done without a browser login by supplying the existing credentials:
+
+```powershell
+.\Setup-365AuditApp.ps1 -AppId '<AppId>' -TenantId '<TenantId>' `
+    -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password') -Force
+```
+
+Or, if using Hudu, pass only the company ID — credentials are fetched automatically and the cert is renewed if expiring within 30 days:
+
+```powershell
+.\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>'
+```
+
+The updated credentials are pushed to Hudu automatically. The audit HTML summary report also includes a **Toolkit / Certificate** action item when fewer than 30 days remain, prompting the reviewing tech to schedule a renewal.
 
 ---
 
@@ -107,14 +124,67 @@ Copy the App ID, Tenant ID, and certificate details from the Hudu asset:
     -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
 ```
 
+### Non-interactive / automated (skip the menu)
+
+Supply `-Modules` to bypass the menu entirely. The HTML report is generated but not opened automatically, making this suitable for scheduled tasks and bulk runs:
+
+```powershell
+.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 1,2,3,4    # all modules
+.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 9          # same as above (option 9)
+.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 1,2        # Entra + Exchange only
+```
+
 On launch the toolkit will:
 1. Fetch credentials from Hudu (if using `-HuduCompanyId` / `-HuduCompanyName`)
-2. Check system clock drift against Microsoft's servers — certificate auth fails if drift exceeds 5 minutes
+2. Check system clock drift against Microsoft's servers — certificate auth fails if drift exceeds 5 minutes; an **expired** certificate causes an immediate hard stop
 3. Check local script versions against the GitHub version manifest and warn if updates are available
 4. Decode the certificate from base64 to a temp `.pfx` in `$env:TEMP` (deleted on exit)
-5. Present the module selection menu
+5. Present the module selection menu (skipped when `-Modules` is supplied)
 
 Select one or more modules by number (comma-separated, e.g. `1,2,3`). All modules connect silently — no browser prompts.
+
+---
+
+## Automated Bulk Runs
+
+`Start-UnattendedAudit.ps1` processes multiple customers in sequence without any interaction. For each customer it:
+
+1. Calls `Setup-365AuditApp.ps1 -HuduCompanyId` to check the certificate — if expiring within 30 days, renews it automatically (no browser required) and pushes the new credentials back to Hudu
+2. Calls `Start-365Audit.ps1 -HuduCompanyId -Modules 1,2,3,4` with credentials freshly fetched from Hudu
+3. Generates the HTML summary report (not opened automatically)
+
+### Setup
+
+1. Copy `Start-UnattendedAudit.ps1.example` → `Start-UnattendedAudit.ps1` 
+2. Copy `UnattendedCustomers.json.example` → `UnattendedCustomers.json` 
+3. Edit `UnattendedCustomers.json` — add one entry per customer:
+   ```json
+   {
+       "customers": [
+           { "HuduCompanySlug": "a1b2c3d4e5f6", "Modules": [1, 2, 3, 4] },
+           { "HuduCompanySlug": "f6e5d4c3b2a1", "Modules": [1, 2] }
+       ]
+   }
+   ```
+   The slug is the 12-character hex string from the Hudu company URL: `https://hudu.example.com/c/<slug>`
+4. Set your Hudu API key in the environment:
+   ```powershell
+   $env:HUDU_API_KEY = 'your-api-key'
+   ```
+5. Run:
+   ```powershell
+   .\Start-UnattendedAudit.ps1
+   ```
+
+### Options
+
+```powershell
+.\Start-UnattendedAudit.ps1 -Customers 'contoso','fabrikam'    # run only these slugs from the JSON
+.\Start-UnattendedAudit.ps1 -Modules 1,2                       # override modules for all customers this run
+.\Start-UnattendedAudit.ps1 -SkipCertCheck                     # skip cert expiry check
+```
+
+> **Note:** Non-interactive cert renewal requires the app registration to have `Application.ReadWrite.OwnedBy` granted and the service principal registered as an owner of the app. This is set up automatically during the initial interactive `Setup-365AuditApp.ps1` run for each customer.
 
 ---
 
@@ -349,8 +419,10 @@ All modules accept the `-DevMode` switch for standalone testing.
 
 ```
 365Audit/
-├── Start-365Audit.ps1           # Launcher and menu
-├── Setup-365AuditApp.ps1        # One-time app registration and certificate setup
+├── Start-365Audit.ps1                    # Interactive launcher and module menu
+├── Start-UnattendedAudit.ps1.example     # Bulk runner template (copy to Start-UnattendedAudit.ps1, excluded from git)
+├── UnattendedCustomers.json.example      # Customer list template (copy to UnattendedCustomers.json, excluded from git)
+├── Setup-365AuditApp.ps1                 # One-time app registration, certificate setup, and renewal
 ├── Invoke-EntraAudit.ps1        # Entra ID module
 ├── Invoke-ExchangeAudit.ps1     # Exchange Online module
 ├── Invoke-SharePointAudit.ps1   # SharePoint / OneDrive module
