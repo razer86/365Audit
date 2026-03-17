@@ -417,8 +417,18 @@ function Get-IntuneAssignmentLabel {
     switch -Wildcard ($odataType) {
         '*allDevicesAssignmentTarget'       { return 'All Devices' }
         '*allLicensedUsersAssignmentTarget' { return 'All Users' }
-        '*exclusionGroupAssignmentTarget'   { return if ($groupId) { "Exclude Group ($groupId)" } else { 'Exclude Group' } }
-        '*groupAssignmentTarget'            { return if ($groupId) { "Group ($groupId)" } else { 'Group' } }
+        '*exclusionGroupAssignmentTarget'   {
+            if ($groupId) {
+                return "Exclude Group ($groupId)"
+            }
+            return 'Exclude Group'
+        }
+        '*groupAssignmentTarget'            {
+            if ($groupId) {
+                return "Group ($groupId)"
+            }
+            return 'Group'
+        }
         default {
             if ($odataType) {
                 return ($odataType -replace '#microsoft.graph.', '')
