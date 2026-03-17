@@ -420,17 +420,17 @@ All modules accept the `-DevMode` switch for standalone testing.
 
 ```
 365Audit/
-├── Start-365Audit.ps1                    # Interactive launcher and module menu
-├── Start-UnattendedAudit.ps1             # Automated bulk runner (tracked in git)
-├── UnattendedCustomers.json.example      # Customer list template (copy to UnattendedCustomers.json, excluded from git)
-├── Setup-365AuditApp.ps1                 # One-time app registration, certificate setup, and renewal
+├── common/
+│   └── Audit-Common.ps1                  # Shared helpers (Graph/EXO auth, output folder, version check)
+├── CHANGELOG.md                          # Full version history for all scripts
+├── Generate-AuditSummary.ps1             # HTML report generator
 ├── Invoke-EntraAudit.ps1                 # Entra ID module
 ├── Invoke-ExchangeAudit.ps1              # Exchange Online module
-├── Invoke-SharePointAudit.ps1            # SharePoint / OneDrive module
 ├── Invoke-MailSecurityAudit.ps1          # Mail security module
-├── Generate-AuditSummary.ps1             # HTML report generator
-├── version.json                          # GitHub version manifest
-├── CHANGELOG.md                          # Full version history for all scripts
-└── common/
-    └── Audit-Common.ps1                  # Shared helpers (Graph/EXO auth, output folder, version check)
+├── Invoke-SharePointAudit.ps1            # SharePoint / OneDrive module
+├── Setup-365AuditApp.ps1                 # One-time app registration, certificate setup, and renewal
+├── Start-365Audit.ps1                    # Interactive launcher and module menu
+├── Start-UnattendedAudit.ps1             # Automated bulk runner
+├── UnattendedCustomers.json.example      # Customer list template (copy to UnattendedCustomers.json)
+└── version.json                          # GitHub version manifest
 ```
