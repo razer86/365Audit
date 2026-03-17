@@ -1,12 +1,12 @@
 {
-    "Start-365Audit.ps1": "2.9.2",
+    "Start-365Audit.ps1": "2.9.3",
     "Start-UnattendedAudit.ps1": "2.2.0",
-    "Setup-365AuditApp.ps1": "2.5.4",
-    "common/Audit-Common.ps1": "1.16.0",
-    "Invoke-EntraAudit.ps1": "1.12.0",
-    "Invoke-ExchangeAudit.ps1": "1.11.0",
-    "Invoke-SharePointAudit.ps1": "2.9.0",
-    "Invoke-MailSecurityAudit.ps1": "1.7.0",
-    "Invoke-IntuneAudit.ps1": "1.2.0",
-    "Generate-AuditSummary.ps1": "1.26.0"
+    "Setup-365AuditApp.ps1": "2.5.5",
+    "common/Audit-Common.ps1": "1.20.0",
+    "Invoke-EntraAudit.ps1": "1.13.0",
+    "Invoke-ExchangeAudit.ps1": "1.12.0",
+    "Invoke-SharePointAudit.ps1": "2.10.0",
+    "Invoke-MailSecurityAudit.ps1": "1.8.0",
+    "Invoke-IntuneAudit.ps1": "1.6.0",
+    "Generate-AuditSummary.ps1": "1.28.0"
 }

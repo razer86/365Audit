@@ -39,6 +39,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.5.5 | Existing-asset consent remediation now distinguishes missing application permissions from missing admin consent, retries consent interactively when app-only assignment is denied, and removes the `Start-ThreadJob` timeout wrapper from the interactive `Connect-MgGraph` fallback to avoid `$using:` timer errors |
 | 2.5.4 | Added four Intune Graph application permissions: `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `DeviceManagementApps.Read.All`, `DeviceManagementServiceConfig.Read.All` |
 | 2.5.3 | Added `DelegatedAdminRelationship.Read.All` to required Graph permissions — enables GDAP/partner relationship collection in `Invoke-EntraAudit.ps1` |
 | 2.5.2 | `Connect-GraphForSetup` now runs `Connect-MgGraph` in a `Start-ThreadJob` with a 120-second countdown timer; if the browser sign-in is not completed in time the job is cancelled and an error is thrown, allowing unattended callers to fail fast and continue to the next customer rather than hanging indefinitely |
@@ -174,6 +175,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.6.0 | Intune exports refined after live validation: app install counts now populate correctly; configuration profile setting names/values are more human-readable (including Edge/Startup labels and duplicate-child suppression); Intune assignment details now resolve Entra group display names instead of raw GUIDs |
 | 1.5.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Intune\` subfolder |
 | 1.4.0 | Added Intune export enrichment for summary drilldowns: device table source remains `Intune_Devices.csv`; compliance policy exports now include IDs, descriptions, types, assignment details, and normalized setting values; configuration collection now includes modern `deviceManagement/configurationPolicies` via Graph beta with settings and assignment detail; app exports now include IDs, descriptions, timestamps, and assignment details |
 | 1.2.0 | Output CSVs written to `Intune\` subfolder inside the customer output directory instead of the root |
@@ -235,6 +237,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.20.0 | Delegated `Connect-MgGraphSecure` now passes `-NoWelcome` so the Microsoft Graph SDK banner does not clutter launcher or diagnostic-script output |
 | 1.19.0 | `Initialize-AuditOutput` now creates and returns a shared `Raw Files\` subfolder (`RawOutputPath`) under each customer run folder so all modules and the launcher transcript can write to a single raw-output location |
 | 1.16.0 | Removed `Microsoft.Graph.DeviceManagement.Enrolment` from the sub-module list — that name (British spelling) is a v1.x-only module; its presence caused PowerShellGet to pull `Microsoft.Graph.Authentication` v1.28.0 as a dependency, which conflicts with the v2.x installation; all required Intune cmdlets are available via `Microsoft.Graph.DeviceManagement` and `Microsoft.Graph.Devices.CorporateManagement` in v2.x; added `-SkipPublisherCheck` to `Install-Module` to prevent catalog signing false-positives on Microsoft's own modules |
 | 1.15.0 | Added `Microsoft.Graph.DeviceManagement`, `Microsoft.Graph.DeviceManagement.Enrolment`, and `Microsoft.Graph.Devices.CorporateManagement` to the `$_graphSubModules` install bootstrap — required by `Invoke-IntuneAudit.ps1` |

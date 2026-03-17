@@ -27,7 +27,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.5.0
+    Version     : 1.6.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -45,7 +45,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.5.0"
+$ScriptVersion = "1.6.0"
 Write-Verbose "Invoke-IntuneAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -155,20 +155,71 @@ function Convert-IntuneValueToString {
 }
 
 
+function Resolve-IntuneIdentifierText {
+    [CmdletBinding()]
+    param(
+        $Identifier
+    )
+
+    if ($null -eq $Identifier) {
+        return $null
+    }
+
+    $text = $null
+    if ($Identifier -is [string]) {
+        $text = $Identifier
+    }
+    elseif ($Identifier -is [System.Collections.IEnumerable]) {
+        $parts = @(
+            $Identifier |
+            ForEach-Object {
+                if ($null -ne $_) {
+                    [string]$_
+                }
+            } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        )
+
+        if ($parts.Count -eq 0) {
+            return $null
+        }
+
+        $multiCharParts = @($parts | Where-Object { $_.Length -gt 1 })
+        if ($parts.Count -gt 1 -and $multiCharParts.Count -eq 0) {
+            $text = $parts -join ''
+        }
+        else {
+            $text = $parts[0]
+        }
+    }
+    else {
+        $text = [string]$Identifier
+    }
+
+    $text = $text.Trim()
+    if ($text -match '^(?:[A-Za-z0-9](?:[\s,;:_/-]+|$)){4,}$') {
+        $text = (($text -split '[\s,;:_/-]+' | Where-Object { $_ }) -join '')
+    }
+
+    return $text
+}
+
+
 function Convert-IntuneIdentifierToLabel {
     [CmdletBinding()]
     param(
-        [string]$Identifier
+        $Identifier
     )
 
-    if ([string]::IsNullOrWhiteSpace($Identifier)) {
+    $label = Resolve-IntuneIdentifierText -Identifier $Identifier
+    if ([string]::IsNullOrWhiteSpace($label)) {
         return 'Setting'
     }
 
-    $label = [string]$Identifier
     $label = $label -replace '#microsoft.graph\.', ''
     $label = $label -replace '^.*~', ''
-    $label = $label -replace '(?<=[a-z])(?=[A-Z])', '_'
+    $label = $label -creplace '(?<=[a-z])(?=[A-Z])', '_'
+    $label = $label -creplace '(?<=[A-Z])(?=[A-Z][a-z])', '_'
 
     foreach ($prefix in @(
             'device_vendor_msft_policy_config_',
@@ -228,6 +279,64 @@ function Convert-IntuneIdentifierToLabel {
         'eventlogservice'                 = 'event log service'
         'logmaxsize'                      = 'log max size'
         'retention'                       = 'retention'
+        'deliveryoptimizationmode'        = 'delivery optimization mode'
+        'prereleasefeatures'              = 'pre release features'
+        'automaticupdatemode'             = 'automatic update mode'
+        'microsoftupdateserviceallowed'   = 'microsoft update service allowed'
+        'driversexcluded'                 = 'drivers excluded'
+        'networkproxyapplysettingsdevicewide' = 'network proxy apply settings device wide'
+        'networkproxydisableautodetect'   = 'network proxy disable auto detect'
+        'bluetoothallowedservices'        = 'bluetooth allowed services'
+        'bluetoothblockadvertising'       = 'bluetooth block advertising'
+        'bluetoothblockdiscoverablemode'  = 'bluetooth block discoverable mode'
+        'bluetoothblockprepairing'        = 'bluetooth block pre pairing'
+        'homepagelocation'                = 'homepage location'
+        'newtabpagelocation'              = 'new tab page location'
+        'downloadrestrictions'            = 'download restrictions'
+        'showrecommendationsenabled'      = 'show recommendations enabled'
+        'internetexplorerintegrationtestingallowed' = 'internet explorer integration testing allowed'
+        'internetexplorerintegrationlocalfileallowed' = 'internet explorer integration local file allowed'
+        'internetexplorerintegrationlocalmhtfileallowed' = 'internet explorer integration local MHT file allowed'
+        'msawebsitessousingthisprofileallowed' = 'MSA websites SSO using this profile allowed'
+        'aadwebsitessousingthisprofileenabled' = 'Entra ID websites SSO using this profile enabled'
+        'userfeedbackallowed'             = 'user feedback allowed'
+        'allowgamesmenu'                  = 'allow games menu'
+        'outlookhubmenuenabled'           = 'Outlook hub menu enabled'
+        'enhancesecuritymodeallowuserbypass' = 'enhance security mode allow user bypass'
+        'familysafetysettingsenabled'     = 'family safety settings enabled'
+        'sitesafetyservicesenabled'       = 'site safety services enabled'
+        'clickonceenabled'                = 'ClickOnce enabled'
+        'directinvokeenabled'             = 'direct invoke enabled'
+        'autoimportatfirstrun'            = 'auto import at first run'
+        'bingadssuppression'              = 'Bing ads suppression'
+        'browsersignin'                   = 'browser sign in'
+        'managedfavorites'                = 'managed favorites'
+        'managedsearchengines'            = 'managed search engines'
+        'nonremovableprofileenabled'      = 'non removable profile enabled'
+        'cryptowalletenabled'             = 'crypto wallet enabled'
+        'edgeedropenabled'                = 'Edge Drop enabled'
+        'favoritesbarenabled'             = 'favorites bar enabled'
+        'forcesync'                       = 'force sync'
+        'newpdfreaderenabled'             = 'new PDF reader enabled'
+        'edgeshoppingassistantenabled'    = 'Edge shopping assistant enabled'
+        'hubssidebarenabled'              = 'hubs sidebar enabled'
+        'showmicrosoftrewards'            = 'show Microsoft Rewards'
+        'walletdonationenabled'           = 'wallet donation enabled'
+        'blockexternalextensions'         = 'block external extensions'
+        'gamermodeenabled'                = 'gamer mode enabled'
+        'passwordmanagerenabled'          = 'password manager enabled'
+        'printingenabled'                 = 'printing enabled'
+        'edgeblockautofill'               = 'edge block autofill'
+        'edgeblocked'                     = 'edge blocked'
+        'edgecookiepolicy'                = 'edge cookie policy'
+        'edgeblockdevelopertools'         = 'edge block developer tools'
+        'edgeblocksendingdonottrackheader' = 'edge block sending do not track header'
+        'edgeblockextensions'             = 'edge block extensions'
+        'edgeblockinprivatebrowsing'      = 'edge block in private browsing'
+        'edgeblockjavascript'             = 'edge block JavaScript'
+        'edgeblockpasswordmanager'        = 'edge block password manager'
+        'edgeblockaddressbardropdown'     = 'edge block address bar dropdown'
+        'edgeblockcompatibilitylist'      = 'edge block compatibility list'
     }
 
     foreach ($replacement in $compoundReplacements.GetEnumerator()) {
@@ -246,22 +355,90 @@ function Convert-IntuneIdentifierToLabel {
     }
 
     $textInfo = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo
-    $finalTokens = foreach ($token in $tokens) {
+    $finalTokens = [System.Collections.Generic.List[string]]::new()
+    foreach ($token in $tokens) {
         $lower = $token.ToLowerInvariant()
         switch ($lower) {
-            'aad' { 'Entra ID'; continue }
-            'admx' { 'ADMX'; continue }
-            'dns' { 'DNS'; continue }
-            'gpo' { 'GPO'; continue }
-            'id' { 'ID'; continue }
-            'laps' { 'LAPS'; continue }
-            default { $textInfo.ToTitleCase($lower) }
+            'aad' { [void]$finalTokens.Add('Entra ID'); continue }
+            'admx' { [void]$finalTokens.Add('ADMX'); continue }
+            'dns' { [void]$finalTokens.Add('DNS'); continue }
+            'gpo' { [void]$finalTokens.Add('GPO'); continue }
+            'id' { [void]$finalTokens.Add('ID'); continue }
+            'laps' { [void]$finalTokens.Add('LAPS'); continue }
+            default { [void]$finalTokens.Add($textInfo.ToTitleCase($lower)) }
         }
     }
 
-    $label = ($finalTokens -join ' ').Trim()
+    $label = [string]::Join(' ', $finalTokens).Trim()
     $label = $label -replace '\bOne Drive\b', 'OneDrive'
+    $label = Normalize-IntuneDisplayLabel -Label $label
     return $label
+}
+
+
+function Normalize-IntuneDisplayLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Label)) {
+        return $null
+    }
+
+    $tokens = [System.Collections.Generic.List[string]]::new()
+    foreach ($token in @($Label -split '\s+' | Where-Object { $_ })) {
+        if ($tokens.Count -gt 0 -and $tokens[$tokens.Count - 1].Equals([string]$token, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        [void]$tokens.Add([string]$token)
+    }
+
+    return [string]::Join(' ', $tokens).Trim()
+}
+
+
+function Get-IntuneChildDisplayLabel {
+    [CmdletBinding()]
+    param(
+        [string]$ParentLabel,
+        [string]$ChildLabel
+    )
+
+    $normalizedParent = Normalize-IntuneDisplayLabel -Label $ParentLabel
+    $normalizedChild = Normalize-IntuneDisplayLabel -Label $ChildLabel
+
+    if ([string]::IsNullOrWhiteSpace($normalizedChild)) {
+        return $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($normalizedParent)) {
+        return $normalizedChild
+    }
+
+    if ($normalizedChild.Equals($normalizedParent, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $null
+    }
+
+    if ($normalizedChild.StartsWith($normalizedParent + ' ', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $remainder = Normalize-IntuneDisplayLabel -Label $normalizedChild.Substring($normalizedParent.Length).Trim()
+        if ([string]::IsNullOrWhiteSpace($remainder)) {
+            return $null
+        }
+
+        $parentTokens = @($normalizedParent -split '\s+' | Where-Object { $_ })
+        $remainderTokens = @($remainder -split '\s+' | Where-Object { $_ })
+        if ($remainderTokens.Count -gt 0 -and $remainderTokens.Count -le $parentTokens.Count) {
+            $parentTail = [string]::Join(' ', $parentTokens[($parentTokens.Count - $remainderTokens.Count)..($parentTokens.Count - 1)])
+            if ($remainder.Equals($parentTail, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $null
+            }
+        }
+
+        return $remainder
+    }
+
+    return $normalizedChild
 }
 
 
@@ -282,6 +459,10 @@ function Convert-IntuneConfigurationSettingValueToString {
     }
 
     $propertyNames = @($SettingValue.PSObject.Properties.Name)
+    $currentLabel = $null
+    if ($propertyNames -contains 'settingDefinitionId' -and $SettingValue.settingDefinitionId) {
+        $currentLabel = Convert-IntuneIdentifierToLabel -Identifier $SettingValue.settingDefinitionId
+    }
 
     if ($propertyNames -contains 'simpleSettingValue') {
         return Convert-IntuneConfigurationSettingValueToString -SettingValue $SettingValue.simpleSettingValue -Depth ($Depth + 1)
@@ -289,26 +470,41 @@ function Convert-IntuneConfigurationSettingValueToString {
 
     if ($propertyNames -contains 'choiceSettingValue') {
         $parts = [System.Collections.Generic.List[string]]::new()
+        $childParts = [System.Collections.Generic.List[string]]::new()
         $choiceValue = [string]$SettingValue.choiceSettingValue.value
         if ($choiceValue) {
             $definitionId = [string]$SettingValue.settingDefinitionId
             if ($definitionId -and $choiceValue.StartsWith($definitionId + '_', [System.StringComparison]::OrdinalIgnoreCase)) {
                 $choiceValue = $choiceValue.Substring($definitionId.Length + 1)
             }
+        }
+
+        foreach ($child in @($SettingValue.choiceSettingValue.children)) {
+            $childLabel = Get-IntuneChildDisplayLabel -ParentLabel $currentLabel -ChildLabel (Convert-IntuneIdentifierToLabel -Identifier $child.settingDefinitionId)
+            $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
+            if ($childValue) {
+                if ($childLabel) {
+                    $childParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+                }
+                else {
+                    $childParts.Add($childValue)
+                }
+            }
+        }
+
+        if ($choiceValue) {
             if ($choiceValue -match '^\d+$') {
-                $parts.Add("Selected option: $choiceValue")
+                if ($childParts.Count -eq 0) {
+                    $parts.Add("Selected option: $choiceValue")
+                }
             }
             else {
                 $parts.Add((Convert-IntuneIdentifierToLabel -Identifier $choiceValue))
             }
         }
 
-        foreach ($child in @($SettingValue.choiceSettingValue.children)) {
-            $childLabel = Convert-IntuneIdentifierToLabel -Identifier ([string]$child.settingDefinitionId)
-            $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
-            if ($childValue) {
-                $parts.Add(('{0}: {1}' -f $childLabel, $childValue))
-            }
+        foreach ($childPart in $childParts) {
+            $parts.Add($childPart)
         }
 
         return ($parts -join '; ')
@@ -319,10 +515,15 @@ function Convert-IntuneConfigurationSettingValueToString {
         foreach ($group in @($SettingValue.groupSettingCollectionValue)) {
             $groupParts = [System.Collections.Generic.List[string]]::new()
             foreach ($child in @($group.children)) {
-                $childLabel = Convert-IntuneIdentifierToLabel -Identifier ([string]$child.settingDefinitionId)
+                $childLabel = Get-IntuneChildDisplayLabel -ParentLabel $currentLabel -ChildLabel (Convert-IntuneIdentifierToLabel -Identifier $child.settingDefinitionId)
                 $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
                 if ($childValue) {
-                    $groupParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+                    if ($childLabel) {
+                        $groupParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+                    }
+                    else {
+                        $groupParts.Add($childValue)
+                    }
                 }
             }
             if ($groupParts.Count -gt 0) {
@@ -335,10 +536,15 @@ function Convert-IntuneConfigurationSettingValueToString {
     if ($propertyNames -contains 'children') {
         $childParts = [System.Collections.Generic.List[string]]::new()
         foreach ($child in @($SettingValue.children)) {
-            $childLabel = Convert-IntuneIdentifierToLabel -Identifier ([string]$child.settingDefinitionId)
+            $childLabel = Get-IntuneChildDisplayLabel -ParentLabel $currentLabel -ChildLabel (Convert-IntuneIdentifierToLabel -Identifier $child.settingDefinitionId)
             $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
             if ($childValue) {
-                $childParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+                if ($childLabel) {
+                    $childParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+                }
+                else {
+                    $childParts.Add($childValue)
+                }
             }
         }
         return ($childParts -join '; ')
@@ -384,6 +590,38 @@ function Convert-IntunePlatformListToString {
 }
 
 
+$script:IntuneGroupDisplayNameCache = @{}
+function Resolve-IntuneGroupDisplayName {
+    [CmdletBinding()]
+    param(
+        [string]$GroupId
+    )
+
+    if ([string]::IsNullOrWhiteSpace($GroupId)) {
+        return $null
+    }
+
+    if ($script:IntuneGroupDisplayNameCache.ContainsKey($GroupId)) {
+        return $script:IntuneGroupDisplayNameCache[$GroupId]
+    }
+
+    $displayName = $GroupId
+
+    try {
+        $group = Get-MgGroup -GroupId $GroupId -Property DisplayName -ErrorAction Stop
+        if ($group.DisplayName) {
+            $displayName = $group.DisplayName
+        }
+    }
+    catch {
+        Write-Verbose "Could not resolve Intune assignment group '$GroupId': $_"
+    }
+
+    $script:IntuneGroupDisplayNameCache[$GroupId] = $displayName
+    return $displayName
+}
+
+
 function Get-IntuneAssignmentLabel {
     [CmdletBinding()]
     param(
@@ -419,13 +657,13 @@ function Get-IntuneAssignmentLabel {
         '*allLicensedUsersAssignmentTarget' { return 'All Users' }
         '*exclusionGroupAssignmentTarget'   {
             if ($groupId) {
-                return "Exclude Group ($groupId)"
+                return ("Exclude Group ({0})" -f (Resolve-IntuneGroupDisplayName -GroupId $groupId))
             }
             return 'Exclude Group'
         }
         '*groupAssignmentTarget'            {
             if ($groupId) {
-                return "Group ($groupId)"
+                return ("Group ({0})" -f (Resolve-IntuneGroupDisplayName -GroupId $groupId))
             }
             return 'Group'
         }
@@ -531,11 +769,18 @@ function Get-ConfigurationPolicySettingName {
         $names += $Setting.id
     }
 
+    $names = @(
+        $names |
+        ForEach-Object { Resolve-IntuneIdentifierText -Identifier $_ } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+    )
+
     if ($names.Count -eq 0) {
         return 'Setting'
     }
 
-    return ($names | Where-Object { $_ } | Select-Object -Unique) -join ', '
+    return (@($names) -join ', ')
 }
 
 
@@ -885,7 +1130,7 @@ try {
                 ProfileName   = $_prof.DisplayName
                 Platform      = $_profPlatform
                 ProfileType   = ($_profOdata -replace '#microsoft.graph.', '')
-                SettingName   = (Convert-IntuneIdentifierToLabel -Identifier ([string]$_kv.Key))
+                SettingName   = (Convert-IntuneIdentifierToLabel -Identifier $_kv.Key)
                 SettingValue  = (Convert-IntuneValueToString -Value $_kv.Value)
             })
         }
@@ -943,7 +1188,7 @@ try {
                     ProfileName   = $_modernProf.name
                     Platform      = $_modernPlatform
                     ProfileType   = $_modernType
-                    SettingName   = (Convert-IntuneIdentifierToLabel -Identifier ([string]$_rawSettingName))
+                    SettingName   = (Convert-IntuneIdentifierToLabel -Identifier $_rawSettingName)
                     SettingValue  = (Convert-IntuneConfigurationSettingValueToString -SettingValue $_setting.settingInstance)
                 })
             }
