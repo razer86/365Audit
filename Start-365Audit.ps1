@@ -342,6 +342,7 @@ Write-Verbose "Audit credentials set in launcher scope (AppId=$AuditAppId, Tenan
 # === Drop any existing sessions from a prior run in this PS session ===
 # The connect helpers skip reconnecting if a session is already active, so we must
 # disconnect before setting new credentials — otherwise the wrong tenant is audited.
+Initialize-GraphSdk
 if (Get-MgContext -ErrorAction SilentlyContinue) {
     Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
     Write-Verbose "Disconnected existing Microsoft Graph session."
@@ -365,8 +366,7 @@ $menu = @{
     3 = @{ Name = "SharePoint Online Audit";    Script = @("Invoke-SharePointAudit.ps1") }
     4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1") }
     5 = @{ Name = "Intune / Endpoint Audit";    Script = @("Invoke-IntuneAudit.ps1") }
-    9 = @{ Name = "Run All Modules (1-5)";      Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1") }
-    #9 = @{ Name = "Run All Modules (1-5)";      Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1") }
+    9 = @{ Name = "Run All Modules (1-5)";      Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1") }
     0 = @{ Name = "Exit";                       Script = $null }
 }
 

@@ -27,7 +27,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.2.0
+    Version     : 1.3.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -45,7 +45,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.2.0"
+$ScriptVersion = "1.3.0"
 Write-Verbose "Invoke-IntuneAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -107,6 +107,31 @@ $_odataSkipKeys = @(
 )
 
 
+function Get-IntuneGraphErrorMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory)]
+        [string]$Operation
+    )
+
+    $message = $ErrorRecord.Exception.Message
+
+    if ($message -match 'Application is not authorized to perform this operation\. Application must have one of the following scopes:\s*(?<scopes>.+?)\s*-\s*Operation ID') {
+        $requiredPermissions = ($matches.scopes -split ',\s*' | Where-Object { $_ }) -join ', '
+        return "$Operation requires Intune application permission(s): $requiredPermissions. Grant admin consent to the 365Audit app registration and rerun."
+    }
+
+    if ($message -match "Invalid filter clause: Could not find a property named 'isAssigned'") {
+        return "$Operation failed because the Microsoft Graph mobile app endpoint does not support filtering on 'isAssigned'."
+    }
+
+    return "$Operation failed: $message"
+}
+
+
 # ================================
 # ===   Step 1 — Licence Check  ===
 # ================================
@@ -163,7 +188,7 @@ try {
     Write-Host "  Devices: $($_allDevices.Count) managed device(s) found." -ForegroundColor Green
 }
 catch {
-    Write-Warning "Could not retrieve managed devices: $_"
+    Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Managed devices')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_Devices.csv') -NoTypeInformation -Encoding UTF8
 }
 
@@ -267,7 +292,7 @@ try {
     Write-Host "  Compliance policies: $($_policies.Count) policy(ies), $($_policySettingRows.Count) setting record(s)." -ForegroundColor Green
 }
 catch {
-    Write-Warning "Could not retrieve compliance policies: $_"
+    Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Compliance policies')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_CompliancePolicies.csv')       -NoTypeInformation -Encoding UTF8
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_CompliancePolicySettings.csv') -NoTypeInformation -Encoding UTF8
 }
@@ -328,7 +353,7 @@ try {
     Write-Host "  Configuration profiles: $($_configProfiles.Count) profile(s), $($_profileSettingRows.Count) setting record(s)." -ForegroundColor Green
 }
 catch {
-    Write-Warning "Could not retrieve configuration profiles: $_"
+    Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Configuration profiles')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_ConfigProfiles.csv')        -NoTypeInformation -Encoding UTF8
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_ConfigProfileSettings.csv') -NoTypeInformation -Encoding UTF8
 }
@@ -341,7 +366,7 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving assigned apps..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 try {
-    $_apps = @(Get-MgDeviceAppManagementMobileApp -All -Filter "isAssigned eq true" -ErrorAction Stop)
+    $_apps = @(Get-MgDeviceAppManagementMobileApp -All -ErrorAction Stop)
     $_appRows = foreach ($_app in $_apps) {
         $_summary = $null
         try {
@@ -358,10 +383,10 @@ try {
         }
     }
     $_appRows | Export-Csv -Path (Join-Path $outputDir 'Intune_Apps.csv') -NoTypeInformation -Encoding UTF8
-    Write-Host "  Apps: $($_apps.Count) assigned app(s)." -ForegroundColor Green
+    Write-Host "  Apps: $($_apps.Count) app(s)." -ForegroundColor Green
 }
 catch {
-    Write-Warning "Could not retrieve apps: $_"
+    Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Apps')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_Apps.csv') -NoTypeInformation -Encoding UTF8
 }
 
@@ -389,11 +414,7 @@ try {
     Write-Host "  Autopilot: $($_autopilot.Count) device(s) registered." -ForegroundColor Green
 }
 catch {
-    if ($_.Exception.Message -match '403|Forbidden|Authorization') {
-        Write-Warning "Autopilot data not accessible (403 — licence or permission may be required). Skipping."
-    } else {
-        Write-Warning "Could not retrieve Autopilot devices: $_"
-    }
+    Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Autopilot devices')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_AutopilotDevices.csv') -NoTypeInformation -Encoding UTF8
 }
 
@@ -442,7 +463,7 @@ try {
     Write-Host "  Enrollment restrictions: $($_restrictions.Count) configuration(s)." -ForegroundColor Green
 }
 catch {
-    Write-Warning "Could not retrieve enrollment restrictions: $_"
+    Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Enrollment restrictions')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_EnrollmentRestrictions.csv') -NoTypeInformation -Encoding UTF8
 }
 

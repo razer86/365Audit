@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.5.4
+    Version     : 2.5.5
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey  = $env:HUDU_API_KEY
 )
 
-$ScriptVersion      = '2.5.4'
+$ScriptVersion      = '2.5.5'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -146,6 +146,12 @@ $script:CertOutputDir = $PSScriptRoot
 
 # Tracks every .pfx written this run so they can be deleted in finally{}
 $script:GeneratedPfxPaths = [System.Collections.Generic.List[string]]::new()
+$script:SetupNeedsManualConsent = $false
+$script:SetupGraphModules = @(
+    'Microsoft.Graph.Authentication',
+    'Microsoft.Graph.Applications',
+    'Microsoft.Graph.Identity.DirectoryManagement'
+)
 
 
 # ============================================================
@@ -168,6 +174,179 @@ function Write-Status {
 }
 
 
+function ConvertTo-NormalizedVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [version]$Version
+    )
+
+    $revision = if ($Version.Revision -lt 0) { 0 } else { $Version.Revision }
+    return [version]::new($Version.Major, $Version.Minor, $Version.Build, $revision)
+}
+
+
+function Resolve-SetupGraphModuleVersion {
+    [CmdletBinding()]
+    param()
+
+    if ($script:SetupGraphModuleVersion) {
+        return $script:SetupGraphModuleVersion
+    }
+
+    $commonVersions = $null
+
+    foreach ($moduleName in $script:SetupGraphModules) {
+        $versions = @(Get-Module -ListAvailable -Name $moduleName |
+                Select-Object -ExpandProperty Version -Unique |
+                Sort-Object -Descending)
+
+        if (-not $versions) {
+            throw "Required module '$moduleName' is not installed."
+        }
+
+        if ($null -eq $commonVersions) {
+            $commonVersions = @($versions)
+            continue
+        }
+
+        $commonVersions = @($commonVersions | Where-Object { $_ -in $versions })
+    }
+
+    if (-not $commonVersions) {
+        $available = foreach ($moduleName in $script:SetupGraphModules) {
+            $moduleVersions = @(Get-Module -ListAvailable -Name $moduleName |
+                    Select-Object -ExpandProperty Version -Unique |
+                    Sort-Object -Descending |
+                    ForEach-Object { $_.ToString() })
+            "{0}: {1}" -f $moduleName, ($moduleVersions -join ', ')
+        }
+        throw ("No common Microsoft Graph module version is installed for setup.`n" + ($available -join "`n"))
+    }
+
+    $script:SetupGraphModuleVersion = $commonVersions | Sort-Object -Descending | Select-Object -First 1
+    Write-Verbose "Resolved setup Microsoft.Graph module version: $script:SetupGraphModuleVersion"
+    return $script:SetupGraphModuleVersion
+}
+
+
+function Get-SetupGraphModuleInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName,
+
+        [Parameter(Mandatory)]
+        [version]$ModuleVersion
+    )
+
+    $normalizedVersion = ConvertTo-NormalizedVersion -Version $ModuleVersion
+
+    return Get-Module -ListAvailable -Name $ModuleName |
+        Where-Object { (ConvertTo-NormalizedVersion -Version $_.Version) -eq $normalizedVersion } |
+        Select-Object -First 1
+}
+
+
+function Initialize-SetupGraphDependencies {
+    [CmdletBinding()]
+    param()
+
+    $targetVersion = Resolve-SetupGraphModuleVersion
+    $authModule = Get-SetupGraphModuleInfo -ModuleName 'Microsoft.Graph.Authentication' -ModuleVersion $targetVersion
+    if (-not $authModule) {
+        throw "Unable to locate Microsoft.Graph.Authentication $targetVersion."
+    }
+
+    $dependencyDirs = @(
+        (Join-Path $authModule.ModuleBase 'Dependencies\Core'),
+        (Join-Path $authModule.ModuleBase 'Dependencies\Desktop'),
+        (Join-Path $authModule.ModuleBase 'Dependencies'),
+        $authModule.ModuleBase
+    ) | Where-Object { Test-Path $_ }
+
+    $alreadyLoaded = [AppDomain]::CurrentDomain.GetAssemblies() |
+        Group-Object { $_.GetName().Name } -AsHashTable -AsString
+
+    foreach ($assemblyName in @(
+            'Microsoft.Graph.Core',
+            'Azure.Core',
+            'Azure.Identity',
+            'Microsoft.Kiota.Abstractions',
+            'Microsoft.Kiota.Authentication.Azure',
+            'Microsoft.Kiota.Http.HttpClientLibrary',
+            'Microsoft.Kiota.Serialization.Json',
+            'Microsoft.Kiota.Serialization.Form',
+            'Microsoft.Kiota.Serialization.Text')) {
+        if ($alreadyLoaded.ContainsKey($assemblyName)) {
+            continue
+        }
+
+        foreach ($dir in $dependencyDirs) {
+            $candidatePath = Join-Path $dir ($assemblyName + '.dll')
+            if (-not (Test-Path $candidatePath)) {
+                continue
+            }
+
+            try {
+                [System.Runtime.Loader.AssemblyLoadContext]::Default.LoadFromAssemblyPath($candidatePath) | Out-Null
+                break
+            }
+            catch {
+                Write-Verbose "Could not preload setup assembly '$assemblyName' from '$candidatePath': $_"
+            }
+        }
+    }
+}
+
+
+function Import-SetupGraphModule {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName
+    )
+
+    $targetVersion = Resolve-SetupGraphModuleVersion
+    $normalizedVersion = ConvertTo-NormalizedVersion -Version $targetVersion
+    $moduleInfo = Get-SetupGraphModuleInfo -ModuleName $ModuleName -ModuleVersion $targetVersion
+
+    if (-not $moduleInfo) {
+        throw "Unable to locate module '$ModuleName' version $targetVersion."
+    }
+
+    $loadedModules = @(Get-Module -Name $ModuleName -All)
+    $mismatched = @($loadedModules | Where-Object {
+            (ConvertTo-NormalizedVersion -Version $_.Version) -ne $normalizedVersion
+        })
+
+    if ($mismatched) {
+        $loadedSummary = $mismatched | ForEach-Object { "{0} ({1})" -f $_.Name, $_.Version }
+        throw "Microsoft Graph setup module mismatch for '$ModuleName': $($loadedSummary -join ', '). Start a new PowerShell session and rerun setup."
+    }
+
+    if (-not ($loadedModules | Where-Object {
+                (ConvertTo-NormalizedVersion -Version $_.Version) -eq $normalizedVersion
+            })) {
+        Import-Module -Name $moduleInfo.Path -ErrorAction Stop
+    }
+
+    return $moduleInfo
+}
+
+
+function Initialize-SetupGraphModules {
+    [CmdletBinding()]
+    param()
+
+    Initialize-SetupGraphDependencies
+
+    foreach ($moduleName in $script:SetupGraphModules) {
+        Import-SetupGraphModule -ModuleName $moduleName | Out-Null
+    }
+}
+
+
 # ============================================================
 # Connect to Microsoft Graph with admin scopes
 # Returns the tenant ID string
@@ -187,36 +366,8 @@ function Connect-GraphForSetup {
         'RoleManagement.ReadWrite.Directory'
     )
 
-    $timeoutSecs = 120
-    Write-Status "Connecting to Microsoft Graph (browser window will open — ${timeoutSecs}s to complete sign-in)..."
-
-    # Run Connect-MgGraph in a thread job so the main thread can show a countdown
-    # and cancel if the sign-in is not completed in time.
-    # Start-ThreadJob runs in the same process, so -ContextScope Process makes the
-    # resulting connection available to the main runspace.
-    $job = Start-ThreadJob -ScriptBlock {
-        Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
-        Connect-MgGraph -Scopes $using:scopes -ContextScope Process -NoWelcome -ErrorAction Stop
-    }
-
-    $elapsed = 0
-    while ($job.State -eq 'Running' -and $elapsed -lt $timeoutSecs) {
-        $remaining = $timeoutSecs - $elapsed
-        Write-Host "`r  Complete the browser sign-in... ($remaining seconds remaining)   " -NoNewline -ForegroundColor DarkYellow
-        Start-Sleep -Seconds 1
-        $elapsed++
-    }
-    Write-Host ''  # end countdown line
-
-    if ($job.State -eq 'Running') {
-        Stop-Job  $job
-        Remove-Job $job -Force
-        throw "Interactive login timed out after $timeoutSecs seconds — no sign-in detected."
-    }
-
-    # Surface any error from the thread (e.g. user cancelled in browser)
-    Receive-Job $job -ErrorAction Stop
-    Remove-Job  $job -Force
+    Write-Status 'Connecting to Microsoft Graph (browser window will open for interactive sign-in)...'
+    Connect-MgGraph -Scopes $scopes -NoWelcome -ErrorAction Stop
 
     $ctx = Get-MgContext
     if (-not $ctx) { throw "Authentication completed but no Graph context was established." }
@@ -290,14 +441,20 @@ function Grant-AdminConsent {
             continue
         }
 
-        New-MgServicePrincipalAppRoleAssignment `
-            -ServicePrincipalId $OurSpId `
-            -PrincipalId        $OurSpId `
-            -ResourceId         $perm.ResourceSpId `
-            -AppRoleId          $perm.Id `
-            -ErrorAction Stop | Out-Null
+        try {
+            New-MgServicePrincipalAppRoleAssignment `
+                -ServicePrincipalId $OurSpId `
+                -PrincipalId        $OurSpId `
+                -ResourceId         $perm.ResourceSpId `
+                -AppRoleId          $perm.Id `
+                -ErrorAction Stop | Out-Null
 
-        Write-Verbose "Granted: $($perm.Name)"
+            Write-Verbose "Granted: $($perm.Name)"
+        }
+        catch {
+            $script:SetupNeedsManualConsent = $true
+            Write-Status ("Automatic admin consent failed for '{0}': {1}" -f $perm.Name, $_.Exception.Message) -Type Warning
+        }
     }
 }
 
@@ -768,15 +925,21 @@ function Invoke-PermissionCheck {
     $gPerms  = @(Resolve-AppRoleIds -ResourceAppId $script:GraphResourceAppId      -PermissionNames $script:GraphPermissions)
     $ePerms  = @(Resolve-AppRoleIds -ResourceAppId $script:ExchangeResourceAppId   -PermissionNames $script:ExchangePermissions)
     $spPerms = @(Resolve-AppRoleIds -ResourceAppId $script:SharePointResourceAppId -PermissionNames $script:SharePointPermissions)
+    $sp      = Resolve-ServicePrincipal -AppId $App.AppId
 
     $currentIds  = @($App.RequiredResourceAccess.ResourceAccess | ForEach-Object { $_.Id })
     $missingG    = @($gPerms  | Where-Object { $_.Id -notin $currentIds })
     $missingE    = @($ePerms  | Where-Object { $_.Id -notin $currentIds })
     $missingSP   = @($spPerms | Where-Object { $_.Id -notin $currentIds })
 
+    $grantedIds       = @(Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -All -ErrorAction SilentlyContinue | ForEach-Object { $_.AppRoleId })
+    $missingConsentG  = @($gPerms  | Where-Object { $_.Id -notin $grantedIds })
+    $missingConsentE  = @($ePerms  | Where-Object { $_.Id -notin $grantedIds })
+    $missingConsentSP = @($spPerms | Where-Object { $_.Id -notin $grantedIds })
+
     if ($missingG.Count -gt 0 -or $missingE.Count -gt 0 -or $missingSP.Count -gt 0) {
         $names = ($missingG + $missingE + $missingSP | ForEach-Object { $_.Name }) -join ', '
-        Write-Status "Missing permissions detected: $names" -Type Warning
+        Write-Status "Missing application permissions detected: $names" -Type Warning
 
         $reqResourceAccess = @(
             @{ resourceAppId = $script:GraphResourceAppId;      resourceAccess = @($gPerms  | ForEach-Object { @{ id = $_.Id.ToString(); type = 'Role' } }) },
@@ -796,21 +959,71 @@ function Invoke-PermissionCheck {
             }
             else { throw }
         }
+    }
 
-        $sp = Resolve-ServicePrincipal -AppId $App.AppId
-        if ($missingG.Count  -gt 0) { Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingG }
-        if ($missingSP.Count -gt 0) { Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingSP }
-        if ($missingE.Count  -gt 0) {
-            Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingE
+    if ($missingConsentG.Count -gt 0 -or $missingConsentE.Count -gt 0 -or $missingConsentSP.Count -gt 0) {
+        $consentNames = ($missingConsentG + $missingConsentE + $missingConsentSP | ForEach-Object { $_.Name }) -join ', '
+        Write-Status "Missing admin consent detected: $consentNames" -Type Warning
+    }
+
+    if ($missingG.Count -gt 0 -or $missingE.Count -gt 0 -or $missingSP.Count -gt 0 -or
+        $missingConsentG.Count -gt 0 -or $missingConsentE.Count -gt 0 -or $missingConsentSP.Count -gt 0) {
+        if ($missingConsentG.Count  -gt 0) { Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingConsentG }
+        if ($missingConsentSP.Count -gt 0) { Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingConsentSP }
+        if ($missingConsentE.Count  -gt 0) {
+            Grant-AdminConsent -OurSpId $sp.Id -Permissions $missingConsentE
             Write-Status 'Assigning Exchange Administrator role...'
             Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
         }
-        Write-Status 'Permissions updated.' -Type Success
+        Write-Status 'Permissions validated.' -Type Success
         return $true
     }
 
-    Write-Status 'All required permissions present.' -Type Success
+    Write-Status 'All required permissions and admin consent are present.' -Type Success
     return $false
+}
+
+
+function Resolve-PermissionState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [object]$App,
+
+        [string]$TenantId
+    )
+
+    $orgName = $null
+    $script:SetupNeedsManualConsent = $false
+    $permissionChanges = Invoke-PermissionCheck -App $App
+
+    if ($script:SetupNeedsManualConsent) {
+        Write-Status 'Automatic admin consent was not sufficient — reconnecting interactively to complete consent...' -Type Warning
+        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+
+        $TenantId = Connect-GraphForSetup
+        $orgName  = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
+        Write-Status "Tenant: $orgName ($TenantId)" -Type Success
+
+        $App = Get-MgApplication -Filter "appId eq '$($App.AppId)'" -ErrorAction Stop | Select-Object -First 1
+        if (-not $App) {
+            throw "No app registration found for AppId '$($App.AppId)' after interactive reconnect."
+        }
+
+        $script:SetupNeedsManualConsent = $false
+        $permissionChanges = Invoke-PermissionCheck -App $App
+
+        if ($script:SetupNeedsManualConsent) {
+            Request-AdminConsent -ApplicationId $App.AppId -TenantName $orgName
+        }
+    }
+
+    return [PSCustomObject]@{
+        App               = $App
+        TenantId          = $TenantId
+        OrgName           = $orgName
+        PermissionChanges = $permissionChanges
+    }
 }
 
 # Invoke-OwnerCheck
@@ -901,18 +1114,13 @@ try {
 
     # ── Ensure required Graph modules ─────────────────────────────────────────
     Write-Status 'Checking required PowerShell modules... (this can take up to 30 seconds)' -Type Info
-    foreach ($mod in @(
-            'Microsoft.Graph.Authentication'
-            'Microsoft.Graph.Applications'
-            'Microsoft.Graph.Identity.DirectoryManagement')) {
+    foreach ($mod in $script:SetupGraphModules) {
         if (-not (Get-Module -ListAvailable -Name $mod)) {
             Write-Status "Installing $mod..." -Type Warning
             Install-Module $mod -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
         }
-        if (-not (Get-Module -Name $mod)) {
-            Import-Module $mod -ErrorAction Stop
-        }
     }
+    Initialize-SetupGraphModules
 
     # Platform-appropriate key storage flags for X509Certificate2 import
     $certKeyFlags = if ($IsLinux -or $IsMacOS) {
@@ -947,8 +1155,10 @@ try {
         if (-not $app) { throw "No app registration found for AppId '$AppId'." }
         Write-Status "App: $($app.DisplayName) | AppId: $($app.AppId)" -Type Info
 
-        Invoke-PermissionCheck -App $app | Out-Null
-        Invoke-OwnerCheck      -App $app
+        $permResult = Resolve-PermissionState -App $app -TenantId $TenantId
+        $app        = $permResult.App
+        $TenantId   = $permResult.TenantId
+        Invoke-OwnerCheck -App $app
 
         # Cert check uses the live app registration (more authoritative than the passed-in cert)
         $certStatus = Get-CertificateStatus -App $app
@@ -1021,8 +1231,10 @@ try {
             if (-not $app) { throw "No app registration found for AppId '$AppId'." }
             Write-Status "App: $($app.DisplayName) | AppId: $($app.AppId)" -Type Info
 
-            Invoke-PermissionCheck -App $app | Out-Null
-            Invoke-OwnerCheck      -App $app
+            $permResult = Resolve-PermissionState -App $app -TenantId $TenantId
+            $app        = $permResult.App
+            $TenantId   = $permResult.TenantId
+            Invoke-OwnerCheck -App $app
 
             if ($needsRenewal) {
                 Write-Status "Generating $CertExpiryYears-year replacement certificate..."
@@ -1049,9 +1261,11 @@ try {
 
             if ($app) {
                 Write-Status "App found — App ID: $($app.AppId)" -Type Info
-                $permAdded = Invoke-PermissionCheck -App $app
+                $permResult = Resolve-PermissionState -App $app -TenantId $TenantId
+                $app        = $permResult.App
+                $TenantId   = $permResult.TenantId
+                if ($permResult.OrgName) { $orgName = $permResult.OrgName }
                 Invoke-OwnerCheck -App $app
-                if ($permAdded) { Request-AdminConsent -ApplicationId $app.AppId -TenantName $orgName }
             } else {
                 $app = New-EntraApp -AppName $AppName -TenantId $TenantId -OrgName $orgName
             }
@@ -1085,9 +1299,11 @@ try {
 
         if ($app) {
             Write-Status "App found — App ID: $($app.AppId)" -Type Info
-            $permAdded = Invoke-PermissionCheck -App $app
+            $permResult = Resolve-PermissionState -App $app -TenantId $TenantId
+            $app        = $permResult.App
+            $TenantId   = $permResult.TenantId
+            if ($permResult.OrgName) { $orgName = $permResult.OrgName }
             Invoke-OwnerCheck -App $app
-            if ($permAdded) { Request-AdminConsent -ApplicationId $app.AppId -TenantName $orgName }
         } else {
             $app = New-EntraApp -AppName $AppName -TenantId $TenantId -OrgName $orgName
         }

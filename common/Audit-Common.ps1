@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.16.0
+    Version     : 1.18.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -20,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.16.0"
+$ScriptVersion = "1.18.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -35,7 +35,7 @@ Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 # Connect-MgGraphSecure, which runs them AFTER Connect-MgGraph so that
 # Microsoft.Graph.Authentication is already in Get-Module when sub-modules
 # resolve their RequiredModules — preventing any attempt to re-load the Auth DLL.
-$_graphSubModules = @(
+$script:GraphSubModules = @(
     'Microsoft.Graph.Authentication',
     'Microsoft.Graph.Identity.DirectoryManagement',
     'Microsoft.Graph.Users',
@@ -43,15 +43,277 @@ $_graphSubModules = @(
     'Microsoft.Graph.Reports',
     'Microsoft.Graph.Identity.SignIns',
     'Microsoft.Graph.DeviceManagement',
-    'Microsoft.Graph.Devices.CorporateManagement'
+    'Microsoft.Graph.Devices.CorporateManagement',
+    'Microsoft.Graph.DeviceManagement.Enrollment'
 )
-foreach ($_mod in $_graphSubModules) {
+foreach ($_mod in $script:GraphSubModules) {
     if (-not (Get-Module -ListAvailable -Name $_mod)) {
         Write-Host "Installing $_mod..." -ForegroundColor Yellow
         Install-Module $_mod -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
     }
 }
-Remove-Variable _graphSubModules, _mod -ErrorAction SilentlyContinue
+Remove-Variable _mod -ErrorAction SilentlyContinue
+
+
+function Resolve-GraphModuleVersion {
+    [CmdletBinding()]
+    param()
+
+    if ($script:GraphModuleVersion) {
+        return $script:GraphModuleVersion
+    }
+
+    $commonVersions = $null
+
+    foreach ($moduleName in $script:GraphSubModules) {
+        $versions = @(Get-Module -ListAvailable -Name $moduleName |
+                Select-Object -ExpandProperty Version -Unique |
+                Sort-Object -Descending)
+
+        if (-not $versions) {
+            throw "Required Microsoft Graph module '$moduleName' is not installed."
+        }
+
+        if ($null -eq $commonVersions) {
+            $commonVersions = @($versions)
+            continue
+        }
+
+        $commonVersions = @($commonVersions | Where-Object { $_ -in $versions })
+    }
+
+    if (-not $commonVersions) {
+        $available = foreach ($moduleName in $script:GraphSubModules) {
+            $moduleVersions = @(Get-Module -ListAvailable -Name $moduleName |
+                    Select-Object -ExpandProperty Version -Unique |
+                    Sort-Object -Descending |
+                    ForEach-Object { $_.ToString() })
+            "{0}: {1}" -f $moduleName, ($moduleVersions -join ', ')
+        }
+
+        throw ("No common Microsoft.Graph module version is installed across the required sub-modules.`n" +
+            ($available -join "`n"))
+    }
+
+    $script:GraphModuleVersion = $commonVersions | Sort-Object -Descending | Select-Object -First 1
+    Write-Verbose "Resolved Microsoft.Graph module version: $script:GraphModuleVersion"
+    return $script:GraphModuleVersion
+}
+
+
+function Get-GraphModuleInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName,
+
+        [Parameter(Mandatory)]
+        [version]$ModuleVersion
+    )
+
+    $normalizedModuleVersion = ConvertTo-NormalizedVersion -Version $ModuleVersion
+
+    return Get-Module -ListAvailable -Name $ModuleName |
+        Where-Object { (ConvertTo-NormalizedVersion -Version $_.Version) -eq $normalizedModuleVersion } |
+        Select-Object -First 1
+}
+
+
+function Get-GraphDependencyAssemblyVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName,
+
+        [Parameter(Mandatory)]
+        [version]$ModuleVersion,
+
+        [Parameter(Mandatory)]
+        [string]$AssemblyName
+    )
+
+    $moduleInfo = Get-GraphModuleInfo -ModuleName $ModuleName -ModuleVersion $ModuleVersion
+
+    if (-not $moduleInfo) {
+        return $null
+    }
+
+    $assemblyPath = Get-ChildItem -Path $moduleInfo.ModuleBase -Recurse -Filter "$AssemblyName.dll" -ErrorAction SilentlyContinue |
+        Sort-Object FullName |
+        Select-Object -First 1 -ExpandProperty FullName
+
+    if (-not $assemblyPath) {
+        return $null
+    }
+
+    return [Reflection.AssemblyName]::GetAssemblyName($assemblyPath).Version
+}
+
+
+function ConvertTo-NormalizedVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [version]$Version
+    )
+
+    $revision = if ($Version.Revision -lt 0) { 0 } else { $Version.Revision }
+    return [version]::new($Version.Major, $Version.Minor, $Version.Build, $revision)
+}
+
+
+function Get-GraphDependencyDirectories {
+    [CmdletBinding()]
+    param()
+
+    if ($script:GraphDependencyDirectories) {
+        return $script:GraphDependencyDirectories
+    }
+
+    $targetVersion = Resolve-GraphModuleVersion
+    $authModule = Get-GraphModuleInfo -ModuleName 'Microsoft.Graph.Authentication' -ModuleVersion $targetVersion
+
+    if (-not $authModule) {
+        throw "Unable to locate Microsoft.Graph.Authentication $targetVersion."
+    }
+
+    $candidateDirs = @(
+        (Join-Path $authModule.ModuleBase 'Dependencies\Core'),
+        (Join-Path $authModule.ModuleBase 'Dependencies\Desktop'),
+        (Join-Path $authModule.ModuleBase 'Dependencies'),
+        $authModule.ModuleBase
+    ) | Where-Object { Test-Path $_ }
+
+    $script:GraphDependencyDirectories = $candidateDirs
+    return $script:GraphDependencyDirectories
+}
+
+
+function Initialize-GraphDependencies {
+    [CmdletBinding()]
+    param()
+
+    $assembliesToPrime = @(
+        'Microsoft.Graph.Core',
+        'Azure.Core',
+        'Azure.Identity',
+        'Microsoft.Kiota.Abstractions',
+        'Microsoft.Kiota.Authentication.Azure',
+        'Microsoft.Kiota.Http.HttpClientLibrary',
+        'Microsoft.Kiota.Serialization.Json',
+        'Microsoft.Kiota.Serialization.Form',
+        'Microsoft.Kiota.Serialization.Text'
+    )
+
+    $alreadyLoaded = [AppDomain]::CurrentDomain.GetAssemblies() |
+        Group-Object { $_.GetName().Name } -AsHashTable -AsString
+
+    foreach ($assemblyName in $assembliesToPrime) {
+        if ($alreadyLoaded.ContainsKey($assemblyName)) {
+            continue
+        }
+
+        foreach ($dir in (Get-GraphDependencyDirectories)) {
+            $candidatePath = Join-Path $dir ($assemblyName + '.dll')
+            if (-not (Test-Path $candidatePath)) {
+                continue
+            }
+
+            try {
+                [System.Runtime.Loader.AssemblyLoadContext]::Default.LoadFromAssemblyPath($candidatePath) | Out-Null
+                break
+            }
+            catch {
+                Write-Verbose "Could not preload assembly '$assemblyName' from '$candidatePath': $_"
+            }
+        }
+    }
+}
+
+
+function Import-GraphModuleVersioned {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName
+    )
+
+    $targetVersion = Resolve-GraphModuleVersion
+    $normalizedTargetVersion = ConvertTo-NormalizedVersion -Version $targetVersion
+    $targetModuleInfo = Get-GraphModuleInfo -ModuleName $ModuleName -ModuleVersion $targetVersion
+
+    if (-not $targetModuleInfo) {
+        throw "Unable to locate module '$ModuleName' version $targetVersion."
+    }
+
+    $loadedModules = @(Get-Module -Name $ModuleName -All)
+    $mismatchedLoad = @($loadedModules | Where-Object {
+            (ConvertTo-NormalizedVersion -Version $_.Version) -ne $normalizedTargetVersion
+        })
+
+    if ($mismatchedLoad) {
+        $loadedSummary = $mismatchedLoad |
+            Sort-Object Version -Descending |
+            ForEach-Object { "{0} ({1})" -f $_.Name, $_.Version }
+        throw ((("Microsoft Graph module version mismatch detected for '{0}': {1}. " +
+            "Close this PowerShell session and start a new one so 365Audit can load Microsoft.Graph {2} consistently.") -f
+            $ModuleName, ($loadedSummary -join ', '), $targetVersion))
+    }
+
+    if (-not ($loadedModules | Where-Object {
+                (ConvertTo-NormalizedVersion -Version $_.Version) -eq $normalizedTargetVersion
+            })) {
+        Import-Module -Name $targetModuleInfo.Path -ErrorAction Stop
+    }
+}
+
+
+function Initialize-GraphSdk {
+    [CmdletBinding()]
+    param()
+
+    $targetVersion = Resolve-GraphModuleVersion
+    Initialize-GraphDependencies
+    $expectedCore = Get-GraphDependencyAssemblyVersion -ModuleName 'Microsoft.Graph.Authentication' `
+        -ModuleVersion $targetVersion `
+        -AssemblyName 'Microsoft.Graph.Core'
+
+    $loadedCore = [AppDomain]::CurrentDomain.GetAssemblies() |
+        Where-Object { $_.GetName().Name -eq 'Microsoft.Graph.Core' } |
+        Select-Object -First 1
+
+    if ($loadedCore -and $expectedCore -and $loadedCore.GetName().Version -ne $expectedCore) {
+        throw ((("Microsoft.Graph.Core {0} is already loaded in this PowerShell session, but 365Audit requires {1}. " +
+            "Close this PowerShell session and start a new one before running 365Audit again.") -f
+            $loadedCore.GetName().Version, $expectedCore))
+    }
+
+    Import-GraphModuleVersioned -ModuleName 'Microsoft.Graph.Authentication'
+}
+
+
+function Get-GraphOrganizationSafe {
+    [CmdletBinding()]
+    param()
+
+    try {
+        $orgList = @(Get-MgOrganization -ErrorAction Stop)
+    }
+    catch {
+        throw "Unable to query Microsoft Graph organization details: $($_.Exception.Message)"
+    }
+
+    if (-not $orgList) {
+        throw "Microsoft Graph returned no organization objects. Verify the tenant connection and Organization.Read.All permission."
+    }
+
+    $primaryOrg = $orgList | Select-Object -First 1
+    if (-not $primaryOrg.Id) {
+        throw "Microsoft Graph organization lookup returned an object without an Id."
+    }
+
+    return $orgList
+}
 
 
 # ===============================================
@@ -60,6 +322,8 @@ Remove-Variable _graphSubModules, _mod -ErrorAction SilentlyContinue
 function Connect-MgGraphSecure {
     [CmdletBinding()]
     param()
+
+    Initialize-GraphSdk
 
     $requiredScopes = @(
         "User.Read.All",
@@ -72,7 +336,11 @@ function Connect-MgGraphSecure {
         "RoleManagement.Read.Directory",
         "Group.Read.All",
         "AuditLog.Read.All",
-        "SecurityEvents.Read.All"
+        "SecurityEvents.Read.All",
+        "DeviceManagementManagedDevices.Read.All",
+        "DeviceManagementConfiguration.Read.All",
+        "DeviceManagementApps.Read.All",
+        "DeviceManagementServiceConfig.Read.All"
     )
 
     # Auto-detect app credentials set by the launcher (-AppId/-TenantId/-CertBase64/-CertPassword params).
@@ -128,10 +396,11 @@ function Connect-MgGraphSecure {
             'Microsoft.Graph.Users',
             'Microsoft.Graph.Groups',
             'Microsoft.Graph.Reports',
-            'Microsoft.Graph.Identity.SignIns')) {
-        if (-not (Get-Module -Name $mod)) {
-            Import-Module $mod -ErrorAction SilentlyContinue
-        }
+            'Microsoft.Graph.Identity.SignIns',
+            'Microsoft.Graph.DeviceManagement',
+            'Microsoft.Graph.Devices.CorporateManagement',
+            'Microsoft.Graph.DeviceManagement.Enrollment')) {
+        Import-GraphModuleVersioned -ModuleName $mod
     }
 }
 
@@ -166,7 +435,7 @@ function Connect-ExchangeOnlineSecure {
         Write-Host "Connecting to Exchange Online (app-only auth)..." -ForegroundColor Cyan
 
         # Resolve the tenant's initial .onmicrosoft.com domain for the -Organization parameter
-        $_orgDomain = (Get-MgOrganization).VerifiedDomains |
+        $_orgDomain = (Get-GraphOrganizationSafe).VerifiedDomains |
             Where-Object { $_.IsInitial -eq $true } |
             Select-Object -ExpandProperty Name -First 1
 
@@ -204,7 +473,7 @@ function Initialize-AuditOutput {
         Connect-MgGraphSecure
     }
 
-    $orgList = Get-MgOrganization
+    $orgList = Get-GraphOrganizationSafe
 
     if ($orgList.Count -gt 1) {
         $primaryDomain = $orgList[0].VerifiedDomains |
