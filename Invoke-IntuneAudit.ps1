@@ -155,6 +155,203 @@ function Convert-IntuneValueToString {
 }
 
 
+function Convert-IntuneIdentifierToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Identifier
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Identifier)) {
+        return 'Setting'
+    }
+
+    $label = [string]$Identifier
+    $label = $label -replace '#microsoft.graph\.', ''
+    $label = $label -replace '^.*~', ''
+    $label = $label -replace '(?<=[a-z])(?=[A-Z])', '_'
+
+    foreach ($prefix in @(
+            'device_vendor_msft_policy_config_',
+            'user_vendor_msft_policy_config_',
+            'device_vendor_msft_policy_',
+            'user_vendor_msft_policy_',
+            'device_vendor_msft_laps_policies_',
+            'user_vendor_msft_laps_policies_',
+            'device_vendor_msft_',
+            'user_vendor_msft_',
+            'vendor_msft_',
+            'device_',
+            'user_'
+        )) {
+        if ($label.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $label = $label.Substring($prefix.Length)
+            break
+        }
+    }
+
+    foreach ($noiseToken in @('policy_config_', 'policy_', 'config_', 'policies_', 'admx_')) {
+        if ($label.StartsWith($noiseToken, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $label = $label.Substring($noiseToken.Length)
+        }
+    }
+
+    $compoundReplacements = [ordered]@{
+        'onedrivengscv2'                  = 'one drive'
+        'onedrivengsc'                    = 'one drive'
+        'automountteamsites'              = 'auto mount team sites'
+        'filesondemandenabled'            = 'files on demand enabled'
+        'silentaccountconfig'             = 'silent account config'
+        'backupdirectory'                 = 'backup directory'
+        'passwordagedays'                 = 'password age days'
+        'passwordcomplexity'              = 'password complexity'
+        'passwordlength'                  = 'password length'
+        'postauthenticationactions'       = 'post authentication actions'
+        'postauthenticationresetdelay'    = 'post authentication reset delay'
+        'controleventlogbehavior'         = 'control event log behavior'
+        'specifymaximumfilesize'          = 'specify maximum file size'
+        'applicationlog'                  = 'application log'
+        'securitylog'                     = 'security log'
+        'systemlog'                       = 'system log'
+        'channel_logmaxsize'              = 'channel log max size'
+        'auditcredentialvalidation'       = 'audit credential validation'
+        'auditaccountlockout'             = 'audit account lockout'
+        'auditgroupmembership'            = 'audit group membership'
+        'auditapplicationgroupmanagement' = 'audit application group management'
+        'auditauthenticationpolicychange' = 'audit authentication policy change'
+        'auditauthorizationpolicychange'  = 'audit authorization policy change'
+        'auditlogoff'                     = 'audit logoff'
+        'auditlogon'                      = 'audit logon'
+        'policychange'                    = 'policy change'
+        'accountlogonlogoff'              = 'account logon logoff'
+        'accountlogon'                    = 'account logon'
+        'accountmanagement'               = 'account management'
+        'eventlogservice'                 = 'event log service'
+        'logmaxsize'                      = 'log max size'
+        'retention'                       = 'retention'
+    }
+
+    foreach ($replacement in $compoundReplacements.GetEnumerator()) {
+        $label = $label -replace [regex]::Escape($replacement.Key), $replacement.Value
+    }
+
+    $tokens = @(
+        $label -split '[_\-/\.\s]+' |
+        Where-Object {
+            $_ -and $_ -notin @('device', 'user', 'vendor', 'msft', 'policy', 'config', 'policies', 'setting', 'instance')
+        }
+    )
+
+    if ($tokens.Count -eq 0) {
+        return 'Setting'
+    }
+
+    $textInfo = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo
+    $finalTokens = foreach ($token in $tokens) {
+        $lower = $token.ToLowerInvariant()
+        switch ($lower) {
+            'aad' { 'Entra ID'; continue }
+            'admx' { 'ADMX'; continue }
+            'dns' { 'DNS'; continue }
+            'gpo' { 'GPO'; continue }
+            'id' { 'ID'; continue }
+            'laps' { 'LAPS'; continue }
+            default { $textInfo.ToTitleCase($lower) }
+        }
+    }
+
+    $label = ($finalTokens -join ' ').Trim()
+    $label = $label -replace '\bOne Drive\b', 'OneDrive'
+    return $label
+}
+
+
+function Convert-IntuneConfigurationSettingValueToString {
+    [CmdletBinding()]
+    param(
+        $SettingValue,
+
+        [int]$Depth = 0
+    )
+
+    if ($Depth -gt 8 -or $null -eq $SettingValue) {
+        return ''
+    }
+
+    if ($SettingValue -is [string] -or $SettingValue -is [ValueType]) {
+        return [string]$SettingValue
+    }
+
+    $propertyNames = @($SettingValue.PSObject.Properties.Name)
+
+    if ($propertyNames -contains 'simpleSettingValue') {
+        return Convert-IntuneConfigurationSettingValueToString -SettingValue $SettingValue.simpleSettingValue -Depth ($Depth + 1)
+    }
+
+    if ($propertyNames -contains 'choiceSettingValue') {
+        $parts = [System.Collections.Generic.List[string]]::new()
+        $choiceValue = [string]$SettingValue.choiceSettingValue.value
+        if ($choiceValue) {
+            $definitionId = [string]$SettingValue.settingDefinitionId
+            if ($definitionId -and $choiceValue.StartsWith($definitionId + '_', [System.StringComparison]::OrdinalIgnoreCase)) {
+                $choiceValue = $choiceValue.Substring($definitionId.Length + 1)
+            }
+            if ($choiceValue -match '^\d+$') {
+                $parts.Add("Selected option: $choiceValue")
+            }
+            else {
+                $parts.Add((Convert-IntuneIdentifierToLabel -Identifier $choiceValue))
+            }
+        }
+
+        foreach ($child in @($SettingValue.choiceSettingValue.children)) {
+            $childLabel = Convert-IntuneIdentifierToLabel -Identifier ([string]$child.settingDefinitionId)
+            $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
+            if ($childValue) {
+                $parts.Add(('{0}: {1}' -f $childLabel, $childValue))
+            }
+        }
+
+        return ($parts -join '; ')
+    }
+
+    if ($propertyNames -contains 'groupSettingCollectionValue') {
+        $groups = [System.Collections.Generic.List[string]]::new()
+        foreach ($group in @($SettingValue.groupSettingCollectionValue)) {
+            $groupParts = [System.Collections.Generic.List[string]]::new()
+            foreach ($child in @($group.children)) {
+                $childLabel = Convert-IntuneIdentifierToLabel -Identifier ([string]$child.settingDefinitionId)
+                $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
+                if ($childValue) {
+                    $groupParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+                }
+            }
+            if ($groupParts.Count -gt 0) {
+                $groups.Add(($groupParts -join '; '))
+            }
+        }
+        return ($groups -join ' | ')
+    }
+
+    if ($propertyNames -contains 'children') {
+        $childParts = [System.Collections.Generic.List[string]]::new()
+        foreach ($child in @($SettingValue.children)) {
+            $childLabel = Convert-IntuneIdentifierToLabel -Identifier ([string]$child.settingDefinitionId)
+            $childValue = Convert-IntuneConfigurationSettingValueToString -SettingValue $child -Depth ($Depth + 1)
+            if ($childValue) {
+                $childParts.Add(('{0}: {1}' -f $childLabel, $childValue))
+            }
+        }
+        return ($childParts -join '; ')
+    }
+
+    if ($propertyNames -contains 'value') {
+        return Convert-IntuneValueToString -Value $SettingValue.value
+    }
+
+    return Convert-IntuneValueToString -Value $SettingValue
+}
+
+
 function Convert-IntunePlatformToken {
     [CmdletBinding()]
     param(
@@ -329,6 +526,141 @@ function Get-ConfigurationPolicySettingName {
     }
 
     return ($names | Where-Object { $_ } | Select-Object -Unique) -join ', '
+}
+
+
+function Invoke-IntuneExportReport {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ReportName,
+
+        [string[]]$Select,
+
+        [string]$Filter
+    )
+
+    $requestBody = [ordered]@{
+        reportName       = $ReportName
+        format           = 'csv'
+        localizationType = 'ReplaceLocalizableValues'
+    }
+
+    if ($Select -and $Select.Count -gt 0) {
+        $requestBody.select = @($Select)
+    }
+    if ($Filter) {
+        $requestBody.filter = $Filter
+    }
+
+    $job = Invoke-MgGraphRequest -Method POST `
+        -Uri 'https://graph.microsoft.com/beta/deviceManagement/reports/exportJobs' `
+        -Body ($requestBody | ConvertTo-Json -Depth 10) `
+        -ContentType 'application/json' `
+        -OutputType PSObject `
+        -ErrorAction Stop
+
+    if (-not $job.id) {
+        throw "The Intune export job for '$ReportName' did not return a job ID."
+    }
+
+    $jobStatus = $null
+    $jobUri = "https://graph.microsoft.com/beta/deviceManagement/reports/exportJobs('{0}')" -f $job.id
+    for ($attempt = 0; $attempt -lt 45; $attempt++) {
+        Start-Sleep -Seconds 2
+        $jobStatus = Invoke-MgGraphRequest -Method GET -Uri $jobUri -OutputType PSObject -ErrorAction Stop
+        if ($jobStatus.status -in @('completed', 'complete')) {
+            break
+        }
+        if ($jobStatus.status -in @('failed', 'error')) {
+            throw "The Intune export job for '$ReportName' failed with status '$($jobStatus.status)'."
+        }
+    }
+
+    if (-not $jobStatus -or -not $jobStatus.url) {
+        throw "The Intune export job for '$ReportName' did not complete in time."
+    }
+
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("365Audit-Report-" + [guid]::NewGuid().ToString())
+    $zipPath = Join-Path $tempRoot 'report.zip'
+    $extractDir = Join-Path $tempRoot 'extract'
+
+    try {
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+        Invoke-WebRequest -Uri $jobStatus.url -OutFile $zipPath -ErrorAction Stop | Out-Null
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+
+        $csvPath = Get-ChildItem -Path $extractDir -Recurse -Filter '*.csv' -ErrorAction Stop |
+            Sort-Object FullName |
+            Select-Object -First 1 -ExpandProperty FullName
+
+        if (-not $csvPath) {
+            throw "No CSV file was found in the Intune export for '$ReportName'."
+        }
+
+        return @(Import-Csv -Path $csvPath)
+    }
+    finally {
+        if (Test-Path $tempRoot) {
+            Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+
+function Get-IntuneMobileAppInstallSummary {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$MobileAppId,
+
+        [switch]$HasAssignments
+    )
+
+    $summaryObject = $null
+
+    try {
+        $response = Invoke-MgGraphRequest -Method GET -Uri ("https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/{0}/installSummary" -f $MobileAppId) -OutputType PSObject -ErrorAction Stop
+        $summaryObject = if ($response.PSObject.Properties.Name -contains 'value' -and $response.value) { $response.value } else { $response }
+    }
+    catch {
+        Write-Verbose "Could not retrieve mobile app install summary for '$MobileAppId': $_"
+    }
+
+    $installedCount = 0
+    $failedCount = 0
+    $pendingCount = 0
+
+    if ($summaryObject) {
+        $installedCount = [int]($summaryObject.installedDeviceCount ?? 0)
+        $failedCount    = [int]($summaryObject.failedDeviceCount ?? 0)
+        $pendingCount   = [int]($summaryObject.pendingInstallDeviceCount ?? $summaryObject.pendingDeviceCount ?? 0)
+    }
+
+    if ($HasAssignments -and ($installedCount + $failedCount + $pendingCount -eq 0)) {
+        try {
+            $deviceStatuses = @(Invoke-GraphCollectionRequest -Uri ("https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/{0}/deviceStatuses?$top=999" -f $MobileAppId))
+            if ($deviceStatuses.Count -gt 0) {
+                foreach ($status in $deviceStatuses) {
+                    $installState = [string]($status.installState ?? $status.mobileAppInstallStatusValue ?? '')
+                    switch -Wildcard ($installState.ToLowerInvariant()) {
+                        'installed*' { $installedCount++ }
+                        'failed*'    { $failedCount++ }
+                        'pending*'   { $pendingCount++ }
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Verbose "Could not retrieve mobile app device statuses for '$MobileAppId': $_"
+        }
+    }
+
+    return [PSCustomObject]@{
+        InstalledDeviceCount = $installedCount
+        FailedDeviceCount    = $failedCount
+        PendingInstallCount  = $pendingCount
+    }
 }
 
 
@@ -543,7 +875,7 @@ try {
                 ProfileName   = $_prof.DisplayName
                 Platform      = $_profPlatform
                 ProfileType   = ($_profOdata -replace '#microsoft.graph.', '')
-                SettingName   = $_kv.Key
+                SettingName   = (Convert-IntuneIdentifierToLabel -Identifier ([string]$_kv.Key))
                 SettingValue  = (Convert-IntuneValueToString -Value $_kv.Value)
             })
         }
@@ -595,13 +927,14 @@ try {
             })
 
             foreach ($_setting in $_modernSettings) {
+                $_rawSettingName = Get-ConfigurationPolicySettingName -Setting $_setting
                 $_profileSettingRows.Add([PSCustomObject]@{
                     ProfileId     = $_modernProf.id
                     ProfileName   = $_modernProf.name
                     Platform      = $_modernPlatform
                     ProfileType   = $_modernType
-                    SettingName   = (Get-ConfigurationPolicySettingName -Setting $_setting)
-                    SettingValue  = (Convert-IntuneValueToString -Value $_setting.settingInstance)
+                    SettingName   = (Convert-IntuneIdentifierToLabel -Identifier ([string]$_rawSettingName))
+                    SettingValue  = (Convert-IntuneConfigurationSettingValueToString -SettingValue $_setting.settingInstance)
                 })
             }
         }
@@ -629,15 +962,46 @@ Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Ret
 
 try {
     $_apps = @(Get-MgDeviceAppManagementMobileApp -All -ErrorAction Stop)
+    $_appSummaryMap = @{}
+
+    try {
+        $_appSummaryRows = @(Invoke-IntuneExportReport -ReportName 'AppInstallStatusAggregate' -Select @(
+                'ApplicationId',
+                'InstalledDeviceCount',
+                'FailedDeviceCount',
+                'PendingInstallDeviceCount'
+            ))
+        Write-Verbose "Retrieved Intune app install aggregate report with $($_appSummaryRows.Count) row(s)."
+        foreach ($_summaryRow in $_appSummaryRows) {
+            $appId = [string]$_summaryRow.ApplicationId
+            if ($appId) {
+                $_appSummaryMap[$appId.ToLowerInvariant()] = $_summaryRow
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Could not retrieve aggregate Intune app install report: $_"
+    }
+
     $_appRows = foreach ($_app in $_apps) {
-        $_summary = $null
         $_assignments = @()
-        try {
-            $_summary = Get-MgDeviceAppManagementMobileAppInstallSummary -MobileAppId $_app.Id -ErrorAction SilentlyContinue
-        } catch {}
         try {
             $_assignments = @(Invoke-GraphCollectionRequest -Uri ("https://graph.microsoft.com/beta/deviceAppManagement/mobileApps/{0}/assignments?$top=200" -f $_app.Id))
         } catch {}
+        $_summary = $null
+        $_summaryKey = ([string]$_app.Id).ToLowerInvariant()
+        if ($_appSummaryMap.ContainsKey($_summaryKey)) {
+            $_reportSummary = $_appSummaryMap[$_summaryKey]
+            $_summary = [PSCustomObject]@{
+                InstalledDeviceCount = [int]($_reportSummary.InstalledDeviceCount ?? 0)
+                FailedDeviceCount    = [int]($_reportSummary.FailedDeviceCount ?? 0)
+                PendingInstallCount  = [int]($_reportSummary.PendingInstallDeviceCount ?? 0)
+            }
+        }
+        else {
+            Write-Verbose "No aggregate report row found for app '$($_app.DisplayName)' ($($_app.Id)); falling back to per-app endpoints."
+            $_summary = Get-IntuneMobileAppInstallSummary -MobileAppId $_app.Id -HasAssignments:($_assignments.Count -gt 0)
+        }
 
         $_assignmentDetails = (@($_assignments | ForEach-Object { Get-IntuneAssignmentLabel -Assignment $_ } | Where-Object { $_ } | Select-Object -Unique) -join '; ')
 
@@ -651,9 +1015,9 @@ try {
             LastModifiedDateTime = $_app.LastModifiedDateTime
             AssignedTo           = (Get-IntuneAssignmentSummary -Assignments $_assignments)
             AssignmentDetails    = $_assignmentDetails
-            InstalledDeviceCount = if ($_summary) { $_summary.InstalledDeviceCount } else { 0 }
-            FailedDeviceCount    = if ($_summary) { $_summary.FailedDeviceCount    } else { 0 }
-            PendingInstallCount  = if ($_summary) { $_summary.PendingInstallCount  } else { 0 }
+            InstalledDeviceCount = $_summary.InstalledDeviceCount
+            FailedDeviceCount    = $_summary.FailedDeviceCount
+            PendingInstallCount  = $_summary.PendingInstallCount
         }
     }
     $_appRows | Export-Csv -Path (Join-Path $outputDir 'Intune_Apps.csv') -NoTypeInformation -Encoding UTF8

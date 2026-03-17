@@ -5,9 +5,10 @@
         "Modules": {
             "1": "Microsoft Entra Audit    — Identity, MFA, roles, Conditional Access",
             "2": "Exchange Online Audit    — Mailboxes, permissions, mail flow",
-            "3": "SharePoint Online Audit  — Sites, permissions, storage, OneDrive (requires PnPAppId)",
+            "3": "SharePoint Online Audit  — Sites, permissions, storage, OneDrive",
             "4": "Mail Security Audit      — DKIM, DMARC, SPF, anti-spam/phish policies",
-            "9": "Run All                  — Modules 1, 2, 3, 4 + summary"
+            "5": "Intune / Endpoint Audit  — Devices, compliance, configuration, apps, enrollment",
+            "9": "Run All                  — Modules 1, 2, 3, 4, 5 + summary"
         }
     },
     "customers": [
@@ -19,7 +20,7 @@
         {
             "HuduCompanySlug": "f6e5d4c3b2a1",
             "HuduComanyName": "Fabrikam Inc",
-            "Modules": [ 1, 2 ]
+            "Modules": [ 1, 2, 5 ]
         }
     ]
 }

@@ -98,7 +98,8 @@ function Add-Section {
     param (
         [string]   $Title,
         [string[]] $CsvFiles,
-        [string]   $SummaryHtml
+        [string]   $SummaryHtml,
+        [string]   $ModuleVersion
     )
 
     $csvLinks = ""
@@ -112,15 +113,48 @@ function Add-Section {
         $csvLinks = "<details style='margin-top:1rem'><summary style='cursor:pointer;color:#555;font-size:0.85rem;list-style:disclosure-closed'>Raw CSV Files ($($CsvFiles.Count))</summary><ul style='margin:0.4rem 0 0 1rem;font-size:0.85rem'>$fileItems</ul></details>"
     }
 
+    $encodedTitle   = [System.Net.WebUtility]::HtmlEncode($Title)
+    $encodedVersion = if ([string]::IsNullOrWhiteSpace($ModuleVersion)) { "" } else { [System.Net.WebUtility]::HtmlEncode($ModuleVersion) }
+    $versionMarkup  = if ($encodedVersion) { "<span class='section-version'>$encodedVersion</span>" } else { "" }
+
     return @"
 <details class='section'>
-  <summary>$Title</summary>
+  <summary><span class='section-summary'><span class='section-title'>$encodedTitle</span>$versionMarkup</span></summary>
   <div class='content'>
     $SummaryHtml
     $csvLinks
   </div>
 </details>
 "@
+}
+
+$script:ModuleVersionCache = @{}
+function Get-ModuleScriptVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ScriptName
+    )
+
+    if ($script:ModuleVersionCache.ContainsKey($ScriptName)) {
+        return $script:ModuleVersionCache[$ScriptName]
+    }
+
+    $scriptPath = Join-Path $PSScriptRoot $ScriptName
+    if (-not (Test-Path $scriptPath)) {
+        $script:ModuleVersionCache[$ScriptName] = $null
+        return $null
+    }
+
+    $match = Select-String -Path $scriptPath -Pattern '^\$ScriptVersion\s*=\s*"([^"]+)"' | Select-Object -First 1
+    $version = if ($match -and $match.Matches.Count -gt 0) {
+        "v{0}" -f $match.Matches[0].Groups[1].Value
+    } else {
+        $null
+    }
+
+    $script:ModuleVersionCache[$ScriptName] = $version
+    return $version
 }
 
 function ConvertTo-HtmlText {
@@ -171,7 +205,10 @@ $html.Add(@"
   h1          { text-align: center; }
   .subtitle   { text-align: center; color: #666; margin-top: -0.5rem; margin-bottom: 2rem; }
   .section    { margin-bottom: 1.5rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-  summary     { font-size: 1.1rem; font-weight: bold; padding: 1rem; cursor: pointer; background: #eaeaea; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; }
+  .section > summary { font-size: 1.1rem; font-weight: bold; padding: 1rem; cursor: pointer; background: #eaeaea; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; }
+  .section-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; }
+  .section-title { flex: 1 1 auto; }
+  .section-version { flex: 0 0 auto; font-size: 0.85rem; font-weight: 600; color: #666; white-space: nowrap; }
   .content    { padding: 1rem; overflow-x: auto; }
   table       { border-collapse: collapse; width: 100%; }
   th, td      { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 0.9rem; }
@@ -1191,7 +1228,7 @@ $implHtml
         }
     }
 
-    $html.Add((Add-Section -Title "Microsoft Entra" -CsvFiles $entraFiles.FullName -SummaryHtml ($entraSummary -join "`n")))
+    $html.Add((Add-Section -Title "Microsoft Entra" -CsvFiles $entraFiles.FullName -SummaryHtml ($entraSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-EntraAudit.ps1')))
 }
 
 
@@ -1724,7 +1761,7 @@ if ($exchangeFiles.Count -gt 0) {
         $exchangeSummary.Add("<p style='color:#888'>Safe Links data not collected — Defender for Office 365 P1 may not be licensed on this tenant.</p>")
     }
 
-    $html.Add((Add-Section -Title "Exchange Online" -CsvFiles $exchangeFiles.FullName -SummaryHtml ($exchangeSummary -join "`n")))
+    $html.Add((Add-Section -Title "Exchange Online" -CsvFiles $exchangeFiles.FullName -SummaryHtml ($exchangeSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-ExchangeAudit.ps1')))
 }
 
 
@@ -2008,7 +2045,7 @@ if ($spFiles.Count -gt 0) {
         }
     }
 
-    $html.Add((Add-Section -Title "SharePoint / OneDrive" -CsvFiles $spFiles.FullName -SummaryHtml ($spSummary -join "`n")))
+    $html.Add((Add-Section -Title "SharePoint / OneDrive" -CsvFiles $spFiles.FullName -SummaryHtml ($spSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-SharePointAudit.ps1')))
 }
 
 
@@ -2096,7 +2133,7 @@ if ($mailSecFiles.Count -gt 0) {
 "@)
     }
 
-    $html.Add((Add-Section -Title "Mail Security" -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n")))
+    $html.Add((Add-Section -Title "Mail Security" -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-MailSecurityAudit.ps1')))
 }
 
 
@@ -2192,36 +2229,39 @@ if ($intuneFiles.Count -gt 0) {
 
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Compliance Policies ($($_intPols.Count))</h4>")
             if ($_intPols.Count -gt 0) {
+                $intuneSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand policy details and settings.</p>")
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Platform</th><th>Assigned To</th><th>Grace Period (h)</th><th>Last Modified</th></tr></thead><tbody>")
-                foreach ($_pol in ($_intPols | Sort-Object Platform, PolicyName)) {
+                $_policyRows = foreach ($_pol in ($_intPols | Sort-Object Platform, PolicyName)) {
                     $_grace = 0
                     [int]::TryParse($_pol.GracePeriodHours, [ref]$_grace) | Out-Null
-                    $_graceColor = if ($_grace -gt 24) { "color:#e65100;font-weight:bold" } else { "" }
+                    $_graceColor = if ($_grace -gt 24) { " style='color:#e65100;font-weight:bold'" } else { '' }
                     $_polSettings = if ($_pol.PolicyId) {
                         @($_intPolSettings | Where-Object { $_.PolicyId -eq $_pol.PolicyId })
                     } else {
                         @($_intPolSettings | Where-Object { $_.PolicyName -eq $_pol.PolicyName })
                     }
 
-                    $_detailHtml  = "<details style='font-size:0.9rem'><summary style='cursor:pointer;color:#1565c0'>$(ConvertTo-HtmlText $_pol.PolicyName)</summary>"
-                    $_detailHtml += "<table class='inner-table' style='margin-top:0.4rem'><tbody>"
-                    $_detailHtml += "<tr><th>Policy Type</th><td>$(ConvertTo-HtmlText $_pol.PolicyType)</td></tr>"
-                    $_detailHtml += "<tr><th>Description</th><td>$(ConvertTo-HtmlMultilineText $_pol.Description)</td></tr>"
-                    $_detailHtml += "<tr><th>Assignments</th><td>$(ConvertTo-HtmlMultilineText $_pol.AssignmentDetails)</td></tr>"
-                    $_detailHtml += "<tr><th>Settings</th><td>"
-                    if ($_polSettings.Count -gt 0) {
-                        $_detailHtml += "<table class='inner-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
-                        foreach ($_s in $_polSettings) {
-                            $_detailHtml += "<tr><td>$(ConvertTo-HtmlText $_s.SettingName)</td><td>$(ConvertTo-HtmlMultilineText $_s.SettingValue)</td></tr>"
-                        }
-                        $_detailHtml += "</tbody></table>"
-                    } else {
-                        $_detailHtml += "<span style='color:#666'>No policy settings exported.</span>"
-                    }
-                    $_detailHtml += "</td></tr></tbody></table></details>"
+                    $_mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand policy details'><td>$(ConvertTo-HtmlText $_pol.PolicyName)</td><td>$(ConvertTo-HtmlText $_pol.Platform)</td><td>$(ConvertTo-HtmlText $_pol.AssignedTo)</td><td$_graceColor>$($_pol.GracePeriodHours)</td><td>$(ConvertTo-HtmlText $_pol.LastModifiedDateTime)</td></tr>"
 
-                    $intuneSummary.Add("<tr><td>$_detailHtml</td><td>$(ConvertTo-HtmlText $_pol.Platform)</td><td>$(ConvertTo-HtmlText $_pol.AssignedTo)</td><td style='$_graceColor'>$($_pol.GracePeriodHours)</td><td>$(ConvertTo-HtmlText $_pol.LastModifiedDateTime)</td></tr>")
+                    $_detailInner = [System.Collections.Generic.List[string]]::new()
+                    $_detailInner.Add("<tr><td style='width:160px'>Policy Type</td><td>$(ConvertTo-HtmlText $_pol.PolicyType)</td></tr>")
+                    $_detailInner.Add("<tr><td>Description</td><td>$(ConvertTo-HtmlMultilineText $_pol.Description)</td></tr>")
+                    $_detailInner.Add("<tr><td>Assignments</td><td>$(ConvertTo-HtmlMultilineText $_pol.AssignmentDetails)</td></tr>")
+                    if ($_polSettings.Count -gt 0) {
+                        $_settingsRows = foreach ($_s in $_polSettings) {
+                            "<tr><td>$(ConvertTo-HtmlText $_s.SettingName)</td><td>$(ConvertTo-HtmlMultilineText $_s.SettingValue)</td></tr>"
+                        }
+                        $_detailInner.Add("<tr><td>Settings</td><td><table class='inner-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>$($_settingsRows -join '')</tbody></table></td></tr>")
+                    }
+                    else {
+                        $_detailInner.Add("<tr><td>Settings</td><td><em style='color:#888'>No policy settings exported.</em></td></tr>")
+                    }
+
+                    $_detailRow = "<tr class='signin-detail' style='display:none'><td colspan='5'><table class='inner-table'><thead><tr><th style='width:160px'>Field</th><th>Value</th></tr></thead><tbody>$($_detailInner -join '')</tbody></table></td></tr>"
+                    $_mainRow
+                    $_detailRow
                 }
+                $intuneSummary.Add($($_policyRows -join "`n"))
                 $intuneSummary.Add("</tbody></table>")
             } else {
                 $intuneSummary.Add("<p style='color:#b71c1c'><strong>No compliance policies found.</strong> All devices are considered compliant by default.</p>")
@@ -2236,32 +2276,33 @@ if ($intuneFiles.Count -gt 0) {
 
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Configuration Policies / Profiles ($($_intProfs.Count))</h4>")
             if ($_intProfs.Count -gt 0) {
+                $intuneSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand profile details and settings.</p>")
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Profile</th><th>Platform</th><th>Type</th><th>Source</th><th>Last Modified</th><th>Assigned To</th></tr></thead><tbody>")
-                foreach ($_prof in ($_intProfs | Sort-Object Platform, ProfileName)) {
+                $_profileRows = foreach ($_prof in ($_intProfs | Sort-Object Platform, ProfileName)) {
                     $_profSettings = if ($_prof.ProfileId) {
                         @($_intProfSettings | Where-Object { $_.ProfileId -eq $_prof.ProfileId })
                     } else {
                         @($_intProfSettings | Where-Object { $_.ProfileName -eq $_prof.ProfileName })
                     }
 
-                    $_detailHtml  = "<details style='font-size:0.9rem'><summary style='cursor:pointer;color:#1565c0'>$(ConvertTo-HtmlText $_prof.ProfileName)</summary>"
-                    $_detailHtml += "<table class='inner-table' style='margin-top:0.4rem'><tbody>"
-                    $_detailHtml += "<tr><th>Description</th><td>$(ConvertTo-HtmlMultilineText $_prof.Description)</td></tr>"
-                    $_detailHtml += "<tr><th>Assignments</th><td>$(ConvertTo-HtmlMultilineText $_prof.AssignmentDetails)</td></tr>"
-                    $_detailHtml += "<tr><th>Settings</th><td>"
-                    if ($_profSettings.Count -gt 0) {
-                        $_detailHtml += "<table class='inner-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>"
-                        foreach ($_s in $_profSettings) {
-                            $_detailHtml += "<tr><td>$(ConvertTo-HtmlText $_s.SettingName)</td><td>$(ConvertTo-HtmlMultilineText $_s.SettingValue)</td></tr>"
-                        }
-                        $_detailHtml += "</tbody></table>"
-                    } else {
-                        $_detailHtml += "<span style='color:#666'>No profile settings exported.</span>"
-                    }
-                    $_detailHtml += "</td></tr></tbody></table></details>"
+                    $_mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand profile details'><td>$(ConvertTo-HtmlText $_prof.ProfileName)</td><td>$(ConvertTo-HtmlText $_prof.Platform)</td><td>$(ConvertTo-HtmlText $_prof.ProfileType)</td><td>$(ConvertTo-HtmlText $_prof.Source)</td><td>$(ConvertTo-HtmlText $_prof.LastModifiedDateTime)</td><td>$(ConvertTo-HtmlText $_prof.AssignedTo)</td></tr>"
 
-                    $intuneSummary.Add("<tr><td>$_detailHtml</td><td>$(ConvertTo-HtmlText $_prof.Platform)</td><td>$(ConvertTo-HtmlText $_prof.ProfileType)</td><td>$(ConvertTo-HtmlText $_prof.Source)</td><td>$(ConvertTo-HtmlText $_prof.LastModifiedDateTime)</td><td>$(ConvertTo-HtmlText $_prof.AssignedTo)</td></tr>")
+                    $_detailInner = [System.Collections.Generic.List[string]]::new()
+                    $_detailInner.Add("<tr><td style='width:160px'>Description</td><td>$(ConvertTo-HtmlMultilineText $_prof.Description)</td></tr>")
+                    $_detailInner.Add("<tr><td>Assignments</td><td>$(ConvertTo-HtmlMultilineText $_prof.AssignmentDetails)</td></tr>")
+                    if ($_profSettings.Count -gt 0) {
+                        $_settingsRows = foreach ($_s in $_profSettings) {
+                            "<tr><td>$(ConvertTo-HtmlText $_s.SettingName)</td><td>$(ConvertTo-HtmlMultilineText $_s.SettingValue)</td></tr>"
+                        }
+                        $_detailInner.Add("<tr><td>Settings</td><td><table class='inner-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>$($_settingsRows -join '')</tbody></table></td></tr>")
+                    } else {
+                        $_detailInner.Add("<tr><td>Settings</td><td><em style='color:#888'>No profile settings exported.</em></td></tr>")
+                    }
+                    $_detailRow = "<tr class='signin-detail' style='display:none'><td colspan='6'><table class='inner-table'><thead><tr><th style='width:160px'>Field</th><th>Value</th></tr></thead><tbody>$($_detailInner -join '')</tbody></table></td></tr>"
+                    $_mainRow
+                    $_detailRow
                 }
+                $intuneSummary.Add($($_profileRows -join "`n"))
                 $intuneSummary.Add("</tbody></table>")
             }
         }
@@ -2271,22 +2312,25 @@ if ($intuneFiles.Count -gt 0) {
             $_intApps = @(Import-Csv $intAppCsv)
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Apps ($($_intApps.Count))</h4>")
             if ($_intApps.Count -gt 0) {
+                $intuneSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand app deployment details.</p>")
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>App</th><th>Type</th><th>Assigned To</th><th>Installed</th><th>Failed</th><th>Pending</th></tr></thead><tbody>")
-                foreach ($_app in ($_intApps | Sort-Object AppName)) {
+                $_appRows = foreach ($_app in ($_intApps | Sort-Object AppName)) {
                     $_failedCount = 0
                     [int]::TryParse($_app.FailedDeviceCount, [ref]$_failedCount) | Out-Null
-                    $_failColor = if ($_failedCount -gt 0) { "color:#c62828;font-weight:bold" } else { "" }
+                    $_failColor = if ($_failedCount -gt 0) { " style='color:#c62828;font-weight:bold'" } else { '' }
 
-                    $_detailHtml  = "<details style='font-size:0.9rem'><summary style='cursor:pointer;color:#1565c0'>$(ConvertTo-HtmlText $_app.AppName)</summary>"
-                    $_detailHtml += "<table class='inner-table' style='margin-top:0.4rem'><tbody>"
-                    $_detailHtml += "<tr><th>Publisher</th><td>$(ConvertTo-HtmlText $_app.Publisher)</td></tr>"
-                    $_detailHtml += "<tr><th>Description</th><td>$(ConvertTo-HtmlMultilineText $_app.Description)</td></tr>"
-                    $_detailHtml += "<tr><th>Assignments</th><td>$(ConvertTo-HtmlMultilineText $_app.AssignmentDetails)</td></tr>"
-                    $_detailHtml += "<tr><th>Installation Summary</th><td><table class='inner-table'><thead><tr><th>Installed</th><th>Failed</th><th>Pending</th></tr></thead><tbody><tr><td>$(ConvertTo-HtmlText $_app.InstalledDeviceCount)</td><td>$(ConvertTo-HtmlText $_app.FailedDeviceCount)</td><td>$(ConvertTo-HtmlText $_app.PendingInstallCount)</td></tr></tbody></table></td></tr>"
-                    $_detailHtml += "</tbody></table></details>"
-
-                    $intuneSummary.Add("<tr><td>$_detailHtml</td><td>$(ConvertTo-HtmlText $_app.AppType)</td><td>$(ConvertTo-HtmlText $_app.AssignedTo)</td><td>$(ConvertTo-HtmlText $_app.InstalledDeviceCount)</td><td style='$_failColor'>$(ConvertTo-HtmlText $_app.FailedDeviceCount)</td><td>$(ConvertTo-HtmlText $_app.PendingInstallCount)</td></tr>")
+                    $_mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand app details'><td>$(ConvertTo-HtmlText $_app.AppName)</td><td>$(ConvertTo-HtmlText $_app.AppType)</td><td>$(ConvertTo-HtmlText $_app.AssignedTo)</td><td>$(ConvertTo-HtmlText $_app.InstalledDeviceCount)</td><td$_failColor>$(ConvertTo-HtmlText $_app.FailedDeviceCount)</td><td>$(ConvertTo-HtmlText $_app.PendingInstallCount)</td></tr>"
+                    $_detailInner = @(
+                        "<tr><td style='width:160px'>Publisher</td><td>$(ConvertTo-HtmlText $_app.Publisher)</td></tr>",
+                        "<tr><td>Description</td><td>$(ConvertTo-HtmlMultilineText $_app.Description)</td></tr>",
+                        "<tr><td>Assignments</td><td>$(ConvertTo-HtmlMultilineText $_app.AssignmentDetails)</td></tr>",
+                        "<tr><td>Installation Summary</td><td><table class='inner-table'><thead><tr><th>Installed</th><th>Failed</th><th>Pending</th></tr></thead><tbody><tr><td>$(ConvertTo-HtmlText $_app.InstalledDeviceCount)</td><td>$(ConvertTo-HtmlText $_app.FailedDeviceCount)</td><td>$(ConvertTo-HtmlText $_app.PendingInstallCount)</td></tr></tbody></table></td></tr>"
+                    )
+                    $_detailRow = "<tr class='signin-detail' style='display:none'><td colspan='6'><table class='inner-table'><thead><tr><th style='width:160px'>Field</th><th>Value</th></tr></thead><tbody>$($_detailInner -join '')</tbody></table></td></tr>"
+                    $_mainRow
+                    $_detailRow
                 }
+                $intuneSummary.Add($($_appRows -join "`n"))
                 $intuneSummary.Add("</tbody></table>")
             }
         }
@@ -2316,7 +2360,7 @@ if ($intuneFiles.Count -gt 0) {
         }
     }
 
-    $html.Add((Add-Section -Title "Intune / Endpoint Management" -CsvFiles $intuneFiles.FullName -SummaryHtml ($intuneSummary -join "`n")))
+    $html.Add((Add-Section -Title "Intune / Endpoint Management" -CsvFiles $intuneFiles.FullName -SummaryHtml ($intuneSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-IntuneAudit.ps1')))
 }
 
 
