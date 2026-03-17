@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.18.0
+    Version     : 1.19.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -20,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.18.0"
+$ScriptVersion = "1.19.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -503,15 +503,18 @@ function Initialize-AuditOutput {
     $cleanDisplayName = $orgExpanded.DisplayName -replace '[^a-zA-Z0-9]', ''
     $folderName       = "${cleanDisplayName}_$(Get-Date -Format 'yyyyMMdd')"
     $outputDir        = Join-Path $PSScriptRoot "..\..\$folderName"
+    $rawOutputDir     = Join-Path $outputDir "Raw Files"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $rawOutputDir -Force | Out-Null
 
     $orgExpanded | ConvertTo-Json -Depth 10 |
         Set-Content -Path (Join-Path $outputDir "OrgInfo.json") -Encoding UTF8
 
     $script:AuditOutputContext = @{
-        OrgName    = $orgExpanded.DisplayName
-        FolderName = $folderName
-        OutputPath = $outputDir
+        OrgName       = $orgExpanded.DisplayName
+        FolderName    = $folderName
+        OutputPath    = $outputDir
+        RawOutputPath = $rawOutputDir
     }
 
     return $script:AuditOutputContext

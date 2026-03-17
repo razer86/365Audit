@@ -347,7 +347,7 @@ Flat data is exported as CSV for the HTML summary. Nested policy objects are exp
 
 ### Generate-AuditSummary.ps1
 
-Reads CSV files from the current audit run and compiles them into a single HTML report (`M365_AuditSummary.html`), which opens automatically in the default browser.
+Reads CSV files from the current audit run's `Raw Files` folder and compiles them into a single HTML report (`M365_AuditSummary.html`), which opens automatically in the default browser.
 
 **Action Items**
 
@@ -377,17 +377,19 @@ The top of the report shows a prioritised list of findings requiring attention:
 
 ## Output Structure
 
-All module output lands in a folder created at the start of each session, one level above the repository root (to avoid git tracking audit data):
+Each audit run creates a customer folder one level above the repository root (to avoid git tracking audit data). `OrgInfo.json` and `M365_AuditSummary.html` stay at the root of that folder, while all generated CSVs, JSON files, and the session transcript are stored under `Raw Files`:
 
 ```
 365Audit/            ← repository
 <parent folder>/
 └── <CompanyName>_<yyyyMMdd>/
     ├── OrgInfo.json
-    ├── Entra_Users.csv
-    ├── Entra_SecureScore.csv
-    ├── ... (all module CSVs and JSON files)
     └── M365_AuditSummary.html
+    └── Raw Files/
+        ├── AuditLog.txt
+        ├── Entra_Users.csv
+        ├── Entra_SecureScore.csv
+        ├── ... (all module CSVs and JSON files)
 ```
 
 The folder name is derived from the Entra organisation display name (alphanumeric only) and the current date. Running the toolkit multiple times on the same day reuses the same folder.

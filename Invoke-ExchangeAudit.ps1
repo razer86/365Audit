@@ -21,7 +21,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.11.0
+    Version     : 1.12.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -39,7 +39,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.11.0"
+$ScriptVersion = "1.12.0"
 Write-Verbose "Invoke-ExchangeAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -47,7 +47,7 @@ Write-Verbose "Invoke-ExchangeAudit.ps1 loaded (v$ScriptVersion)"
 # === Retrieve shared output folder ===
 try {
     $context   = Initialize-AuditOutput
-    $outputDir = Join-Path $context.OutputPath "Exchange"
+    $outputDir = $context.RawOutputPath
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 catch {

@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.9.2
+    Version     : 2.9.3
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -118,7 +118,7 @@ param (
     [int[]]$Modules
 )
 
-$ScriptVersion = "2.9.2"
+$ScriptVersion = "2.9.3"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -461,7 +461,7 @@ finally {
         try { Stop-Transcript | Out-Null } catch {}
         $logCtx = try { Initialize-AuditOutput } catch { $null }
         if ($logCtx -and $_transcriptPath -and (Test-Path $_transcriptPath -ErrorAction SilentlyContinue)) {
-            $logDir  = Join-Path $logCtx.OutputPath 'Logs'
+            $logDir  = $logCtx.RawOutputPath
             New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue | Out-Null
             $logDest = Join-Path $logDir 'AuditLog.txt'
             Move-Item -Path $_transcriptPath -Destination $logDest -Force -ErrorAction SilentlyContinue

@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.9.3 | Audit transcript now saved to `Raw Files\AuditLog.txt`; works with the shared `Raw Files` output layout instead of the `Logs\` subfolder |
 | 2.9.2 | Audit transcript now saved to `Logs\AuditLog.txt` inside the customer output folder instead of the root; `Logs\` subfolder is created in the `finally` block before the move |
 | 2.9.1 | Added option 5 "Intune / Endpoint Audit" (`Invoke-IntuneAudit.ps1`); option 9 "Run All" updated to include all five modules (1–5); `ValidateSet` on `-Modules` extended to include 5 |
 | 2.9.0 | Console output is now saved to `AuditLog.txt` in the customer audit output folder; transcript is started early (before any output) and moved to the output folder in the `finally` block; skipped automatically when called from `Start-UnattendedAudit.ps1` (detected via `AUDIT_PARENT_TRANSCRIPT` env var) |
@@ -75,6 +76,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.13.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Entra\` subfolder |
 | 1.12.0 | Output CSVs written to `Entra\` subfolder inside the customer output directory instead of the root |
 | 1.11.0 | Added GDAP/partner relationship collection (`Entra_PartnerRelationships.csv`) — active delegated admin relationships fetched via `Invoke-MgGraphRequest` to `/tenantRelationships/delegatedAdminRelationships`; gracefully skips with a clear warning if `DelegatedAdminRelationship.Read.All` is not yet granted; added third-party enterprise app consent collection (`Entra_EnterpriseApps.csv`) — all non-Microsoft service principals tagged as enterprise apps with admin-consented API permissions; `$totalSteps` updated from 12 to 14 |
 | 1.10.3 | Guard against null `controlName` in both the profile title lookup and the `controlScores` loop — prevents "array index evaluated to null" error on tenants where the API returns controls with missing names |
@@ -100,6 +102,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.12.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Exchange\` subfolder |
 | 1.11.0 | Output CSVs written to `Exchange\` subfolder inside the customer output directory instead of the root |
 | 1.10.0 | Added mail connector collection (`Exchange_MailConnectors.csv`) — inbound and outbound connectors with direction, name, enabled status, type, source, sender domains, and TLS certificate name; `$totalSteps` updated from 15 to 16 |
 | 1.9.2 | Use `ExchangeGuid` instead of `PrimarySmtpAddress` for `Get-MailboxStatistics` identity (unambiguous for linked/duplicate mailboxes); suppress `Get-InboxRule` warnings for broken rules via `-WarningVariable` capture; broken rules exported to `Exchange_BrokenInboxRules.csv` with mailbox, rule name, and status |
@@ -123,6 +126,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.10.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `SharePoint\` subfolder |
 | 2.9.0 | Output CSVs written to `SharePoint\` subfolder inside the customer output directory instead of the root |
 | 2.8.0 | Switched to certificate-based app-only auth: reads `$AuditAppId`/`$AuditCertFilePath`/`$AuditCertPassword` from launcher scope; uses `Connect-PnPOnline -CertificatePath/-CertificatePassword` (portable .pfx, no cert store required); removes interactive auth, PnP app ID pre-flight, and `Get-PnPAccessToken`; falls back to interactive when cert vars absent |
 | 2.7.0 | Replaced `-ReturnConnection` MSAL caching strategy with explicit `-AccessToken` pass-through: authenticate interactively once to the admin URL, capture the SPO access token via `Get-PnPAccessToken`, then connect to each site with `-AccessToken` (no browser prompt per site); also removed `Disconnect-PnPOnline -Connection` which is not a valid parameter in PnP.PowerShell v3 |
@@ -152,6 +156,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.8.0 | Output CSVs and JSON files now written to the shared `Raw Files\` folder inside the customer output directory instead of the `MailSecurity\` subfolder |
 | 1.7.0 | Output CSVs and JSON files written to `MailSecurity\` subfolder inside the customer output directory instead of the root |
 | 1.6.1 | Linux/macOS: added `Resolve-TxtRecord` helper that uses `dig` when `Resolve-DnsName` is unavailable; DMARC uses `-join ''` to correctly reassemble fragmented TXT records per RFC 7489; SPF fallback label changed from "DNS query failed" to "Not Found" for consistency |
 | 1.6.0 | Added Step X/Y counter to `Write-Progress` status strings |
@@ -169,6 +174,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.5.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Intune\` subfolder |
+| 1.4.0 | Added Intune export enrichment for summary drilldowns: device table source remains `Intune_Devices.csv`; compliance policy exports now include IDs, descriptions, types, assignment details, and normalized setting values; configuration collection now includes modern `deviceManagement/configurationPolicies` via Graph beta with settings and assignment detail; app exports now include IDs, descriptions, timestamps, and assignment details |
 | 1.2.0 | Output CSVs written to `Intune\` subfolder inside the customer output directory instead of the root |
 | 1.1.0 | Added configuration profile settings collection — iterates `AdditionalProperties` on each `Get-MgDeviceManagementDeviceConfiguration` object (same approach as compliance policy settings) and exports `Intune_ConfigProfileSettings.csv` (one row per setting per profile: `ProfileName`, `Platform`, `ProfileType`, `SettingName`, `SettingValue`); metadata keys skipped via `$_odataSkipKeys` |
 | 1.0.0 | Initial release — licence check against known Intune-capable SKUs (skips gracefully if unlicensed); managed device inventory with OS/ownership/compliance/last sync; per-device compliance policy states; compliance policies with platform, assignment scope, grace period (hours), and full `AdditionalProperties` key-value settings; configuration profiles with platform, type, last modified, and assignments; assigned app install summary (installed/failed/pending counts); Windows Autopilot device identities (skips gracefully on 403); enrollment restrictions |
@@ -179,6 +186,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.28.0 | All CSV discovery now reads from the shared `Raw Files\` folder while report sections continue grouping by filename prefix; raw-file links in the HTML report now point to `Raw Files\<filename>` |
+| 1.27.0 | Intune section enhanced: full managed-device inventory table; clickable compliance policy drilldowns with per-setting detail; clickable app drilldowns with installation summary; configuration profile/policy section now supports the richer Intune exports including modern configuration policies |
 | 1.26.0 | All CSV path lookups updated to use per-module subfolders (`Entra\`, `Exchange\`, `SharePoint\`, `MailSecurity\`, `Intune\`); subfolder path variables defined near top of script |
 | 1.25.0 | Config profiles table now includes an expandable inline settings panel (reads `Intune_ConfigProfileSettings.csv`; click "N setting(s)" to expand a per-setting name/value table beneath each profile row) |
 | 1.24.0 | Added Intune / Endpoint Management HTML section and action item checks: no compliance policies (critical), non-compliant devices (critical), stale devices >30 days (warning), encryption not required by policy (warning), grace period >24 hours (warning), personal enrolment not blocked (warning), apps with install failures (warning); gracefully renders an info note when no Intune-capable licence is detected |
@@ -226,6 +235,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.19.0 | `Initialize-AuditOutput` now creates and returns a shared `Raw Files\` subfolder (`RawOutputPath`) under each customer run folder so all modules and the launcher transcript can write to a single raw-output location |
 | 1.16.0 | Removed `Microsoft.Graph.DeviceManagement.Enrolment` from the sub-module list — that name (British spelling) is a v1.x-only module; its presence caused PowerShellGet to pull `Microsoft.Graph.Authentication` v1.28.0 as a dependency, which conflicts with the v2.x installation; all required Intune cmdlets are available via `Microsoft.Graph.DeviceManagement` and `Microsoft.Graph.Devices.CorporateManagement` in v2.x; added `-SkipPublisherCheck` to `Install-Module` to prevent catalog signing false-positives on Microsoft's own modules |
 | 1.15.0 | Added `Microsoft.Graph.DeviceManagement`, `Microsoft.Graph.DeviceManagement.Enrolment`, and `Microsoft.Graph.Devices.CorporateManagement` to the `$_graphSubModules` install bootstrap — required by `Invoke-IntuneAudit.ps1` |
 | 1.14.0 | Added "Connected to Exchange Online." confirmation after both app-only and interactive connect paths; `Connect-ExchangeOnlineSecure` no longer silently skips reconnection for changed tenants — session pre-disconnect is handled by the launcher |
