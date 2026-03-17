@@ -8,5 +8,5 @@
     "Invoke-SharePointAudit.ps1": "2.10.0",
     "Invoke-MailSecurityAudit.ps1": "1.8.0",
     "Invoke-IntuneAudit.ps1": "1.6.0",
-    "Generate-AuditSummary.ps1": "1.28.0"
+    "Generate-AuditSummary.ps1": "1.29.0"
 }

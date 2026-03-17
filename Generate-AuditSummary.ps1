@@ -51,7 +51,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.28.0
+    Version     : 1.29.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -65,14 +65,15 @@ param (
     [string]$AuditFolder,
     [switch]$DevMode = $false,
     [switch]$NoOpen,
-    [int]$CertExpiryDays = -1
+    [int]$CertExpiryDays = -1,
+    [string]$OutputPath
 )
 
 if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.28.0"
+$ScriptVersion = "1.29.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -107,10 +108,10 @@ function Add-Section {
         $fileItems = ""
         foreach ($file in $CsvFiles) {
             $name      = [System.IO.Path]::GetFileName($file)
-            $href      = ([System.IO.Path]::GetRelativePath($AuditFolder, $file) -replace '\\', '/')
+            $href      = ([System.IO.Path]::GetRelativePath($script:ReportBaseDir, $file) -replace '\\', '/')
             $fileItems += "<li><a href='$href' target='_blank'>$name</a></li>"
         }
-        $csvLinks = "<details style='margin-top:1rem'><summary style='cursor:pointer;color:#555;font-size:0.85rem;list-style:disclosure-closed'>Raw CSV Files ($($CsvFiles.Count))</summary><ul style='margin:0.4rem 0 0 1rem;font-size:0.85rem'>$fileItems</ul></details>"
+        $csvLinks = "<details class='raw-files'><summary>Raw CSV Files ($($CsvFiles.Count))</summary><ul class='raw-files-list'>$fileItems</ul></details>"
     }
 
     $encodedTitle   = [System.Net.WebUtility]::HtmlEncode($Title)
@@ -119,7 +120,7 @@ function Add-Section {
 
     return @"
 <details class='section'>
-  <summary><span class='section-summary'><span class='section-title'>$encodedTitle</span>$versionMarkup</span></summary>
+  <summary class='section-toggle'><span class='section-summary'><span class='section-title'>$encodedTitle</span>$versionMarkup</span></summary>
   <div class='content'>
     $SummaryHtml
     $csvLinks
@@ -187,10 +188,35 @@ function ConvertTo-HtmlMultilineText {
     return (($encoded -replace "(`r`n|`n|`r)", '<br>'))
 }
 
+function Get-ExpandHintHtml {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Text
+    )
+
+    return "<p class='expand-hint'>{0}</p>" -f ([System.Net.WebUtility]::HtmlEncode($Text))
+}
+
 # =========================================
 # ===   HTML Page Header                ===
 # =========================================
-$reportPath = Join-Path $AuditFolder "M365_AuditSummary.html"
+if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+    $reportPath = Join-Path $AuditFolder "M365_AuditSummary.html"
+}
+else {
+    $reportPath = $OutputPath
+}
+
+$script:ReportBaseDir = Split-Path -Parent $reportPath
+if ([string]::IsNullOrWhiteSpace($script:ReportBaseDir)) {
+    $script:ReportBaseDir = (Get-Location).Path
+}
+
+if (-not (Test-Path $script:ReportBaseDir)) {
+    New-Item -ItemType Directory -Path $script:ReportBaseDir -Force | Out-Null
+}
+
 $reportDate = Get-Date -Format "dd MMMM yyyy HH:mm"
 
 $html = [System.Collections.Generic.List[string]]::new()
@@ -201,15 +227,27 @@ $html.Add(@"
 <meta charset='UTF-8'>
 <title>Microsoft 365 Audit Summary</title>
 <style>
-  body        { font-family: Segoe UI, sans-serif; background: #f7f7f7; color: #333; margin: 2rem; }
+  body        { font-family: Segoe UI, sans-serif; margin: 2rem; transition: background 0.2s ease; background: #f4f6f9; color: #233244; }
   h1          { text-align: center; }
-  .subtitle   { text-align: center; color: #666; margin-top: -0.5rem; margin-bottom: 2rem; }
-  .section    { margin-bottom: 1.5rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-  .section > summary { font-size: 1.1rem; font-weight: bold; padding: 1rem; cursor: pointer; background: #eaeaea; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; }
-  .section-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; }
+  .subtitle   { text-align: center; color: #5b6675; margin-top: -0.5rem; margin-bottom: 2rem; }
+  .section    { margin-bottom: 1.5rem; overflow: hidden; transition: transform 0.16s ease, box-shadow 0.16s ease; border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff; box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06); }
+  .section:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09); }
+  .section-toggle { font-size: 1.08rem; font-weight: bold; cursor: pointer; list-style: none; position: relative; background: linear-gradient(180deg, #eef2f6 0%, #e4eaf1 100%); color: #223247; }
+  .section-toggle::-webkit-details-marker { display: none; }
+  .section-toggle::after { content: '▸'; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); font-size: 1rem; transition: transform 0.16s ease; pointer-events: none; color: #44566c; }
+  .section[open] > .section-toggle::after { transform: translateY(-50%) rotate(90deg); }
+  .section[open] > .section-toggle { background: linear-gradient(180deg, #dfe8f2 0%, #d4e0ec 100%); }
+  .section-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; box-sizing: border-box; padding: 1rem 3.8rem 1rem 1.1rem; }
   .section-title { flex: 1 1 auto; }
-  .section-version { flex: 0 0 auto; font-size: 0.85rem; font-weight: 600; color: #666; white-space: nowrap; }
+  .section-version { flex: 0 0 auto; font-size: 0.82rem; font-weight: 600; white-space: nowrap; border-radius: 999px; padding: 0.2rem 0.55rem; margin-right: 0.2rem; background: #ffffff; border: 1px solid #b6c4d4; color: #44566c; }
   .content    { padding: 1rem; overflow-x: auto; }
+  .raw-files  { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed #d6dee8; }
+  .raw-files > summary { cursor: pointer; list-style: none; position: relative; font-size: 0.85rem; font-weight: 600; padding: 0.65rem 2rem 0.65rem 0.85rem; border-radius: 10px; background: #f7f9fb; color: #516375; }
+  .raw-files > summary::-webkit-details-marker { display: none; }
+  .raw-files > summary::after { content: '▸'; position: absolute; right: 0.85rem; top: 50%; transform: translateY(-50%); font-size: 0.85rem; transition: transform 0.16s ease; }
+  .raw-files[open] > summary::after { transform: translateY(-50%) rotate(90deg); }
+  .raw-files-list { margin: 0.5rem 0 0 1rem; padding-left: 0.6rem; font-size: 0.86rem; }
+  .raw-files-list li { margin: 0.2rem 0; }
   table       { border-collapse: collapse; width: 100%; }
   th, td      { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 0.9rem; }
   th          { background: #f0f0f0; }
@@ -218,14 +256,24 @@ $html.Add(@"
   .warn       { color: darkorange; font-weight: bold; }
   .critical   { color: red;        font-weight: bold; }
   .mfa-miss          { background-color: #ffcccc; }
+  .expand-hint       { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0 0 0.65rem; padding: 0.45rem 0.8rem; font-size: 0.84rem; font-weight: 600; color: #4d6278; background: #f5f8fb; border: 1px solid #d8e2ec; border-radius: 999px; }
+  .expand-hint::before { content: '▸'; font-size: 0.74rem; color: #6b7f95; }
   .user-row          { cursor: pointer; }
-  .user-row:hover    { background-color: #e8f4fd !important; }
-  .user-row.expanded { background-color: #cce4f7 !important; }
-  .signin-detail     { background: #f0f7ff !important; }
-  .signin-detail > td { padding: 0.5rem 1rem; }
-  .inner-table       { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 0; }
-  .inner-table th    { background: #d0e8f8; }
-  .inner-table td, .inner-table th { border: 1px solid #c0d8ec; padding: 4px 8px; }
+  .user-row td       { position: relative; transition: background-color 0.16s ease, border-color 0.16s ease; }
+  .user-row > td:first-child { padding-left: 1.9rem; }
+  .user-row > td:first-child::before { content: '▸'; position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); font-size: 0.78rem; color: #6a7d91; transition: transform 0.16s ease, color 0.16s ease; }
+  .user-row:hover td { background-color: #eaf3fb !important; }
+  .user-row.expanded td { background-color: #dbe9f6 !important; border-color: #c6d7e7; }
+  .user-row.expanded > td:first-child::before { transform: translateY(-50%) rotate(90deg); color: #2f4b67; }
+  .signin-detail     { background: transparent !important; }
+  .signin-detail > td { padding: 0.75rem 1rem !important; background: linear-gradient(180deg, #f8fbff 0%, #f1f6fb 100%) !important; border-top: none; border-bottom: 1px solid #d5dfeb; }
+  .inner-table       { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; margin: 0; border: 1px solid #cbd8e5; border-radius: 8px; overflow: hidden; background: #ffffff; }
+  .inner-table th    { background: #ddeaf6; color: #24384d; }
+  .inner-table td, .inner-table th { border-right: 1px solid #cbd8e5; border-bottom: 1px solid #cbd8e5; padding: 5px 8px; }
+  .inner-table th:last-child, .inner-table td:last-child { border-right: none; }
+  .inner-table tbody tr:last-child td { border-bottom: none; }
+  .inner-table tr:nth-child(even) td { background: #fbfdff; }
+  .detail-empty     { color: #6b7280; font-style: italic; }
   .signin-ok         { color: green;  font-weight: bold; }
   .signin-fail       { color: red;    font-weight: bold; }
   .size-warn         { background-color: #fff3cd; }
@@ -235,15 +283,26 @@ $html.Add(@"
   .company-info table { width: auto; min-width: 500px; }
   .company-info th   { background: transparent; font-weight: 600; padding: 4px 1.5rem 4px 0; width: 160px; border: none; border-bottom: 1px solid #eee; vertical-align: top; }
   .company-info td   { border: none; border-bottom: 1px solid #eee; padding: 4px 0; }
+  .company-info-lines { display: flex; flex-direction: column; gap: 0.35rem; min-width: 430px; }
+  .company-info-line  { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 2rem; }
+  .company-info-meta  { color: #666; font-size: 0.85rem; text-align: right; white-space: nowrap; }
+  .company-info-severity.critical { color: #c00; font-weight: 600; }
+  .company-info-severity.warning  { color: #805500; font-weight: 600; }
   .action-items      { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
   .action-items h2   { margin: 0 0 0.75rem; font-size: 1.1rem; color: #333; }
-  .action-item       { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.45rem 0; border-bottom: 1px solid #f0f0f0; }
-  .action-item:last-child { border-bottom: none; }
-  .action-badge      { display: inline-block; font-size: 0.7rem; font-weight: bold; padding: 2px 7px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+  .action-group      { margin-top: 1rem; }
+  .action-group:first-of-type { margin-top: 0.35rem; }
+  .action-group-title { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; }
+  .action-group-title.critical { color: #b42318; }
+  .action-group-title.warning  { color: #8a5a00; }
+  .action-item       { display: grid; grid-template-columns: 92px 170px minmax(0, 1fr); column-gap: 0.8rem; align-items: start; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; }
+  .action-group .action-item:last-child { border-bottom: none; }
+  .action-badge      { display: inline-flex; align-items: center; justify-content: center; width: 82px; font-size: 0.7rem; font-weight: bold; padding: 2px 7px; border-radius: 3px; white-space: nowrap; margin-top: 2px; box-sizing: border-box; }
   .action-badge.critical { background: #ffcccc; color: #c00; border: 1px solid #f5a0a0; }
   .action-badge.warning  { background: #fff3cd; color: #805500; border: 1px solid #ffe082; }
-  .action-cat        { font-weight: 600; white-space: nowrap; flex-shrink: 0; min-width: 110px; color: #555; font-size: 0.85rem; margin-top: 2px; }
-  .action-text       { font-size: 0.9rem; color: #333; }
+  .action-cat        { font-weight: 600; color: #555; font-size: 0.85rem; margin-top: 2px; min-width: 0; }
+  .action-text       { font-size: 0.9rem; color: #333; min-width: 0; }
+  .action-doc        { font-size: 0.8rem; color: #1565c0; white-space: nowrap; text-decoration: none; margin-left: 0.4rem; }
   .action-none       { color: #4caf50; font-weight: bold; font-size: 0.9rem; }
 </style>
 </head>
@@ -256,6 +315,9 @@ $html.Add(@"
 # =========================================
 # ===   Company Summary                 ===
 # =========================================
+$script:TechnicalContactSeverity = $null
+$_ncDomains = @('ntit.com.au','nqbe.com.au','capconnect.com.au','widebayit.com.au','neconnect.com.au')
+
 $orgInfoPath = Join-Path $AuditFolder "OrgInfo.json"
 if (Test-Path $orgInfoPath) {
     $orgInfo = Get-Content $orgInfoPath -Raw | ConvertFrom-Json
@@ -267,6 +329,19 @@ if (Test-Path $orgInfoPath) {
     # Phone and technical contact
     $phone       = if ($orgInfo.Raw.BusinessPhones) { ($orgInfo.Raw.BusinessPhones -join ", ") } else { $null }
     $techContact = if ($orgInfo.TechnicalNotificationMails.Count -gt 0) { $orgInfo.TechnicalNotificationMails -join ", " } else { "—" }
+    $_foreignContacts = @($orgInfo.TechnicalNotificationMails | Where-Object {
+        $domain = ($_ -split '@')[-1].ToLower()
+        $domain -notin $_ncDomains
+    })
+    if ($_foreignContacts.Count -gt 0) {
+        $script:TechnicalContactSeverity = 'critical'
+    }
+    $techContactHtml = if ($script:TechnicalContactSeverity) {
+        "<span class='company-info-severity $($script:TechnicalContactSeverity)'>$(ConvertTo-HtmlText $techContact)</span>"
+    }
+    else {
+        ConvertTo-HtmlText $techContact
+    }
 
     # Azure AD Sync status (also satisfies the "Azure AD Sync Health" checklist item)
     $syncEnabled = $orgInfo.Raw.OnPremisesSyncEnabled
@@ -287,10 +362,11 @@ if (Test-Path $orgInfoPath) {
     $domains    = @($orgInfo.VerifiedDomains | Where-Object { $_.Name -notlike "*.mail.onmicrosoft.com" })
     $domainRows = foreach ($d in $domains) {
         $dtype = if ($d.IsInitial) { "*.onmicrosoft.com" } elseif ($d.IsDefault) { "Default" } else { "Custom" }
-        $mark  = if ($d.IsDefault) { " <b>(default)</b>" } else { "" }
-        "<tr><td>$($d.Name)$mark</td><td style='color:#666;font-size:0.85rem'>$dtype</td></tr>"
+        $mark = if ($d.IsDefault) { " <b>(default)</b>" } else { "" }
+        $typeHtml = if ($dtype) { "<span class='company-info-meta'>$([System.Net.WebUtility]::HtmlEncode($dtype))</span>" } else { "" }
+        "<div class='company-info-line'><span>$(ConvertTo-HtmlText $d.Name)$mark</span>$typeHtml</div>"
     }
-    $domainsHtml = "<table class='inner-table' style='margin-top:2px'><tbody>$($domainRows -join '')</tbody></table>"
+    $domainsHtml = if ($domainRows.Count -gt 0) { "<div class='company-info-lines'>$($domainRows -join '')</div>" } else { '&mdash;' }
 
     $addrRow  = if ($address)  { "<tr><th>Address</th><td>$address</td></tr>" } else { "" }
     $phoneRow = if ($phone)    { "<tr><th>Phone</th><td>$phone</td></tr>" }    else { "" }
@@ -302,7 +378,7 @@ if (Test-Path $orgInfoPath) {
     <tr><th>Tenant ID</th><td><code>$($orgInfo.Id)</code></td></tr>
     $addrRow
     $phoneRow
-    <tr><th>Technical Contact</th><td>$techContact</td></tr>
+    <tr><th>Technical Contact</th><td>$techContactHtml</td></tr>
     $syncRows
     <tr><th>Domains</th><td>$domainsHtml</td></tr>
   </table>
@@ -315,12 +391,37 @@ if (Test-Path $orgInfoPath) {
 # ===   Action Items                    ===
 # =========================================
 $actionItems = [System.Collections.Generic.List[hashtable]]::new()
+$script:ActionItemSequence = 0
 
 # Helper: add an action item
 # Severity: 'critical' | 'warning'
 function Add-ActionItem {
     param([string]$Severity, [string]$Category, [string]$Text, [string]$DocUrl = "")
-    $script:actionItems.Add(@{ Severity = $Severity; Category = $Category; Text = $Text; DocUrl = $DocUrl })
+    $script:ActionItemSequence++
+    $script:actionItems.Add(@{
+        Severity = $Severity
+        Category = $Category
+        Text     = $Text
+        DocUrl   = $DocUrl
+        Sequence = $script:ActionItemSequence
+    })
+}
+
+function Get-ActionItemModuleSortOrder {
+    [CmdletBinding()]
+    param(
+        [string]$Category
+    )
+
+    $moduleName = (($Category -split '/', 2)[0]).Trim()
+    switch ($moduleName) {
+        'Entra'         { return 10 }
+        'Exchange'      { return 20 }
+        'SharePoint'    { return 30 }
+        'Mail Security' { return 40 }
+        'Intune'        { return 50 }
+        default         { return 90 }
+    }
 }
 
 # --- Audit certificate expiry ---
@@ -331,7 +432,6 @@ if ($CertExpiryDays -ge 0 -and $CertExpiryDays -le 30) {
 # --- Technical Contact domain check ---
 # Flags any technical notification email that is not from a NeConnect group domain.
 # A non-NeConnect address likely belongs to a previous MSP and should be removed.
-$_ncDomains = @('ntit.com.au','nqbe.com.au','capconnect.com.au','widebayit.com.au','neconnect.com.au')
 if ($orgInfo -and $orgInfo.TechnicalNotificationMails.Count -gt 0) {
     $_foreignContacts = @($orgInfo.TechnicalNotificationMails | Where-Object {
         $domain = ($_ -split '@')[-1].ToLower()
@@ -808,16 +908,35 @@ if (Test-Path $_aiIntuneLicCsv) {
 
 # --- Render Action Items block ---
 if ($actionItems.Count -gt 0) {
-    $aiRows = foreach ($ai in $actionItems) {
-        $badgeClass = $ai.Severity
-        $badgeLabel = if ($ai.Severity -eq 'critical') { 'CRITICAL' } else { 'WARNING' }
-        $docLink    = if ($ai.DocUrl) { " <a href='$($ai.DocUrl)' target='_blank' style='font-size:0.8rem;color:#1565c0;white-space:nowrap;text-decoration:none' title='Microsoft documentation'>&#128279; Docs</a>" } else { "" }
-        "<div class='action-item'><span class='action-badge $badgeClass'>$badgeLabel</span><span class='action-cat'>$($ai.Category)</span><span class='action-text'>$($ai.Text)$docLink</span></div>"
+    $actionGroups = foreach ($severity in @('critical', 'warning')) {
+        $groupItems = @(
+            $actionItems |
+                Where-Object { $_.Severity -eq $severity } |
+                Sort-Object `
+                    @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, `
+                    @{ Expression = { $_.Sequence } }
+        )
+
+        if ($groupItems.Count -eq 0) {
+            continue
+        }
+
+        $groupRows = foreach ($ai in $groupItems) {
+            $badgeClass = $ai.Severity
+            $badgeLabel = if ($ai.Severity -eq 'critical') { 'CRITICAL' } else { 'WARNING' }
+            $docLink    = if ($ai.DocUrl) { " <a class='action-doc' href='$($ai.DocUrl)' target='_blank' title='Microsoft documentation'>&#128279; Docs</a>" } else { "" }
+            "<div class='action-item'><span class='action-badge $badgeClass'>$badgeLabel</span><span class='action-cat'>$($ai.Category)</span><span class='action-text'>$($ai.Text)$docLink</span></div>"
+        }
+
+        $groupTitle = if ($severity -eq 'critical') { 'CRITICAL' } else { 'WARNING' }
+        $groupRowsHtml = $groupRows -join "`n"
+        "<div class='action-group'><h3 class='action-group-title $severity'>$groupTitle ($($groupItems.Count))</h3>$groupRowsHtml</div>"
     }
+
     $html.Add(@"
 <div class='action-items'>
   <h2>&#9888; Action Items ($($actionItems.Count))</h2>
-  $($aiRows -join "`n  ")
+  $($actionGroups -join "`n  ")
 </div>
 "@)
 }
@@ -990,7 +1109,7 @@ $implHtml
         }
 
         $entraSummary.Add(@"
-<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand recent sign-in history</p>
+$(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
 <table>
   <thead><tr>
     <th>UPN</th><th>First</th><th>Last</th><th>Account Status</th><th>License</th>
@@ -1084,7 +1203,7 @@ $implHtml
 
             $entraSummary.Add("<p class='$caClass'>$($caPolicies.Count) Conditional Access policies: <b>$caEnabled enabled</b>, $caReport report-only, $caDisabled disabled</p>")
 
-            $entraSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand policy scope and conditions.</p>")
+            $entraSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand policy scope and conditions.'))
             $caRows = foreach ($policy in ($caPolicies | Sort-Object Name)) {
                 $stateClass = switch ($policy.State) {
                     "enabled"                           { "ok" }
@@ -1099,19 +1218,64 @@ $implHtml
                     default                             { $policy.State }
                 }
                 $mfaIcon = if ($policy.RequiresMFA -eq "True") { "Yes" } else { "-" }
-                $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand policy details'><td>$($policy.Name)</td><td class='$stateClass'>$stateLabel</td><td>$($policy.GrantControls)</td><td>$mfaIcon</td></tr>"
+                $grantControls     = if ($policy.GrantControls       -and $policy.GrantControls       -ne '') { $policy.GrantControls } else { '—' }
+                $includeUsers      = if ($policy.IncludeUsers        -and $policy.IncludeUsers        -ne '') { $policy.IncludeUsers } else { '—' }
+                $excludeUsers      = if ($policy.ExcludeUsers        -and $policy.ExcludeUsers        -ne '') { $policy.ExcludeUsers } else { '—' }
+                $includeGroups     = if ($policy.IncludeGroups       -and $policy.IncludeGroups       -ne '') { $policy.IncludeGroups } else { '—' }
+                $excludeGroups     = if ($policy.ExcludeGroups       -and $policy.ExcludeGroups       -ne '') { $policy.ExcludeGroups } else { '—' }
+                $includeRoles      = if ($policy.IncludeRoles        -and $policy.IncludeRoles        -ne '') { $policy.IncludeRoles } else { '—' }
+                $excludeRoles      = if ($policy.ExcludeRoles        -and $policy.ExcludeRoles        -ne '') { $policy.ExcludeRoles } else { '—' }
+                $includeApps       = if ($policy.IncludeApplications -and $policy.IncludeApplications -ne '') { $policy.IncludeApplications } else { '—' }
+                $excludeApps       = if ($policy.ExcludeApplications -and $policy.ExcludeApplications -ne '') { $policy.ExcludeApplications } else { '—' }
+                $userActions       = if ($policy.UserActions         -and $policy.UserActions         -ne '') { $policy.UserActions } else { '—' }
+                $clientTypes       = if ($policy.ClientAppTypes      -and $policy.ClientAppTypes      -ne '') { $policy.ClientAppTypes } else { 'All client apps' }
+                $includePlatforms  = if ($policy.IncludePlatforms    -and $policy.IncludePlatforms    -ne '') { $policy.IncludePlatforms } else { '—' }
+                $excludePlatforms  = if ($policy.ExcludePlatforms    -and $policy.ExcludePlatforms    -ne '') { $policy.ExcludePlatforms } else { '—' }
+                $includeLocations  = if ($policy.IncludeLocations    -and $policy.IncludeLocations    -ne '') { $policy.IncludeLocations } else { '—' }
+                $excludeLocations  = if ($policy.ExcludeLocations    -and $policy.ExcludeLocations    -ne '') { $policy.ExcludeLocations } else { '—' }
+                $signInRiskLevels  = if ($policy.SignInRiskLevels    -and $policy.SignInRiskLevels    -ne '') { $policy.SignInRiskLevels } else { '—' }
+                $userRiskLevels    = if ($policy.UserRiskLevels      -and $policy.UserRiskLevels      -ne '') { $policy.UserRiskLevels } else { '—' }
+                $deviceFilter      = if ($policy.DeviceFilter        -and $policy.DeviceFilter        -ne '') { $policy.DeviceFilter } else { '—' }
+                $grantOperator     = if ($policy.GrantOperator       -and $policy.GrantOperator       -ne '') { $policy.GrantOperator } else { '—' }
 
-                $incUsers    = if ($policy.IncludeUsers  -and $policy.IncludeUsers  -ne '') { $policy.IncludeUsers  } else { '—' }
-                $excUsers    = if ($policy.ExcludeUsers  -and $policy.ExcludeUsers  -ne '') { $policy.ExcludeUsers  } else { '—' }
-                $incGroups   = if ($policy.IncludeGroups -and $policy.IncludeGroups -ne '') { $policy.IncludeGroups } else { '—' }
-                $clientTypes = if ($policy.ClientAppTypes -and $policy.ClientAppTypes -ne '') { $policy.ClientAppTypes } else { 'All' }
+                $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand policy details'><td>$(ConvertTo-HtmlText $policy.Name)</td><td class='$stateClass'>$(ConvertTo-HtmlText $stateLabel)</td><td>$(ConvertTo-HtmlText $grantControls)</td><td>$mfaIcon</td></tr>"
+
+                $detailFields = @(
+                    @{ Label = 'Include Users';        Value = $includeUsers }
+                    @{ Label = 'Exclude Users';        Value = $excludeUsers }
+                    @{ Label = 'Include Groups';       Value = $includeGroups }
+                    @{ Label = 'Exclude Groups';       Value = $excludeGroups }
+                    @{ Label = 'Include Roles';        Value = $includeRoles }
+                    @{ Label = 'Exclude Roles';        Value = $excludeRoles }
+                    @{ Label = 'Include Applications'; Value = $includeApps }
+                    @{ Label = 'Exclude Applications'; Value = $excludeApps }
+                    @{ Label = 'User Actions';         Value = $userActions }
+                    @{ Label = 'Client App Types';     Value = $clientTypes }
+                    @{ Label = 'Include Platforms';    Value = $includePlatforms }
+                    @{ Label = 'Exclude Platforms';    Value = $excludePlatforms }
+                    @{ Label = 'Include Locations';    Value = $includeLocations }
+                    @{ Label = 'Exclude Locations';    Value = $excludeLocations }
+                    @{ Label = 'Sign-In Risk Levels';  Value = $signInRiskLevels }
+                    @{ Label = 'User Risk Levels';     Value = $userRiskLevels }
+                    @{ Label = 'Device Filter';        Value = $deviceFilter }
+                    @{ Label = 'Grant Controls';       Value = $grantControls }
+                    @{ Label = 'Grant Requirement';    Value = $grantOperator }
+                )
+
+                $detailRows = foreach ($field in $detailFields) {
+                    if (-not [string]::IsNullOrWhiteSpace($field.Value) -and $field.Value -ne '—') {
+                        "<tr><td>$(ConvertTo-HtmlText $field.Label)</td><td>$(ConvertTo-HtmlMultilineText $field.Value)</td></tr>"
+                    }
+                }
+
+                if (-not $detailRows -or @($detailRows).Count -eq 0) {
+                    $detailRows = "<tr><td colspan='2'><span class='detail-empty'>No additional policy conditions exported.</span></td></tr>"
+                }
+
                 $detailRow = "<tr class='signin-detail' style='display:none'><td colspan='4'><table class='inner-table'>
   <thead><tr><th style='width:160px'>Setting</th><th>Value</th></tr></thead>
   <tbody>
-    <tr><td>Include Users</td><td>$incUsers</td></tr>
-    <tr><td>Exclude Users</td><td>$excUsers</td></tr>
-    <tr><td>Include Groups</td><td>$incGroups</td></tr>
-    <tr><td>Client App Types</td><td>$clientTypes</td></tr>
+    $($detailRows -join "`n")
   </tbody>
 </table></td></tr>"
                 $mainRow
@@ -1275,7 +1439,7 @@ if ($exchangeFiles.Count -gt 0) {
     if (Test-Path $mbxCsv) {
         $mailboxes = @(Import-Csv $mbxCsv)
 
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand delegated permissions.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand delegated permissions.'))
 
         $mbxRows = foreach ($mbx in ($mailboxes | Sort-Object @{Expression={ switch ($_.RecipientType) { 'UserMailbox' { 0 } 'SharedMailbox' { 1 } default { 2 } } }}, DisplayName)) {
             $upn    = $mbx.UserPrincipalName
@@ -1463,7 +1627,7 @@ if ($exchangeFiles.Count -gt 0) {
     if (Test-Path $antiPhishCsv) {
         $antiPhish = @(Import-Csv $antiPhishCsv)
         $exchangeSummary.Add("<h4>Anti-Phish Policies</h4>")
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand setting descriptions.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand setting descriptions.'))
         $apRows = foreach ($p in $antiPhish) {
             $spoofClass  = if ($p.EnableSpoofIntelligence -ne 'True') { " class='warn'" } else { "" }
             $mbxIntClass = if ($p.EnableMailboxIntelligence -ne 'True') { " class='warn'" } else { "" }
@@ -1493,7 +1657,7 @@ if ($exchangeFiles.Count -gt 0) {
     if (Test-Path $spamCsv) {
         $spamPolicies = @(Import-Csv $spamCsv)
         $exchangeSummary.Add("<h4>Spam Filter Policies</h4>")
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand action descriptions.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand action descriptions.'))
         $spamRows = foreach ($p in $spamPolicies) {
             $spamClass = if ($p.SpamAction -eq 'NoAction') { " class='warn'" } else { "" }
             $hcsClass  = if ($p.HighConfidenceSpamAction -eq 'NoAction' -or $p.HighConfidenceSpamAction -eq 'MoveToJmf') { " class='warn'" } else { "" }
@@ -1523,7 +1687,7 @@ if ($exchangeFiles.Count -gt 0) {
     if (Test-Path $malwareCsv) {
         $malware = @(Import-Csv $malwareCsv)
         $exchangeSummary.Add("<h4>Malware Filter Policies</h4>")
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand setting descriptions.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand setting descriptions.'))
         $mwRows = foreach ($p in $malware) {
             $notifyClass = if ($p.EnableExternalSenderAdminNotification -eq 'True') { "" } else { " class='warn'" }
             $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand'><td>$($p.Name)</td><td>$($p.Action)</td><td$notifyClass>$($p.EnableExternalSenderAdminNotification)</td></tr>"
@@ -1553,7 +1717,8 @@ if ($exchangeFiles.Count -gt 0) {
             $disabledRules = @($transportRules | Where-Object { $_.State -ne 'Enabled' })
             $trClass       = if ($disabledRules.Count -gt 0) { "warn" } else { "ok" }
             $exchangeSummary.Add("<h4>Transport Rules</h4>")
-            $exchangeSummary.Add("<p class='$trClass'>$($transportRules.Count) transport rule(s) — $($disabledRules.Count) disabled. Click a row to expand conditions and actions.</p>")
+            $exchangeSummary.Add("<p class='$trClass'>$($transportRules.Count) transport rule(s) — $($disabledRules.Count) disabled.</p>")
+            $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand conditions and actions.'))
             $trRows = foreach ($r in ($transportRules | Sort-Object { [int]$_.Priority })) {
                 $stateClass = if ($r.State -ne 'Enabled') { " class='warn'" } else { "" }
                 $mainRow    = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand'><td>$($r.Priority)</td><td>$($r.Name)</td><td$stateClass>$($r.State)</td><td>$($r.Mode)</td></tr>"
@@ -1602,7 +1767,7 @@ if ($exchangeFiles.Count -gt 0) {
         if ($emptyDls.Count -gt 0) {
             $exchangeSummary.Add("<p class='warn'>$($emptyDls.Count) distribution list(s) have no members</p>")
         }
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand the member list.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand the member list.'))
         $dlRows = foreach ($dl in ($dls | Sort-Object DisplayName)) {
             $warnClass  = if ([int]$dl.MemberCount -eq 0) { " warn" } else { "" }
             $mainRow    = "<tr class='user-row$warnClass' onclick='togglePerms(this)' title='Click to expand members'><td>$($dl.DisplayName)</td><td>$($dl.EmailAddress)</td><td>$($dl.GroupType)</td><td>$($dl.MemberCount)</td></tr>"
@@ -1700,7 +1865,7 @@ if ($exchangeFiles.Count -gt 0) {
         $attEnabled = ($safeAtt | Where-Object { $_.Enable -eq "True" }).Count
         $attClass   = if ($attEnabled -gt 0) { "ok" } else { "warn" }
         $exchangeSummary.Add("<p class='$attClass'>$attEnabled of $($safeAtt.Count) Safe Attachment policy/policies enabled</p>")
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand setting descriptions.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand setting descriptions.'))
         $attRows = foreach ($p in $safeAtt) {
             $enableClass = if ($p.Enable -eq "True") { "ok" } else { "warn" }
             $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand'><td>$($p.Name)</td><td class='$enableClass'>$($p.Enable)</td><td>$($p.Action)</td><td>$($p.ActionOnError)</td></tr>"
@@ -1734,7 +1899,7 @@ if ($exchangeFiles.Count -gt 0) {
         $linkEnabled  = ($safeLink | Where-Object { $_.EnableSafeLinksForEmail -eq "True" }).Count
         $linkClass    = if ($linkEnabled -gt 0) { "ok" } else { "warn" }
         $exchangeSummary.Add("<p class='$linkClass'>$linkEnabled of $($safeLink.Count) Safe Links policy/policies enabled for email</p>")
-        $exchangeSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand setting descriptions.</p>")
+        $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand setting descriptions.'))
         $linkRows = foreach ($p in $safeLink) {
             $enableClass = if ($p.EnableSafeLinksForEmail -eq "True") { "ok" } else { "warn" }
             $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to expand'><td>$($p.Name)</td><td class='$enableClass'>$($p.EnableSafeLinksForEmail)</td><td>$($p.EnableSafeLinksForTeams)</td><td>$($p.DisableUrlRewrite)</td><td>$($p.TrackClicks)</td></tr>"
@@ -1857,7 +2022,7 @@ if ($spFiles.Count -gt 0) {
         }
 
         $spSummary.Add("<h4>Site Collections ($($sites.Count))</h4>")
-        $spSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand SharePoint groups for that site.</p>")
+        $spSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand SharePoint groups for that site.'))
 
         $siteRows = foreach ($site in ($sites | Sort-Object Title)) {
             $storMB = if ($site.StorageUsedMB -and $site.StorageUsedMB -ne '') { [double]$site.StorageUsedMB } else { 0 }
@@ -2229,7 +2394,7 @@ if ($intuneFiles.Count -gt 0) {
 
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Compliance Policies ($($_intPols.Count))</h4>")
             if ($_intPols.Count -gt 0) {
-                $intuneSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand policy details and settings.</p>")
+                $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand policy details and settings.'))
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Platform</th><th>Assigned To</th><th>Grace Period (h)</th><th>Last Modified</th></tr></thead><tbody>")
                 $_policyRows = foreach ($_pol in ($_intPols | Sort-Object Platform, PolicyName)) {
                     $_grace = 0
@@ -2254,7 +2419,7 @@ if ($intuneFiles.Count -gt 0) {
                         $_detailInner.Add("<tr><td>Settings</td><td><table class='inner-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>$($_settingsRows -join '')</tbody></table></td></tr>")
                     }
                     else {
-                        $_detailInner.Add("<tr><td>Settings</td><td><em style='color:#888'>No policy settings exported.</em></td></tr>")
+                        $_detailInner.Add("<tr><td>Settings</td><td><span class='detail-empty'>No policy settings exported.</span></td></tr>")
                     }
 
                     $_detailRow = "<tr class='signin-detail' style='display:none'><td colspan='5'><table class='inner-table'><thead><tr><th style='width:160px'>Field</th><th>Value</th></tr></thead><tbody>$($_detailInner -join '')</tbody></table></td></tr>"
@@ -2276,7 +2441,7 @@ if ($intuneFiles.Count -gt 0) {
 
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Configuration Policies / Profiles ($($_intProfs.Count))</h4>")
             if ($_intProfs.Count -gt 0) {
-                $intuneSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand profile details and settings.</p>")
+                $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand profile details and settings.'))
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Profile</th><th>Platform</th><th>Type</th><th>Source</th><th>Last Modified</th><th>Assigned To</th></tr></thead><tbody>")
                 $_profileRows = foreach ($_prof in ($_intProfs | Sort-Object Platform, ProfileName)) {
                     $_profSettings = if ($_prof.ProfileId) {
@@ -2296,7 +2461,7 @@ if ($intuneFiles.Count -gt 0) {
                         }
                         $_detailInner.Add("<tr><td>Settings</td><td><table class='inner-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>$($_settingsRows -join '')</tbody></table></td></tr>")
                     } else {
-                        $_detailInner.Add("<tr><td>Settings</td><td><em style='color:#888'>No profile settings exported.</em></td></tr>")
+                        $_detailInner.Add("<tr><td>Settings</td><td><span class='detail-empty'>No profile settings exported.</span></td></tr>")
                     }
                     $_detailRow = "<tr class='signin-detail' style='display:none'><td colspan='6'><table class='inner-table'><thead><tr><th style='width:160px'>Field</th><th>Value</th></tr></thead><tbody>$($_detailInner -join '')</tbody></table></td></tr>"
                     $_mainRow
@@ -2312,7 +2477,7 @@ if ($intuneFiles.Count -gt 0) {
             $_intApps = @(Import-Csv $intAppCsv)
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Apps ($($_intApps.Count))</h4>")
             if ($_intApps.Count -gt 0) {
-                $intuneSummary.Add("<p style='font-size:0.85rem;color:#666;margin-bottom:0.5rem'>Click a row to expand app deployment details.</p>")
+                $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand app deployment details.'))
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>App</th><th>Type</th><th>Assigned To</th><th>Installed</th><th>Failed</th><th>Pending</th></tr></thead><tbody>")
                 $_appRows = foreach ($_app in ($_intApps | Sort-Object AppName)) {
                     $_failedCount = 0

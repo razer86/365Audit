@@ -124,6 +124,375 @@ function Get-FriendlySkuName {
     return $Sku
 }
 
+$script:ConditionalAccessUserCache               = @{}
+$script:ConditionalAccessGroupCache              = @{}
+$script:ConditionalAccessServicePrincipalCache   = @{}
+$script:ConditionalAccessRoleCache               = @{}
+$script:ConditionalAccessRoleCacheInitialized    = $false
+$script:ConditionalAccessNamedLocationCache      = @{}
+$script:ConditionalAccessNamedLocationCacheReady = $false
+$script:ConditionalAccessNamedLocations          = @()
+
+function Format-DirectoryUserLabel {
+    [CmdletBinding()]
+    param(
+        [string]$DisplayName,
+        [string]$UserPrincipalName,
+        [string]$Fallback
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($DisplayName) -and -not [string]::IsNullOrWhiteSpace($UserPrincipalName) -and $DisplayName -ne $UserPrincipalName) {
+        return "{0} ({1})" -f $DisplayName, $UserPrincipalName
+    }
+    if (-not [string]::IsNullOrWhiteSpace($UserPrincipalName)) { return $UserPrincipalName }
+    if (-not [string]::IsNullOrWhiteSpace($DisplayName)) { return $DisplayName }
+    return $Fallback
+}
+
+function Join-ConditionalAccessValues {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object[]]$Values,
+        [string]$Default = '—'
+    )
+
+    $items = @(
+        $Values |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+            Select-Object -Unique
+    )
+
+    if ($items.Count -eq 0) {
+        return $Default
+    }
+
+    return ($items -join '; ')
+}
+
+function Convert-ConditionalAccessTokenToLabel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Kind,
+        [Parameter(Mandatory)]
+        [string]$Value
+    )
+
+    switch ($Kind) {
+        'User' {
+            switch ($Value) {
+                'All'                   { return 'All users' }
+                'None'                  { return 'None' }
+                'GuestsOrExternalUsers' { return 'All guest and external users' }
+            }
+        }
+        'Group' {
+            switch ($Value) {
+                'All'  { return 'All groups' }
+                'None' { return 'None' }
+            }
+        }
+        'Role' {
+            switch ($Value) {
+                'All'  { return 'All roles' }
+                'None' { return 'None' }
+            }
+        }
+        'Application' {
+            switch ($Value) {
+                'All'                   { return 'All cloud apps' }
+                'Office365'             { return 'Office 365' }
+                'MicrosoftAdminPortals' { return 'Microsoft Admin Portals' }
+                'None'                  { return 'None' }
+            }
+        }
+        'Location' {
+            switch ($Value) {
+                'All'        { return 'All locations' }
+                'AllTrusted' { return 'All trusted locations' }
+                'None'       { return 'None' }
+            }
+        }
+    }
+
+    return $null
+}
+
+function Convert-ConditionalAccessBuiltInControlToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Control
+    )
+
+    switch ($Control) {
+        'mfa'                 { return 'Require MFA' }
+        'block'               { return 'Block access' }
+        'compliantDevice'     { return 'Require compliant device' }
+        'domainJoinedDevice'  { return 'Require Microsoft Entra hybrid joined device' }
+        'approvedApplication' { return 'Require approved client app' }
+        'compliantApplication'{ return 'Require app protection policy' }
+        'passwordChange'      { return 'Require password change' }
+        default               { return $Control }
+    }
+}
+
+function Convert-ConditionalAccessClientAppTypeToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Type
+    )
+
+    switch ($Type) {
+        'all'                           { return 'All client apps' }
+        'browser'                       { return 'Browser' }
+        'mobileAppsAndDesktopClients'   { return 'Mobile apps and desktop clients' }
+        'exchangeActiveSync'            { return 'Exchange ActiveSync' }
+        'easSupported'                  { return 'Exchange ActiveSync clients' }
+        'other'                         { return 'Other clients' }
+        default                         { return $Type }
+    }
+}
+
+function Convert-ConditionalAccessPlatformToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Platform
+    )
+
+    switch ($Platform) {
+        'all'     { return 'All platforms' }
+        'android' { return 'Android' }
+        'iOS'     { return 'iOS' }
+        'windows' { return 'Windows' }
+        'macOS'   { return 'macOS' }
+        'linux'   { return 'Linux' }
+        default   { return $Platform }
+    }
+}
+
+function Convert-ConditionalAccessRiskLevelToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$RiskLevel
+    )
+
+    switch ($RiskLevel) {
+        'low'    { return 'Low' }
+        'medium' { return 'Medium' }
+        'high'   { return 'High' }
+        'hidden' { return 'Hidden' }
+        'none'   { return 'None' }
+        default  { return $RiskLevel }
+    }
+}
+
+function Convert-ConditionalAccessUserActionToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Action
+    )
+
+    switch ($Action) {
+        'urn:user:registersecurityinfo' { return 'Register security information' }
+        default                         { return $Action }
+    }
+}
+
+function Convert-ConditionalAccessGrantOperatorToLabel {
+    [CmdletBinding()]
+    param(
+        [string]$Operator
+    )
+
+    switch ($Operator) {
+        'AND' { return 'All selected controls required' }
+        'OR'  { return 'One of the selected controls required' }
+        default { return $Operator }
+    }
+}
+
+function Initialize-ConditionalAccessRoleCache {
+    [CmdletBinding()]
+    param()
+
+    if ($script:ConditionalAccessRoleCacheInitialized) {
+        return
+    }
+
+    try {
+        if (Get-Command Get-MgDirectoryRoleTemplate -ErrorAction SilentlyContinue) {
+            foreach ($template in (Get-MgDirectoryRoleTemplate -All -ErrorAction Stop)) {
+                if ($template.Id -and $template.DisplayName) {
+                    $script:ConditionalAccessRoleCache[$template.Id] = $template.DisplayName
+                }
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Unable to resolve Conditional Access role templates: $_"
+    }
+
+    try {
+        foreach ($role in (Get-MgDirectoryRole -All -ErrorAction Stop)) {
+            if ($role.Id -and $role.DisplayName) {
+                $script:ConditionalAccessRoleCache[$role.Id] = $role.DisplayName
+            }
+            if ($role.RoleTemplateId -and $role.DisplayName) {
+                $script:ConditionalAccessRoleCache[$role.RoleTemplateId] = $role.DisplayName
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Unable to resolve active directory roles for Conditional Access: $_"
+    }
+
+    $script:ConditionalAccessRoleCacheInitialized = $true
+}
+
+function Initialize-ConditionalAccessNamedLocationCache {
+    [CmdletBinding()]
+    param()
+
+    if ($script:ConditionalAccessNamedLocationCacheReady) {
+        return
+    }
+
+    try {
+        if (-not $script:ConditionalAccessNamedLocations -or $script:ConditionalAccessNamedLocations.Count -eq 0) {
+            $script:ConditionalAccessNamedLocations = @(Get-MgIdentityConditionalAccessNamedLocation -All -ErrorAction Stop)
+        }
+
+        foreach ($location in $script:ConditionalAccessNamedLocations) {
+            if ($location.Id -and $location.DisplayName) {
+                $script:ConditionalAccessNamedLocationCache[$location.Id] = $location.DisplayName
+            }
+        }
+    }
+    catch {
+        Write-Verbose "Unable to resolve Conditional Access named locations: $_"
+    }
+
+    $script:ConditionalAccessNamedLocationCacheReady = $true
+}
+
+function Resolve-ConditionalAccessObjectId {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('User', 'Group', 'Role', 'Application', 'Location')]
+        [string]$Kind,
+        [Parameter(Mandatory)]
+        [string]$Id
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Id)) {
+        return $null
+    }
+
+    $wellKnown = Convert-ConditionalAccessTokenToLabel -Kind $Kind -Value $Id
+    if ($wellKnown) {
+        return $wellKnown
+    }
+
+    switch ($Kind) {
+        'User' {
+            if ($script:ConditionalAccessUserCache.ContainsKey($Id)) {
+                return $script:ConditionalAccessUserCache[$Id]
+            }
+
+            try {
+                $user = Get-MgUser -UserId $Id -Property Id,DisplayName,UserPrincipalName -ErrorAction Stop
+                $resolved = Format-DirectoryUserLabel -DisplayName $user.DisplayName -UserPrincipalName $user.UserPrincipalName -Fallback $Id
+            }
+            catch {
+                $resolved = $Id
+            }
+
+            $script:ConditionalAccessUserCache[$Id] = $resolved
+            return $resolved
+        }
+        'Group' {
+            if ($script:ConditionalAccessGroupCache.ContainsKey($Id)) {
+                return $script:ConditionalAccessGroupCache[$Id]
+            }
+
+            try {
+                $group = Get-MgGroup -GroupId $Id -Property Id,DisplayName -ErrorAction Stop
+                $resolved = if ($group.DisplayName) { $group.DisplayName } else { $Id }
+            }
+            catch {
+                $resolved = $Id
+            }
+
+            $script:ConditionalAccessGroupCache[$Id] = $resolved
+            return $resolved
+        }
+        'Role' {
+            Initialize-ConditionalAccessRoleCache
+            if ($script:ConditionalAccessRoleCache.ContainsKey($Id)) {
+                return $script:ConditionalAccessRoleCache[$Id]
+            }
+
+            return $Id
+        }
+        'Application' {
+            if ($script:ConditionalAccessServicePrincipalCache.ContainsKey($Id)) {
+                return $script:ConditionalAccessServicePrincipalCache[$Id]
+            }
+
+            try {
+                $servicePrincipal = Get-MgServicePrincipal -ServicePrincipalId $Id -Property Id,DisplayName,AppId -ErrorAction Stop
+                if ($servicePrincipal.DisplayName -and $servicePrincipal.AppId) {
+                    $resolved = "{0} ({1})" -f $servicePrincipal.DisplayName, $servicePrincipal.AppId
+                }
+                elseif ($servicePrincipal.DisplayName) {
+                    $resolved = $servicePrincipal.DisplayName
+                }
+                else {
+                    $resolved = $Id
+                }
+            }
+            catch {
+                $resolved = $Id
+            }
+
+            $script:ConditionalAccessServicePrincipalCache[$Id] = $resolved
+            return $resolved
+        }
+        'Location' {
+            Initialize-ConditionalAccessNamedLocationCache
+            if ($script:ConditionalAccessNamedLocationCache.ContainsKey($Id)) {
+                return $script:ConditionalAccessNamedLocationCache[$Id]
+            }
+
+            return $Id
+        }
+    }
+}
+
+function Resolve-ConditionalAccessValueList {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]
+        [object[]]$Values,
+        [Parameter(Mandatory)]
+        [ValidateSet('User', 'Group', 'Role', 'Application', 'Location')]
+        [string]$Kind
+    )
+
+    $resolvedValues = foreach ($value in @($Values)) {
+        if ($null -eq $value) { continue }
+
+        $textValue = [string]$value
+        if ([string]::IsNullOrWhiteSpace($textValue)) { continue }
+
+        Resolve-ConditionalAccessObjectId -Kind $Kind -Id $textValue
+    }
+
+    return @($resolvedValues | Where-Object { $_ } | Select-Object -Unique)
+}
+
 # === Ensure helper functions are loaded ===
 if (-not (Get-Command Connect-MgGraphSecure -ErrorAction SilentlyContinue)) {
     Write-Error "Connect-MgGraphSecure is not loaded. Please run from the 365Audit launcher."
@@ -427,6 +796,7 @@ $userReport = foreach ($user in $users) {
     $lastSignIn = if ($signIns.ContainsKey($upn)) { $signIns[$upn].ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC" } else { "Unavailable" }
 
     [PSCustomObject]@{
+        UserId                    = $user.Id
         UPN                       = $upn
         FirstName                 = $user.GivenName
         LastName                  = $user.Surname
@@ -438,6 +808,12 @@ $userReport = foreach ($user in $users) {
         DisablePasswordExpiration = if ($user.PasswordPolicies -notmatch "DisablePasswordExpiration") { "Enabled" } else { "Disabled" }
         LastPasswordChange        = $user.LastPasswordChangeDateTime
         LastSignIn                = $lastSignIn
+    }
+}
+
+foreach ($user in $users) {
+    if ($user.Id) {
+        $script:ConditionalAccessUserCache[$user.Id] = Format-DirectoryUserLabel -DisplayName $user.DisplayName -UserPrincipalName $user.UserPrincipalName -Fallback $user.Id
     }
 }
 
@@ -496,7 +872,12 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting guest user summary..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 $guestData = foreach ($guest in (Get-MgUser -Filter "UserType eq 'Guest'" -All -Property Id,DisplayName,UserPrincipalName,CreatedDateTime,SignInActivity -ErrorAction SilentlyContinue)) {
+    if ($guest.Id) {
+        $script:ConditionalAccessUserCache[$guest.Id] = Format-DirectoryUserLabel -DisplayName $guest.DisplayName -UserPrincipalName $guest.UserPrincipalName -Fallback $guest.Id
+    }
+
     [PSCustomObject]@{
+        UserId            = $guest.Id
         DisplayName       = $guest.DisplayName
         UserPrincipalName = $guest.UserPrincipalName
         CreatedDateTime   = $guest.CreatedDateTime
@@ -534,6 +915,12 @@ $groupData = foreach ($group in (Get-MgGroup -All)) {
     }
 }
 
+foreach ($group in $groupData) {
+    if ($group.GroupId -and $group.DisplayName) {
+        $script:ConditionalAccessGroupCache[$group.GroupId] = $group.DisplayName
+    }
+}
+
 $groupData | Export-Csv -Path "$outputDir\Entra_Groups.csv" -NoTypeInformation -Encoding UTF8
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting group summary..." -CurrentOperation "Saved: Entra_Groups.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 
@@ -545,16 +932,68 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Conditional Access policies..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 try {
+    Initialize-ConditionalAccessNamedLocationCache
+
     $caPolicyData = foreach ($policy in (Get-MgIdentityConditionalAccessPolicy -All)) {
+        $userConditions         = $policy.Conditions.Users
+        $applicationConditions  = $policy.Conditions.Applications
+        $platformConditions     = $policy.Conditions.Platforms
+        $locationConditions     = $policy.Conditions.Locations
+        $deviceConditions       = $policy.Conditions.Devices
+        $deviceFilter           = if ($deviceConditions) { $deviceConditions.DeviceFilter } else { $null }
+        $grantControls          = $policy.GrantControls
+
+        $includeUsers           = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $userConditions.IncludeUsers -Kind 'User')
+        $excludeUsers           = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $userConditions.ExcludeUsers -Kind 'User')
+        $includeGroups          = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $userConditions.IncludeGroups -Kind 'Group')
+        $excludeGroups          = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $userConditions.ExcludeGroups -Kind 'Group')
+        $includeRoles           = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $userConditions.IncludeRoles -Kind 'Role')
+        $excludeRoles           = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $userConditions.ExcludeRoles -Kind 'Role')
+        $includeApplications    = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $applicationConditions.IncludeApplications -Kind 'Application')
+        $excludeApplications    = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $applicationConditions.ExcludeApplications -Kind 'Application')
+        $includeUserActions     = Join-ConditionalAccessValues (@($applicationConditions.IncludeUserActions | ForEach-Object { Convert-ConditionalAccessUserActionToLabel $_ }))
+        $grantControlsLabel     = Join-ConditionalAccessValues (@($grantControls.BuiltInControls | ForEach-Object { Convert-ConditionalAccessBuiltInControlToLabel $_ }))
+        $grantOperatorLabel     = if ($grantControls.Operator) { Convert-ConditionalAccessGrantOperatorToLabel -Operator $grantControls.Operator } else { '—' }
+        $clientAppTypes         = Join-ConditionalAccessValues (@($policy.Conditions.ClientAppTypes | ForEach-Object { Convert-ConditionalAccessClientAppTypeToLabel $_ })) -Default 'All client apps'
+        $includePlatforms       = Join-ConditionalAccessValues (@($platformConditions.IncludePlatforms | ForEach-Object { Convert-ConditionalAccessPlatformToLabel $_ }))
+        $excludePlatforms       = Join-ConditionalAccessValues (@($platformConditions.ExcludePlatforms | ForEach-Object { Convert-ConditionalAccessPlatformToLabel $_ }))
+        $includeLocations       = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $locationConditions.IncludeLocations -Kind 'Location')
+        $excludeLocations       = Join-ConditionalAccessValues (Resolve-ConditionalAccessValueList -Values $locationConditions.ExcludeLocations -Kind 'Location')
+        $signInRiskLevels       = Join-ConditionalAccessValues (@($policy.Conditions.SignInRiskLevels | ForEach-Object { Convert-ConditionalAccessRiskLevelToLabel $_ }))
+        $userRiskLevels         = Join-ConditionalAccessValues (@($policy.Conditions.UserRiskLevels | ForEach-Object { Convert-ConditionalAccessRiskLevelToLabel $_ }))
+        $deviceFilterSummary    = if ($deviceFilter -and $deviceFilter.Mode -and $deviceFilter.Rule) {
+            "{0}: {1}" -f $deviceFilter.Mode, $deviceFilter.Rule
+        }
+        elseif ($deviceFilter -and $deviceFilter.Mode) {
+            $deviceFilter.Mode
+        }
+        else {
+            '—'
+        }
+
         [PSCustomObject]@{
-            Name           = $policy.DisplayName
-            State          = $policy.State
-            IncludeUsers   = ($policy.Conditions.Users.IncludeUsers -join ", ")
-            ExcludeUsers   = ($policy.Conditions.Users.ExcludeUsers -join ", ")
-            IncludeGroups  = ($policy.Conditions.Users.IncludeGroups -join ", ")
-            GrantControls  = ($policy.GrantControls.BuiltInControls -join ", ")
-            RequiresMFA    = ($policy.GrantControls.BuiltInControls -contains "mfa")
-            ClientAppTypes = ($policy.Conditions.ClientAppTypes -join ", ")
+            Name                = $policy.DisplayName
+            State               = $policy.State
+            IncludeUsers        = $includeUsers
+            ExcludeUsers        = $excludeUsers
+            IncludeGroups       = $includeGroups
+            ExcludeGroups       = $excludeGroups
+            IncludeRoles        = $includeRoles
+            ExcludeRoles        = $excludeRoles
+            IncludeApplications = $includeApplications
+            ExcludeApplications = $excludeApplications
+            UserActions         = $includeUserActions
+            GrantControls       = $grantControlsLabel
+            GrantOperator       = $grantOperatorLabel
+            RequiresMFA         = ($grantControls.BuiltInControls -contains "mfa")
+            ClientAppTypes      = $clientAppTypes
+            IncludePlatforms    = $includePlatforms
+            ExcludePlatforms    = $excludePlatforms
+            IncludeLocations    = $includeLocations
+            ExcludeLocations    = $excludeLocations
+            SignInRiskLevels    = $signInRiskLevels
+            UserRiskLevels      = $userRiskLevels
+            DeviceFilter        = $deviceFilterSummary
         }
     }
 
@@ -573,7 +1012,15 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting named locations..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 try {
-    $locationData = foreach ($loc in (Get-MgIdentityConditionalAccessNamedLocation -All)) {
+    Initialize-ConditionalAccessNamedLocationCache
+    $namedLocations = if ($script:ConditionalAccessNamedLocations -and $script:ConditionalAccessNamedLocations.Count -gt 0) {
+        $script:ConditionalAccessNamedLocations
+    }
+    else {
+        @(Get-MgIdentityConditionalAccessNamedLocation -All)
+    }
+
+    $locationData = foreach ($loc in $namedLocations) {
         $ipRanges = if ($loc.AdditionalProperties.ContainsKey('ipRanges')) {
             ($loc.AdditionalProperties['ipRanges'] | ForEach-Object { $_['cidrAddress'] }) -join ", "
         }

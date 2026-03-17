@@ -188,6 +188,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.29.0 | Summary styling streamlined; added severity colouring for Technical Contact when the corresponding action item is raised; Action Items now group `CRITICAL` before `WARNING`, sort by module order (Entra, Exchange, SharePoint, Mail Security, Intune), and use fixed column alignment; Conditional Access drilldowns expanded to show richer scope and condition detail when newer `Entra_CA_Policies.csv` exports are present |
 | 1.28.0 | All CSV discovery now reads from the shared `Raw Files\` folder while report sections continue grouping by filename prefix; raw-file links in the HTML report now point to `Raw Files\<filename>` |
 | 1.27.0 | Intune section enhanced: full managed-device inventory table; clickable compliance policy drilldowns with per-setting detail; clickable app drilldowns with installation summary; configuration profile/policy section now supports the richer Intune exports including modern configuration policies |
 | 1.26.0 | All CSV path lookups updated to use per-module subfolders (`Entra\`, `Exchange\`, `SharePoint\`, `MailSecurity\`, `Intune\`); subfolder path variables defined near top of script |
