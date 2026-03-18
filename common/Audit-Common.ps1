@@ -277,15 +277,28 @@ function Initialize-GraphSdk {
     $expectedCore = Get-GraphDependencyAssemblyVersion -ModuleName 'Microsoft.Graph.Authentication' `
         -ModuleVersion $targetVersion `
         -AssemblyName 'Microsoft.Graph.Core'
+    $expectedMsal = Get-GraphDependencyAssemblyVersion -ModuleName 'Microsoft.Graph.Authentication' `
+        -ModuleVersion $targetVersion `
+        -AssemblyName 'Microsoft.Identity.Client'
 
     $loadedCore = [AppDomain]::CurrentDomain.GetAssemblies() |
         Where-Object { $_.GetName().Name -eq 'Microsoft.Graph.Core' } |
+        Select-Object -First 1
+    $loadedMsal = [AppDomain]::CurrentDomain.GetAssemblies() |
+        Where-Object { $_.GetName().Name -eq 'Microsoft.Identity.Client' } |
         Select-Object -First 1
 
     if ($loadedCore -and $expectedCore -and $loadedCore.GetName().Version -ne $expectedCore) {
         throw ((("Microsoft.Graph.Core {0} is already loaded in this PowerShell session, but 365Audit requires {1}. " +
             "Close this PowerShell session and start a new one before running 365Audit again.") -f
             $loadedCore.GetName().Version, $expectedCore))
+    }
+
+    if ($loadedMsal -and $expectedMsal -and $loadedMsal.GetName().Version -ne $expectedMsal) {
+        throw ((("Microsoft.Identity.Client {0} is already loaded in this PowerShell session, but 365Audit requires {1} " +
+            "from Microsoft.Graph.Authentication {2}. Another module likely loaded an incompatible MSAL version first " +
+            "(commonly PnP.PowerShell or ExchangeOnlineManagement). Close this PowerShell session and start a new one before running 365Audit again.") -f
+            $loadedMsal.GetName().Version, $expectedMsal, $targetVersion))
     }
 
     Import-GraphModuleVersioned -ModuleName 'Microsoft.Graph.Authentication'

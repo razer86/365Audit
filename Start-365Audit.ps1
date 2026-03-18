@@ -123,6 +123,19 @@ Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+function Disconnect-PnPOnlineIfLoaded {
+    [CmdletBinding()]
+    param()
+
+    if (Get-Module -Name PnP.PowerShell) {
+        try {
+            Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null
+            Write-Verbose "Disconnected existing SharePoint Online session."
+        }
+        catch {}
+    }
+}
+
 # === Transcript logging ===
 # Capture all console output to a temp file; moved to the audit output folder as AuditLog.txt on exit.
 $_transcriptActive = $false
@@ -351,10 +364,7 @@ if (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.
     Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     Write-Verbose "Disconnected existing Exchange Online session."
 }
-try {
-    Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null
-    Write-Verbose "Disconnected existing SharePoint Online session."
-} catch {}
+Disconnect-PnPOnlineIfLoaded
 
 # === Check for updates ===
 Invoke-VersionCheck -ScriptRoot $PSScriptRoot
@@ -398,6 +408,7 @@ else {
 }
 
 # === Execute Selected Modules ===
+$auditContext = $null
 try {
     foreach ($index in $selectedIndexes) {
         if (-not $menu.ContainsKey($index)) {
@@ -453,13 +464,9 @@ try {
     }
 }
 finally {
-    if ($_tempCertPath -and (Test-Path $_tempCertPath)) {
-        Remove-Item $_tempCertPath -Force -ErrorAction SilentlyContinue
-        Write-Verbose "Temp certificate file removed: $_tempCertPath"
-    }
     if ($_transcriptActive) {
         try { Stop-Transcript | Out-Null } catch {}
-        $logCtx = try { Initialize-AuditOutput } catch { $null }
+        $logCtx = if ($auditContext) { $auditContext } else { try { Initialize-AuditOutput } catch { $null } }
         if ($logCtx -and $_transcriptPath -and (Test-Path $_transcriptPath -ErrorAction SilentlyContinue)) {
             $logDir  = $logCtx.RawOutputPath
             New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue | Out-Null
@@ -468,11 +475,15 @@ finally {
             Write-Verbose "Audit log saved: $logDest"
         }
     }
+    if ($_tempCertPath -and (Test-Path $_tempCertPath)) {
+        Remove-Item $_tempCertPath -Force -ErrorAction SilentlyContinue
+        Write-Verbose "Temp certificate file removed: $_tempCertPath"
+    }
     if (Get-MgContext -ErrorAction SilentlyContinue) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
     }
     if (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' }) {
         Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     }
-    try { Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null } catch {}
+    Disconnect-PnPOnlineIfLoaded
 }
