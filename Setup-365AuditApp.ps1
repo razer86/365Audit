@@ -43,17 +43,17 @@
 .PARAMETER HuduCompanyId
     Hudu company slug (alphanumeric) or numeric ID. When provided, credentials are pushed
     to the matching Hudu company's 'NeConnect Audit Toolkit' asset automatically without
-    prompting. Requires HUDU_API_KEY (and optionally HUDU_BASE_URL) in the environment.
+    prompting. Requires HuduApiKey in config.psd1 (or supplied via -HuduApiKey).
 
 .PARAMETER HuduCompanyName
     Exact Hudu company name. Alternative to -HuduCompanyId for pre-specifying the company.
 
 .PARAMETER HuduBaseUrl
-    Hudu instance base URL. Falls back to HUDU_BASE_URL env var, then
+    Hudu instance base URL. Falls back to config.psd1 in the script root, then
     'https://neconnect.huducloud.com'.
 
 .PARAMETER HuduApiKey
-    Hudu API key. Falls back to HUDU_API_KEY env var.
+    Hudu API key. Falls back to config.psd1 in the script root.
 
 .EXAMPLE
     .\Setup-365AuditApp.ps1
@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.5.5
+    Version     : 2.6.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -93,13 +93,31 @@ param (
     # ── Hudu integration (optional) ────────────────────────────────────────────
     [string]$HuduCompanyId,
     [string]$HuduCompanyName,
-    [string]$HuduBaseUrl = ($env:HUDU_BASE_URL ?? 'https://neconnect.huducloud.com'),
-    [string]$HuduApiKey  = $env:HUDU_API_KEY
+    [string]$HuduBaseUrl,
+    [string]$HuduApiKey
 )
 
 $ScriptVersion      = '2.5.5'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
+
+# Load config.psd1 from the script root — fallback for HuduApiKey / HuduBaseUrl.
+# Explicit command-line parameters always take precedence over config file values.
+$_configPath = Join-Path $PSScriptRoot 'config.psd1'
+$script:HuduAssetLayoutId = 67                  # default; overridden by config.psd1
+$script:HuduAssetName     = 'M365 Audit Toolkit'  # default; overridden by config.psd1
+if (Test-Path $_configPath) {
+    try {
+        $_config = Import-PowerShellDataFile -Path $_configPath
+        if (-not $HuduApiKey  -and $_config.HuduApiKey)   { $HuduApiKey                 = $_config.HuduApiKey }
+        if (-not $HuduBaseUrl -and $_config.HuduBaseUrl)  { $HuduBaseUrl                = $_config.HuduBaseUrl }
+        if ($_config.HuduAssetLayoutId -gt 0)             { $script:HuduAssetLayoutId   = $_config.HuduAssetLayoutId }
+        if (-not $AppName -and $_config.AuditAppName)     { $AppName                    = $_config.AuditAppName }
+        if ($_config.HuduAssetName)                       { $script:HuduAssetName       = $_config.HuduAssetName }
+    }
+    catch { Write-Warning "Could not load config.psd1: $_" }
+}
+if (-not $HuduBaseUrl) { $HuduBaseUrl = 'https://neconnect.huducloud.com' }
 
 # Microsoft Graph service principal app ID (constant in all Azure tenants)
 $script:GraphResourceAppId = '00000003-0000-0000-c000-000000000000'
@@ -732,7 +750,7 @@ function Get-HuduAuditCredentials {
 
     if (-not $company) { throw "No Hudu company found for '$($HuduCompanyId ?? $HuduCompanyName)'." }
 
-    $asset = @((Invoke-RestMethod -Uri "$huduUrl/api/v1/assets?company_id=$($company.id)&asset_layout_id=67&page_size=5" `
+    $asset = @((Invoke-RestMethod -Uri "$huduUrl/api/v1/assets?company_id=$($company.id)&asset_layout_id=$($script:HuduAssetLayoutId)&page_size=5" `
         -Headers $headers -Method Get -ErrorAction Stop).assets) | Sort-Object updated_at -Descending | Select-Object -First 1
 
     if (-not $asset) {
@@ -788,8 +806,8 @@ function Push-HuduAuditAsset {
     $huduKey = $HuduApiKey
 
     if (-not $huduUrl -or -not $huduKey) {
-        Write-Warning 'Hudu env vars not set (HUDU_BASE_URL / HUDU_API_KEY) — skipping Hudu push.'
-        Write-Host '  Set them in your $PROFILE and re-run, or update Hudu manually.' -ForegroundColor DarkGray
+        Write-Warning 'Hudu credentials not configured — skipping Hudu push.'
+        Write-Host '  Populate HuduBaseUrl and HuduApiKey in config.psd1 (see config.psd1.example), or pass -HuduApiKey on the command line.' -ForegroundColor DarkGray
         return
     }
 
@@ -868,8 +886,8 @@ function Push-HuduAuditAsset {
                  ".\Start-365Audit.ps1 -HuduCompanyId '$companySlug'</p>"
 
     $body = @{
-        name            = "NeConnect Audit Toolkit - $companyName"
-        asset_layout_id = 67
+        name            = "$($script:HuduAssetName) - $companyName"
+        asset_layout_id = $script:HuduAssetLayoutId
         custom_fields   = @(
             @{ application_id            = $AppId }
             @{ tenant_id                 = $TenantId }
@@ -883,7 +901,7 @@ function Push-HuduAuditAsset {
     # Find existing asset for this company in the layout
     try {
         $existingResult = Invoke-RestMethod `
-            -Uri     "$huduUrl/api/v1/assets?company_id=$companyId&asset_layout_id=67&page_size=5" `
+            -Uri     "$huduUrl/api/v1/assets?company_id=$companyId&asset_layout_id=$($script:HuduAssetLayoutId)&page_size=5" `
             -Headers $headers -Method Get -ErrorAction Stop
         $existingAsset = @($existingResult.assets) | Select-Object -First 1
     }

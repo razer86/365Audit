@@ -12,11 +12,11 @@ The script will:
 1. Create an app registration with all required Microsoft Graph, Exchange Online, and SharePoint permissions and grant admin consent
 2. Generate a self-signed certificate, upload the public key to the app registration
 3. Print all credentials to the terminal
-4. **Automatically push credentials to Hudu** if `HUDU_API_KEY` is set in your environment
+4. **Automatically push credentials to Hudu** if `HuduApiKey` is configured in `config.psd1`
 
 ### With Hudu integration (recommended)
 
-If your Hudu environment variables are configured (see [Hudu Integration](#hudu-integration)), pass the company slug or ID and credentials are stored automatically:
+If `HuduApiKey` is configured in `config.psd1` (see [Hudu Integration](#hudu-integration)), pass the company slug or ID and credentials are stored automatically:
 
 ```powershell
 .\Setup-365AuditApp.ps1 -HuduCompanyId '<company-slug>'
@@ -29,7 +29,7 @@ If your Hudu environment variables are configured (see [Hudu Integration](#hudu-
 .\Setup-365AuditApp.ps1
 ```
 
-Credentials are printed to the terminal — store them in Hudu manually under the **NeConnect Audit Toolkit** asset layout using these fields:
+Credentials are printed to the terminal — store them in Hudu manually under the asset layout configured as `HuduAssetName` in `config.psd1`, using these fields:
 
 | Field | Used For |
 |---|---|
@@ -74,27 +74,34 @@ The updated credentials are pushed to Hudu automatically. The audit HTML summary
 
 ## Hudu Integration
 
-The toolkit integrates with Hudu to store and retrieve credentials automatically. Each tech needs their own Hudu API key; the base URL can be shared.
+The toolkit integrates with Hudu to store and retrieve credentials automatically. Each tech needs their own Hudu API key; the base URL is shared.
 
-### Environment Variables
+### config.psd1
 
-| Variable | Description |
-|---|---|
-| `HUDU_API_KEY` | Your personal Hudu API key (Profile → API Keys) |
-| `HUDU_BASE_URL` | Hudu instance URL — defaults to `https://neconnect.huducloud.com` if unset |
-
-Add to your PowerShell profile (`$PROFILE`) for persistent configuration:
+Hudu credentials and toolkit settings are stored in `config.psd1` in the repository root. Copy the example file to get started:
 
 ```powershell
-$env:HUDU_API_KEY  = 'your-api-key-here'
-$env:HUDU_BASE_URL = 'https://hudu.yourcompany.com'   # omit if using neconnect.huducloud.com
+Copy-Item config.psd1.example config.psd1
 ```
 
-For scheduled/automated runs, set these as system environment variables.
+Then edit `config.psd1`:
+
+```powershell
+@{
+    HuduBaseUrl       = 'https://your-hudu-instance.com'
+    HuduApiKey        = 'your-api-key-here'     # Profile → API Keys in Hudu
+    HuduAssetLayoutId = 67                       # See Helpers\Get-HuduAssetLayouts.ps1
+    HuduAssetName     = 'M365 Audit Toolkit'     # Prefix for asset names: "<HuduAssetName> - <Company>"
+    MspDomains        = @('yourdomain.com')      # Used for Technical Contact checks in summary
+    KnownPartners     = @('Your Company Name')   # Used for GDAP partner checks in summary
+}
+```
+
+> `config.psd1` is excluded from git to protect credentials.
 
 ### Asset Layout
 
-Credentials are stored in the **NeConnect Audit Toolkit** asset layout (one asset per customer company). The asset is created automatically by `Setup-365AuditApp.ps1` and named `NeConnect Audit Toolkit - <Company Name>`.
+Credentials are stored in a dedicated Hudu asset layout (one asset per customer company). The asset is created automatically by `Setup-365AuditApp.ps1` and named `<HuduAssetName> - <Company Name>`, where `HuduAssetName` is set in `config.psd1`.
 
 ---
 
@@ -119,10 +126,12 @@ Copy the App ID, Tenant ID, and certificate details from the Hudu asset:
 # Prompts for Base64 and password interactively
 .\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>'
 
-# Supply all credentials on the command line
+# Supply Base64 on the command line — password is still prompted as a SecureString
 .\Start-365Audit.ps1 -AppId '<AppId>' -TenantId '<TenantId>' `
     -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password')
 ```
+
+> **`-CertPassword` only accepts a `SecureString`** — plain text strings are intentionally not supported. `Read-Host -AsSecureString` is the standard way to supply it interactively. This ensures the password is never stored in plaintext in shell history, process memory, or log files.
 
 ### Non-interactive / automated (skip the menu)
 
@@ -150,26 +159,24 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
 `Start-UnattendedAudit.ps1` processes multiple customers in sequence without any interaction. For each customer it:
 
 1. Calls `Setup-365AuditApp.ps1 -HuduCompanyId` to check the certificate — if expiring within 30 days, renews it automatically (no browser required) and pushes the new credentials back to Hudu
-2. Calls `Start-365Audit.ps1 -HuduCompanyId -Modules 1,2,3,4` with credentials freshly fetched from Hudu
+2. Calls `Start-365Audit.ps1 -HuduCompanyId -Modules <customer modules>` with credentials freshly fetched from Hudu — modules are taken from the customer's entry in `UnattendedCustomers.psd1`, or overridden globally via `-Modules`
 3. Generates the HTML summary report (not opened automatically)
 
 ### Setup
 
-1. Copy `UnattendedCustomers.json.example` → `UnattendedCustomers.json`
-2. Edit `UnattendedCustomers.json` — add one entry per customer:
-   ```json
-   {
-       "customers": [
-           { "HuduCompanySlug": "a1b2c3d4e5f6", "Modules": [1, 2, 3, 4] },
-           { "HuduCompanySlug": "f6e5d4c3b2a1", "Modules": [1, 2] }
-       ]
+1. Copy `UnattendedCustomers.psd1.example` → `UnattendedCustomers.psd1`
+2. Edit `UnattendedCustomers.psd1` — add one entry per customer:
+
+   ```powershell
+   @{
+       Customers = @(
+           @{ HuduCompanySlug = 'a1b2c3d4e5f6'; HuduCompanyName = 'Contoso Ltd';  Modules = @(9) }
+           @{ HuduCompanySlug = 'f6e5d4c3b2a1'; HuduCompanyName = 'Fabrikam Inc'; Modules = @(1, 2) }
+       )
    }
    ```
    The slug is the 12-character hex string from the Hudu company URL: `https://hudu.example.com/c/<slug>`
-3. Set your Hudu API key in the environment:
-   ```powershell
-   $env:HUDU_API_KEY = 'your-api-key'
-   ```
+3. Ensure `HuduApiKey` is set in `config.psd1`
 4. Run:
    ```powershell
    .\Start-UnattendedAudit.ps1
@@ -178,7 +185,7 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
 ### Options
 
 ```powershell
-.\Start-UnattendedAudit.ps1 -Customers 'contoso','fabrikam'    # run only these slugs from the JSON
+.\Start-UnattendedAudit.ps1 -Customers 'contoso','fabrikam'    # run only these slugs from the PSD1
 .\Start-UnattendedAudit.ps1 -Modules 1,2                       # override modules for all customers this run
 .\Start-UnattendedAudit.ps1 -SkipCertCheck                     # skip cert expiry check
 ```
@@ -195,7 +202,8 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
 | 2 | Exchange Online Audit | Mailboxes, permissions, mail flow |
 | 3 | SharePoint Online Audit | Sites, permissions, storage, OneDrive |
 | 4 | Mail Security Audit | DKIM, DMARC, SPF, anti-spam/phish policies |
-| 9 | Run All (1, 2, 3, 4) | Full audit, then generates the HTML summary once |
+| 5 | Intune / Endpoint Audit | Devices, compliance policies, configuration profiles, apps, enrollment |
+| 9 | Run All (1–5) | Full audit across all modules, then generates the HTML summary once |
 | 0 | Exit | — |
 
 ---
@@ -345,6 +353,25 @@ Flat data is exported as CSV for the HTML summary. Nested policy objects are exp
 
 ---
 
+### Invoke-IntuneAudit.ps1
+
+Connects to Microsoft Graph and audits Intune / Endpoint Management. Gracefully skips with an informational note if no Intune-capable licence is detected.
+
+**Output files:**
+
+| File | Description |
+|---|---|
+| `Intune_Devices.csv` | Managed device inventory with OS, ownership, compliance state, and last sync |
+| `Intune_DeviceComplianceStates.csv` | Per-device compliance policy state |
+| `Intune_CompliancePolicies.csv` | Compliance policies with platform, assignment scope, grace period, and settings |
+| `Intune_ConfigProfiles.csv` | Configuration profiles with platform, type, last modified, and assignments |
+| `Intune_ConfigProfileSettings.csv` | Per-setting detail for each configuration profile |
+| `Intune_Apps.csv` | Assigned app inventory with install/failed/pending counts and assignment details |
+| `Intune_AutopilotDevices.csv` | Windows Autopilot device identities (skipped gracefully on 403) |
+| `Intune_EnrollmentRestrictions.csv` | Enrollment restriction policies |
+
+---
+
 ### Generate-AuditSummary.ps1
 
 Reads CSV files from the current audit run's `Raw Files` folder and compiles them into a single HTML report (`M365_AuditSummary.html`), which opens automatically in the default browser.
@@ -404,6 +431,55 @@ The check is non-blocking — a network failure produces a warning and the toolk
 
 ---
 
+## Helpers
+
+Standalone utility scripts in the `Helpers\` folder. None of these are required for normal audit runs — they assist with setup, maintenance, and troubleshooting.
+
+### Get-HuduAssetLayouts.ps1
+
+Connects to Hudu and lists all asset layouts with their numeric IDs. Use this to find the correct value for `HuduAssetLayoutId` in `config.psd1` — Hudu's UI only shows slugs, not IDs.
+
+```powershell
+.\Helpers\Get-HuduAssetLayouts.ps1
+```
+
+Reads `HuduBaseUrl` and `HuduApiKey` from `config.psd1`.
+
+---
+
+### Get-ModuleVersionStatus.ps1
+
+Performs a single bulk PSGallery lookup for all modules required by the toolkit and displays a status table showing installed vs latest versions.
+
+```powershell
+.\Helpers\Get-ModuleVersionStatus.ps1
+```
+
+| Status | Meaning |
+|---|---|
+| `OK` | Installed and up to date |
+| `UPDATE AVAILABLE` | Newer version exists in PSGallery |
+| `NOT INSTALLED` | Not yet installed — will be installed automatically on first run |
+| `MULTIPLE VERSIONS` | More than one version installed — run `Uninstall-AuditModules.ps1` to clean up |
+
+---
+
+### Uninstall-AuditModules.ps1
+
+Removes all installed versions of every module required by the toolkit. Useful for testing a clean first-run install experience or resolving conflicting module versions.
+
+```powershell
+# Preview what would be removed
+.\Helpers\Uninstall-AuditModules.ps1 -WhatIf
+
+# Remove everything
+.\Helpers\Uninstall-AuditModules.ps1
+```
+
+> Run in a **fresh PowerShell session** that has not loaded any 365Audit scripts — loaded modules cannot be uninstalled until the session is closed. If any modules were installed in `AllUsers` scope, run as Administrator.
+
+---
+
 ## Development
 
 To run a module directly without the launcher (bypasses the guard clause):
@@ -420,17 +496,23 @@ All modules accept the `-DevMode` switch for standalone testing.
 
 ```
 365Audit/
-├── common/
-│   └── Audit-Common.ps1                  # Shared helpers (Graph/EXO auth, output folder, version check)
-├── CHANGELOG.md                          # Full version history for all scripts
-├── Generate-AuditSummary.ps1             # HTML report generator
-├── Invoke-EntraAudit.ps1                 # Entra ID module
-├── Invoke-ExchangeAudit.ps1              # Exchange Online module
-├── Invoke-MailSecurityAudit.ps1          # Mail security module
-├── Invoke-SharePointAudit.ps1            # SharePoint / OneDrive module
-├── Setup-365AuditApp.ps1                 # One-time app registration, certificate setup, and renewal
-├── Start-365Audit.ps1                    # Interactive launcher and module menu
-├── Start-UnattendedAudit.ps1             # Automated bulk runner
-├── UnattendedCustomers.json.example      # Customer list template (copy to UnattendedCustomers.json)
-└── version.json                          # GitHub version manifest
+├── Common/
+│   └── Audit-Common.ps1                      # Shared helpers (Graph/EXO auth, output folder, version check)
+├── Helpers/
+│   ├── Get-HuduAssetLayouts.ps1              # Lists Hudu asset layouts to find the correct layout ID
+│   ├── Get-ModuleVersionStatus.ps1           # Checks installed vs latest PSGallery versions for all modules
+│   └── Uninstall-AuditModules.ps1            # Removes all toolkit modules (clean reinstall / conflict resolution)
+├── CHANGELOG.md                              # Full version history for all scripts
+├── config.psd1.example                       # Config template (copy to config.psd1)
+├── Generate-AuditSummary.ps1                 # HTML report generator
+├── Invoke-EntraAudit.ps1                     # Entra ID module
+├── Invoke-ExchangeAudit.ps1                  # Exchange Online module
+├── Invoke-IntuneAudit.ps1                    # Intune / Endpoint module
+├── Invoke-MailSecurityAudit.ps1              # Mail security module
+├── Invoke-SharePointAudit.ps1                # SharePoint / OneDrive module
+├── Setup-365AuditApp.ps1                     # One-time app registration, certificate setup, and renewal
+├── Start-365Audit.ps1                        # Interactive launcher and module menu
+├── Start-UnattendedAudit.ps1                 # Automated bulk runner
+├── UnattendedCustomers.psd1.example          # Customer list template (copy to UnattendedCustomers.psd1)
+└── version.json                              # GitHub version manifest
 ```

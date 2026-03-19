@@ -1,6 +1,10 @@
 # Certificate files — contain private keys, never commit
 *.pfx
 *.p12
+# Local config — contains the Hudu API key, never commit
+config.psd1
+# Customer list — contains Hudu company slugs, never commit
+UnattendedCustomers.psd1
 Test-*
 *.json
 *.csv

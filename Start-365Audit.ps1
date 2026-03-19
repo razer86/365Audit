@@ -34,14 +34,14 @@
 .PARAMETER HuduCompanyName
     Exact Hudu company name (case-sensitive).
     All credentials are retrieved automatically from the 'NeConnect Audit Toolkit'
-    asset for that company. Requires HUDU_API_KEY in the environment.
+    asset for that company.
 
 .PARAMETER HuduBaseUrl
-    Hudu instance base URL. Falls back to HUDU_BASE_URL env var, then
+    Hudu instance base URL. Falls back to config.psd1 in the script root, then
     'https://neconnect.huducloud.com'. Only used with -HuduCompanyId or -HuduCompanyName.
 
 .PARAMETER HuduApiKey
-    Hudu API key. Falls back to HUDU_API_KEY env var.
+    Hudu API key. Falls back to config.psd1 in the script root.
     Only used with -HuduCompanyId or -HuduCompanyName.
 
 .EXAMPLE
@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.9.3
+    Version     : 2.10.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -101,11 +101,11 @@ param (
 
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [string]$HuduBaseUrl = ($env:HUDU_BASE_URL ?? 'https://neconnect.huducloud.com'),
+    [string]$HuduBaseUrl,
 
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [string]$HuduApiKey = $env:HUDU_API_KEY,
+    [string]$HuduApiKey,
 
     # ── Automation ────────────────────────────────────────────────────────────
     # Provide module numbers to skip the menu and run non-interactively.
@@ -149,7 +149,7 @@ try {
 catch { Write-Verbose "Could not start transcript: $_" }
 
 # === Load shared helper functions ===
-$commonPath = Join-Path $PSScriptRoot "common\Audit-Common.ps1"
+$commonPath = Join-Path $PSScriptRoot "Common\Audit-Common.ps1"
 if (Test-Path $commonPath) {
     . $commonPath
 }
@@ -162,13 +162,28 @@ else {
 $localPath     = $PSScriptRoot
 $_tempCertPath = $null   # populated after cert decode; used in finally block
 
+# Load config.psd1 from the script root — fallback for HuduApiKey / HuduBaseUrl.
+# Explicit command-line parameters always take precedence over config file values.
+$_configPath = Join-Path $PSScriptRoot 'config.psd1'
+$_huduAssetLayoutId = 67   # default; overridden by config.psd1
+if (Test-Path $_configPath) {
+    try {
+        $_config = Import-PowerShellDataFile -Path $_configPath
+        if (-not $HuduApiKey  -and $_config.HuduApiKey)        { $HuduApiKey           = $_config.HuduApiKey }
+        if (-not $HuduBaseUrl -and $_config.HuduBaseUrl)       { $HuduBaseUrl          = $_config.HuduBaseUrl }
+        if ($_config.HuduAssetLayoutId -gt 0)                  { $_huduAssetLayoutId   = $_config.HuduAssetLayoutId }
+    }
+    catch { Write-Warning "Could not load config.psd1: $_" }
+}
+if (-not $HuduBaseUrl) { $HuduBaseUrl = 'https://neconnect.huducloud.com' }
+
 
 # === Fetch credentials from Hudu =============================================
 if ($PSCmdlet.ParameterSetName -in 'HuduById', 'HuduByName') {
 
     if (-not $HuduApiKey) {
-        Write-Error ("HUDU_API_KEY environment variable is not set.`n" +
-            "  Set it with: `$env:HUDU_API_KEY = (Read-Host 'Hudu API key')") -ErrorAction Stop
+        Write-Error ("HuduApiKey is not configured.`n" +
+            "  Add it to config.psd1 (see config.psd1.example) or pass -HuduApiKey on the command line.") -ErrorAction Stop
     }
 
     $HuduBaseUrl  = $HuduBaseUrl.TrimEnd('/')
@@ -216,15 +231,21 @@ if ($PSCmdlet.ParameterSetName -in 'HuduById', 'HuduByName') {
 
     Write-Host "  Company : $($huduCompany.name) (id: $($huduCompany.id))" -ForegroundColor Green
 
-    # Find the NeConnect Audit Toolkit asset (layout ID 67)
-    try {
-        $assetsResult = Invoke-RestMethod `
-            -Uri     "$HuduBaseUrl/api/v1/assets?company_id=$($huduCompany.id)&asset_layout_id=67&page_size=5" `
-            -Headers $huduHeaders -Method Get -ErrorAction Stop
-    }
-    catch { Write-Error "Hudu asset lookup failed: $_" -ErrorAction Stop }
+    # Find the NeConnect Audit Toolkit asset (layout ID 67) — page through all results
+    $allHuduAssets = [System.Collections.Generic.List[object]]::new()
+    $huduPage      = 1
+    do {
+        try {
+            $assetsResult = Invoke-RestMethod `
+                -Uri     "$HuduBaseUrl/api/v1/assets?company_id=$($huduCompany.id)&asset_layout_id=$_huduAssetLayoutId&page_size=100&page=$huduPage" `
+                -Headers $huduHeaders -Method Get -ErrorAction Stop
+        }
+        catch { Write-Error "Hudu asset lookup failed: $_" -ErrorAction Stop }
+        foreach ($a in @($assetsResult.assets)) { $allHuduAssets.Add($a) }
+        $huduPage++
+    } while ($assetsResult.assets.Count -gt 0)
 
-    $huduAsset = @($assetsResult.assets) | Sort-Object updated_at -Descending | Select-Object -First 1
+    $huduAsset = @($allHuduAssets) | Sort-Object updated_at -Descending | Select-Object -First 1
     if (-not $huduAsset) {
         Write-Error ("No '365Audit' asset found for '$($huduCompany.name)' in Hudu.`n" +
             "  Run Setup-365AuditApp.ps1 to create the app registration and populate the asset.") -ErrorAction Stop
@@ -360,12 +381,6 @@ if (Get-MgContext -ErrorAction SilentlyContinue) {
     Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
     Write-Verbose "Disconnected existing Microsoft Graph session."
 }
-if (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' }) {
-    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    Write-Verbose "Disconnected existing Exchange Online session."
-}
-Disconnect-PnPOnlineIfLoaded
-
 # === Check for updates ===
 Invoke-VersionCheck -ScriptRoot $PSScriptRoot
 
@@ -406,6 +421,15 @@ else {
         Where-Object    { $_ -match '^\d+$' } |
         ForEach-Object  { [int]$_ }
 }
+
+# === Log run context to transcript ===
+$_resolvedModuleNames = $selectedIndexes |
+    Where-Object { $menu.ContainsKey($_) } |
+    ForEach-Object { $menu[$_].Name }
+Write-Host "Run mode    : $(if ($Modules) { '-Modules ' + ($Modules -join ',') } else { 'Interactive' })"
+Write-Host "Selected    : $($_resolvedModuleNames -join ', ')"
+Write-Host "Started at  : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "Script path : $PSCommandPath"
 
 # === Execute Selected Modules ===
 $auditContext = $null
@@ -482,7 +506,8 @@ finally {
     if (Get-MgContext -ErrorAction SilentlyContinue) {
         Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
     }
-    if (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' }) {
+    if ((Get-Module -Name ExchangeOnlineManagement -ErrorAction SilentlyContinue) -and
+        (Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' })) {
         Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     }
     Disconnect-PnPOnlineIfLoaded

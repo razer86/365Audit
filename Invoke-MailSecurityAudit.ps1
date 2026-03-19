@@ -21,7 +21,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.8.0
+    Version     : 1.9.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -57,8 +57,13 @@ catch {
 
 # === Ensure ExchangeOnlineManagement module is available ===
 if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
-    Write-Host "Installing ExchangeOnlineManagement module..." -ForegroundColor Yellow
-    Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force
+    Write-Host "Required module 'ExchangeOnlineManagement' not found — installing..." -ForegroundColor Yellow
+    Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -ErrorAction Stop
+    $_exoMod = Get-Module -ListAvailable -Name ExchangeOnlineManagement | Sort-Object Version -Descending | Select-Object -First 1
+    if (-not $_exoMod) {
+        Write-Error "Installation of 'ExchangeOnlineManagement' failed — module still not found after install." -ErrorAction Stop
+    }
+    Write-Host "  Installed 'ExchangeOnlineManagement' v$($_exoMod.Version)." -ForegroundColor Green
 }
 Import-Module ExchangeOnlineManagement -ErrorAction Stop
 
@@ -82,7 +87,7 @@ function Export-Json {
 }
 
 # Helper: cross-platform DNS TXT record resolver.
-# Uses Resolve-DnsName on Windows and dig on Linux/macOS (requires bind-utils / dnsutils).
+# On Windows uses Resolve-DnsName. On Linux/macOS tries dig first, then nslookup.
 # Returns an array of TXT string values, or $null on failure.
 function Resolve-TxtRecord {
     [CmdletBinding()]
@@ -95,11 +100,24 @@ function Resolve-TxtRecord {
 
     try {
         if ($IsLinux -or $IsMacOS) {
-            $digOutput = & dig +short $queryDomain TXT 2>$null
-            if ($LASTEXITCODE -ne 0) { throw "dig failed for $queryDomain" }
-            return @($digOutput -split "`n" |
-                     Where-Object { $_ -ne '' } |
-                     ForEach-Object { $_.Trim('"') })
+            if (Get-Command dig -ErrorAction SilentlyContinue) {
+                $digOutput = & dig +short $queryDomain TXT 2>$null
+                if ($LASTEXITCODE -ne 0) { throw "dig failed for $queryDomain" }
+                return @($digOutput -split "`n" |
+                         Where-Object { $_ -ne '' } |
+                         ForEach-Object { $_.Trim('"') })
+            }
+            elseif (Get-Command nslookup -ErrorAction SilentlyContinue) {
+                $nslookupOutput = & nslookup -type=TXT $queryDomain 2>$null
+                return @($nslookupOutput |
+                         Where-Object { $_ -match '"' } |
+                         ForEach-Object { [regex]::Matches($_, '"([^"]+)"') |
+                             ForEach-Object { $_.Groups[1].Value } })
+            }
+            else {
+                Write-Warning "No DNS lookup tool found for $queryDomain — install bind-utils (dig) or ensure nslookup is available."
+                return $null
+            }
         }
         else {
             return (Resolve-DnsName $queryDomain -Type TXT -ErrorAction Stop).Strings

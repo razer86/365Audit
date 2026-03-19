@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.20.0
+    Version     : 1.21.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -35,21 +35,25 @@ Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 # Connect-MgGraphSecure, which runs them AFTER Connect-MgGraph so that
 # Microsoft.Graph.Authentication is already in Get-Module when sub-modules
 # resolve their RequiredModules — preventing any attempt to re-load the Auth DLL.
-$script:GraphSubModules = @(
+# Core Graph modules required by all audit runs:
+#   Authentication       — the base SDK module
+#   Identity.DirectoryManagement — needed by Initialize-AuditOutput (Get-MgOrganization)
+#                                  and Connect-ExchangeOnlineSecure (org domain lookup)
+# Audit-specific sub-modules are installed and imported on demand by each Invoke-* script
+# via Ensure-GraphSubModules — keeping startup fast when only one module is selected.
+$script:GraphCoreModules = @(
     'Microsoft.Graph.Authentication',
-    'Microsoft.Graph.Identity.DirectoryManagement',
-    'Microsoft.Graph.Users',
-    'Microsoft.Graph.Groups',
-    'Microsoft.Graph.Reports',
-    'Microsoft.Graph.Identity.SignIns',
-    'Microsoft.Graph.DeviceManagement',
-    'Microsoft.Graph.Devices.CorporateManagement',
-    'Microsoft.Graph.DeviceManagement.Enrollment'
+    'Microsoft.Graph.Identity.DirectoryManagement'
 )
-foreach ($_mod in $script:GraphSubModules) {
+foreach ($_mod in $script:GraphCoreModules) {
     if (-not (Get-Module -ListAvailable -Name $_mod)) {
-        Write-Host "Installing $_mod..." -ForegroundColor Yellow
+        Write-Host "Required module '$_mod' not found — installing latest..." -ForegroundColor Yellow
         Install-Module $_mod -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        $_installedMod = Get-Module -ListAvailable -Name $_mod | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $_installedMod) {
+            throw "Installation of '$_mod' failed — module still not found after install."
+        }
+        Write-Host "  Installed '$_mod' v$($_installedMod.Version)." -ForegroundColor Green
     }
 }
 Remove-Variable _mod -ErrorAction SilentlyContinue
@@ -63,39 +67,19 @@ function Resolve-GraphModuleVersion {
         return $script:GraphModuleVersion
     }
 
-    $commonVersions = $null
+    # All Microsoft.Graph.* sub-modules are versioned in lockstep with the Authentication
+    # module, so we use its installed version as the target for every sub-module install
+    # and import. This avoids iterating every sub-module (many of which aren't installed
+    # until their audit module runs) and keeps the resolver fast.
+    $versions = @(Get-Module -ListAvailable -Name 'Microsoft.Graph.Authentication' |
+        Select-Object -ExpandProperty Version -Unique |
+        Sort-Object -Descending)
 
-    foreach ($moduleName in $script:GraphSubModules) {
-        $versions = @(Get-Module -ListAvailable -Name $moduleName |
-                Select-Object -ExpandProperty Version -Unique |
-                Sort-Object -Descending)
-
-        if (-not $versions) {
-            throw "Required Microsoft Graph module '$moduleName' is not installed."
-        }
-
-        if ($null -eq $commonVersions) {
-            $commonVersions = @($versions)
-            continue
-        }
-
-        $commonVersions = @($commonVersions | Where-Object { $_ -in $versions })
+    if (-not $versions) {
+        throw "Microsoft.Graph.Authentication is not installed. Run Start-365Audit.ps1 to install required modules."
     }
 
-    if (-not $commonVersions) {
-        $available = foreach ($moduleName in $script:GraphSubModules) {
-            $moduleVersions = @(Get-Module -ListAvailable -Name $moduleName |
-                    Select-Object -ExpandProperty Version -Unique |
-                    Sort-Object -Descending |
-                    ForEach-Object { $_.ToString() })
-            "{0}: {1}" -f $moduleName, ($moduleVersions -join ', ')
-        }
-
-        throw ("No common Microsoft.Graph module version is installed across the required sub-modules.`n" +
-            ($available -join "`n"))
-    }
-
-    $script:GraphModuleVersion = $commonVersions | Sort-Object -Descending | Select-Object -First 1
+    $script:GraphModuleVersion = $versions | Select-Object -First 1
     Write-Verbose "Resolved Microsoft.Graph module version: $script:GraphModuleVersion"
     return $script:GraphModuleVersion
 }
@@ -268,6 +252,32 @@ function Import-GraphModuleVersioned {
 }
 
 
+function Import-GraphSubModules {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$Modules
+    )
+
+    $targetVersion = Resolve-GraphModuleVersion
+    foreach ($modName in $Modules) {
+        $installed = Get-Module -ListAvailable -Name $modName |
+            Where-Object { (ConvertTo-NormalizedVersion $_.Version) -eq (ConvertTo-NormalizedVersion $targetVersion) }
+        if (-not $installed) {
+            Write-Host "  Required module '$modName' not found — installing v$targetVersion..." -ForegroundColor Yellow
+            Install-Module $modName -RequiredVersion $targetVersion -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -WarningAction SilentlyContinue -ErrorAction Stop
+            $verified = Get-Module -ListAvailable -Name $modName |
+                Where-Object { (ConvertTo-NormalizedVersion $_.Version) -eq (ConvertTo-NormalizedVersion $targetVersion) }
+            if (-not $verified) {
+                throw "Installation of '$modName' v$targetVersion failed — module still not found after install."
+            }
+            Write-Host "  Installed '$modName' v$targetVersion." -ForegroundColor Green
+        }
+        Import-GraphModuleVersioned -ModuleName $modName
+    }
+}
+
+
 function Initialize-GraphSdk {
     [CmdletBinding()]
     param()
@@ -401,20 +411,11 @@ function Connect-MgGraphSecure {
         Write-Verbose "Already connected to Microsoft Graph."
     }
 
-    # Import Graph sub-modules now that Microsoft.Graph.Authentication is registered in
-    # Get-Module. Sub-modules resolve RequiredModules against the already-loaded Auth entry
-    # and do NOT attempt to re-load its DLL — so no FileLoadException can occur.
-    foreach ($mod in @(
-            'Microsoft.Graph.Identity.DirectoryManagement',
-            'Microsoft.Graph.Users',
-            'Microsoft.Graph.Groups',
-            'Microsoft.Graph.Reports',
-            'Microsoft.Graph.Identity.SignIns',
-            'Microsoft.Graph.DeviceManagement',
-            'Microsoft.Graph.Devices.CorporateManagement',
-            'Microsoft.Graph.DeviceManagement.Enrollment')) {
-        Import-GraphModuleVersioned -ModuleName $mod
-    }
+    # Import the core sub-module required by Initialize-AuditOutput (Get-MgOrganization)
+    # and Connect-ExchangeOnlineSecure (org domain lookup). This is the only module
+    # imported unconditionally — audit-specific modules are loaded on demand by each
+    # Invoke-* script via Import-GraphSubModules.
+    Import-GraphModuleVersioned -ModuleName 'Microsoft.Graph.Identity.DirectoryManagement'
 }
 
 

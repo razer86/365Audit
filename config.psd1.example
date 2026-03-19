@@ -1,0 +1,41 @@
+# 365Audit local configuration
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this file to config.psd1 and fill in your values.
+# config.psd1 is listed in .gitignore — it will never be committed.
+#
+# These values are loaded by Start-365Audit.ps1, Start-UnattendedAudit.ps1,
+# Setup-365AuditApp.ps1, and Generate-AuditSummary.ps1 as fallbacks when no
+# matching command-line parameter is supplied.
+# ─────────────────────────────────────────────────────────────────────────────
+@{
+    # ── Hudu integration ─────────────────────────────────────────────────────
+
+    # Base URL of your Hudu instance (no trailing slash)
+    HuduBaseUrl = 'https://your-hudu-instance.com'
+
+    # API key — found in Hudu under Administrator > API Keys
+    HuduApiKey  = ''
+
+    # Asset layout ID for the audit credential asset in Hudu.
+    # Hudu URLs show slugs, not IDs. Run .\Helpers\Get-HuduAssetLayouts.ps1 to list all layouts and their IDs.
+    HuduAssetLayoutId = 67
+
+    # Prefix used when naming the credential asset in Hudu — asset is created as "<HuduAssetName> - <Company Name>".
+    # Change this to match your asset layout name if you have renamed it in Hudu.
+    HuduAssetName = 'M365 Audit Toolkit'
+
+    # ── MSP identity ─────────────────────────────────────────────────────────
+
+    # Your MSP's email domains. Technical contact addresses not in this list
+    # are flagged as potential previous-MSP remnants in the summary report.
+    MspDomains = @(
+        'yourdomain.com'
+    )
+
+    # Partner/reseller display-name substrings that are recognised as your own
+    # legitimate GDAP relationships. Any other active delegated-admin partner
+    # is flagged as potentially a previous MSP in the summary report.
+    KnownPartners = @(
+        'Your Distributor Name'
+    )
+}

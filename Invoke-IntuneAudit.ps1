@@ -27,7 +27,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.6.0
+    Version     : 1.7.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -71,9 +71,14 @@ catch {
     exit 1
 }
 
-# === Connect to Microsoft Graph ===
+# === Connect to Microsoft Graph and load Intune-specific sub-modules ===
 try {
     Connect-MgGraphSecure
+    Import-GraphSubModules @(
+        'Microsoft.Graph.DeviceManagement',
+        'Microsoft.Graph.Devices.CorporateManagement',
+        'Microsoft.Graph.DeviceManagement.Enrollment'
+    )
 }
 catch {
     Write-Error "Microsoft Graph connection failed: $_"
@@ -710,11 +715,30 @@ function Invoke-GraphCollectionRequest {
         [string]$Uri
     )
 
-    $items = [System.Collections.Generic.List[object]]::new()
+    $items   = [System.Collections.Generic.List[object]]::new()
     $nextUri = $Uri
 
     while ($nextUri) {
-        $response = Invoke-MgGraphRequest -Method GET -Uri $nextUri -OutputType PSObject -ErrorAction Stop
+        $response = $null
+        $attempt  = 0
+        while ($null -eq $response) {
+            try {
+                $response = Invoke-MgGraphRequest -Method GET -Uri $nextUri -OutputType PSObject -ErrorAction Stop
+            }
+            catch {
+                $status = $null
+                try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+                if ($status -eq 429 -and $attempt -lt 5) {
+                    $retryAfter = $null
+                    try { $retryAfter = [int]$_.Exception.Response.Headers['Retry-After'] } catch {}
+                    if (-not $retryAfter -or $retryAfter -lt 1) { $retryAfter = [int][math]::Pow(2, $attempt + 2) }
+                    Write-Warning "Graph throttled (429) — retrying in ${retryAfter}s (attempt $($attempt + 1)/5)..."
+                    Start-Sleep -Seconds $retryAfter
+                    $attempt++
+                }
+                else { throw }
+            }
+        }
         foreach ($item in @($response.value)) {
             $items.Add($item)
         }

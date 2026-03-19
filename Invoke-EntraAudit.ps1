@@ -37,7 +37,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.13.0
+    Version     : 1.14.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -514,9 +514,16 @@ catch {
     exit 1
 }
 
-# === Connect to Microsoft Graph ===
+# === Connect to Microsoft Graph and load Entra-specific sub-modules ===
 try {
     Connect-MgGraphSecure
+    Import-GraphSubModules @(
+        'Microsoft.Graph.Users',
+        'Microsoft.Graph.Groups',
+        'Microsoft.Graph.Reports',
+        'Microsoft.Graph.Identity.SignIns',
+        'Microsoft.Graph.Applications'          # Get-MgServicePrincipal / Get-MgServicePrincipalAppRoleAssignment
+    )
 }
 catch {
     Write-Error "Microsoft Graph connection failed: $_"

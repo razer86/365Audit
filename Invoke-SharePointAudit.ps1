@@ -18,7 +18,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.10.0
+    Version     : 2.11.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -54,16 +54,33 @@ catch {
 
 # === Ensure PnP.PowerShell v3+ is available ===
 if (-not (Get-Module -ListAvailable -Name PnP.PowerShell | Where-Object Version -ge '3.0.0')) {
-    Write-Host "Installing PnP.PowerShell v3+..." -ForegroundColor Yellow
-    Install-Module PnP.PowerShell -Scope CurrentUser -Force -AllowClobber
+    Write-Host "Required module 'PnP.PowerShell' (v3+) not found — installing..." -ForegroundColor Yellow
+    Install-Module PnP.PowerShell -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    $_pnpMod = Get-Module -ListAvailable -Name PnP.PowerShell | Where-Object Version -ge '3.0.0' | Sort-Object Version -Descending | Select-Object -First 1
+    if (-not $_pnpMod) {
+        Write-Error "Installation of 'PnP.PowerShell' failed — module still not found after install." -ErrorAction Stop
+    }
+    Write-Host "  Installed 'PnP.PowerShell' v$($_pnpMod.Version)." -ForegroundColor Green
 }
 Import-Module PnP.PowerShell -WarningAction SilentlyContinue
+
+# === Load Graph sub-modules required by this audit ===
+Import-GraphSubModules @('Microsoft.Graph.Users')   # Get-MgUser (unlicensed OneDrive detection)
 
 # === Auto-detect app credentials from the launcher scope ===
 $_spAppId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
 $_spCertFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue
 $_spCertPassword = Get-Variable -Name AuditCertPassword -ValueOnly -ErrorAction SilentlyContinue
 $_useAppAuth     = $_spAppId -and $_spCertFilePath
+
+# SecureString cannot be serialized across parallel runspace boundaries — extract plain text here
+# and reconstruct a new SecureString inside each runspace.
+$_spCertPasswordPlain = $null
+if ($_spCertPassword -is [System.Security.SecureString]) {
+    $_ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($_spCertPassword)
+    try   { $_spCertPasswordPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($_ptr) }
+    finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($_ptr) }
+}
 
 # === Derive SharePoint admin URL from the tenant's .onmicrosoft.com domain ===
 $initialDomain = (Get-MgOrganization).VerifiedDomains |
@@ -139,48 +156,68 @@ Disconnect-PnPOnline
 $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving SharePoint groups, members, and site users..." -PercentComplete ([int]($step / $totalSteps * 100))
 
-$groupReport      = [System.Collections.Generic.List[PSCustomObject]]::new()
-$permissionReport = [System.Collections.Generic.List[PSCustomObject]]::new()
-
-foreach ($site in $sites) {
+$_parallelResults = $sites | ForEach-Object -ThrottleLimit 5 -Parallel {
+    $site          = $_
+    $conn = $null
     try {
-        if ($_useAppAuth) {
-            Connect-PnPOnline -Url $site.Url -ClientId $_spAppId -Tenant $initialDomain `
-                -CertificatePath $_spCertFilePath -CertificatePassword $_spCertPassword -ErrorAction Stop
+        Import-Module PnP.PowerShell -ErrorAction Stop
+        if ($using:_useAppAuth) {
+            $certPass = if ($using:_spCertPasswordPlain) {
+                ConvertTo-SecureString $using:_spCertPasswordPlain -AsPlainText -Force
+            } else { $null }
+            $conn = Connect-PnPOnline -Url $site.Url -ClientId $using:_spAppId -Tenant $using:initialDomain `
+                -CertificatePath $using:_spCertFilePath -CertificatePassword $certPass `
+                -ReturnConnection -ErrorAction Stop
         }
         else {
-            Connect-PnPOnline -Url $site.Url -Interactive -ErrorAction Stop
+            $conn = Connect-PnPOnline -Url $site.Url -Interactive -ReturnConnection -ErrorAction Stop
         }
 
         # Groups and members
-        $groups = Get-PnPGroup -ErrorAction Stop
+        $groups = Get-PnPGroup -Connection $conn -ErrorAction Stop
         foreach ($group in $groups) {
-            $members = Get-PnPGroupMember -Group $group -ErrorAction SilentlyContinue
-            $groupReport.Add([PSCustomObject]@{
+            $members = Get-PnPGroupMember -Group $group -Connection $conn -ErrorAction SilentlyContinue
+            [PSCustomObject]@{
+                _RowType    = 'Group'
                 Site        = $site.Url
                 GroupName   = $group.Title
                 Owner       = $group.OwnerTitle
                 MemberCount = if ($members) { @($members).Count } else { 0 }
                 Members     = if ($members) { ($members.LoginName -join '; ') } else { '' }
-            })
+            }
         }
 
         # Site users
-        $users = Get-PnPUser -ErrorAction Stop
+        $users = Get-PnPUser -Connection $conn -ErrorAction Stop
         foreach ($user in $users) {
-            $permissionReport.Add([PSCustomObject]@{
+            [PSCustomObject]@{
+                _RowType    = 'Permission'
                 Site        = $site.Url
                 Principal   = $user.Title
                 LoginName   = $user.LoginName
                 IsSiteAdmin = $user.IsSiteAdmin
                 Type        = if ($user.PrincipalType -eq 'User') { 'User' } else { 'Group' }
-            })
+            }
         }
-
-        Disconnect-PnPOnline
     }
     catch {
-        Write-Warning "Could not get groups/users for site: $($site.Url)"
+        Write-Warning "Could not get groups/users for site: $($site.Url) — $_"
+    }
+    finally {
+        if ($conn) {
+            try { Disconnect-PnPOnline -Connection $conn } catch { <# ignore disconnect errors #> }
+        }
+    }
+}
+
+$groupReport      = [System.Collections.Generic.List[PSCustomObject]]::new()
+$permissionReport = [System.Collections.Generic.List[PSCustomObject]]::new()
+foreach ($row in $_parallelResults) {
+    if ($row._RowType -eq 'Group') {
+        $groupReport.Add(($row | Select-Object -ExcludeProperty _RowType))
+    }
+    else {
+        $permissionReport.Add(($row | Select-Object -ExcludeProperty _RowType))
     }
 }
 

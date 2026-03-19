@@ -51,7 +51,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.29.0
+    Version     : 1.30.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -77,6 +77,19 @@ $ScriptVersion = "1.29.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# Load config.psd1 — MSP-specific values (domains, known partners)
+$_configPath    = Join-Path $PSScriptRoot 'config.psd1'
+$_mspDomains    = @()
+$_knownPartners = @()
+if (Test-Path $_configPath) {
+    try {
+        $_config = Import-PowerShellDataFile -Path $_configPath
+        if ($_config.MspDomains)    { $_mspDomains    = @($_config.MspDomains) }
+        if ($_config.KnownPartners) { $_knownPartners = @($_config.KnownPartners) }
+    }
+    catch { Write-Warning "Could not load config.psd1: $_" }
+}
 
 if (-not (Test-Path $AuditFolder)) {
     Write-Error "Provided audit folder does not exist: $AuditFolder"
@@ -316,7 +329,6 @@ $html.Add(@"
 # ===   Company Summary                 ===
 # =========================================
 $script:TechnicalContactSeverity = $null
-$_ncDomains = @('ntit.com.au','nqbe.com.au','capconnect.com.au','widebayit.com.au','neconnect.com.au')
 
 $orgInfoPath = Join-Path $AuditFolder "OrgInfo.json"
 if (Test-Path $orgInfoPath) {
@@ -329,12 +341,14 @@ if (Test-Path $orgInfoPath) {
     # Phone and technical contact
     $phone       = if ($orgInfo.Raw.BusinessPhones) { ($orgInfo.Raw.BusinessPhones -join ", ") } else { $null }
     $techContact = if ($orgInfo.TechnicalNotificationMails.Count -gt 0) { $orgInfo.TechnicalNotificationMails -join ", " } else { "—" }
-    $_foreignContacts = @($orgInfo.TechnicalNotificationMails | Where-Object {
-        $domain = ($_ -split '@')[-1].ToLower()
-        $domain -notin $_ncDomains
-    })
-    if ($_foreignContacts.Count -gt 0) {
-        $script:TechnicalContactSeverity = 'critical'
+    if ($_mspDomains.Count -gt 0) {
+        $_foreignContacts = @($orgInfo.TechnicalNotificationMails | Where-Object {
+            $domain = ($_ -split '@')[-1].ToLower()
+            $domain -notin $_mspDomains
+        })
+        if ($_foreignContacts.Count -gt 0) {
+            $script:TechnicalContactSeverity = 'critical'
+        }
     }
     $techContactHtml = if ($script:TechnicalContactSeverity) {
         "<span class='company-info-severity $($script:TechnicalContactSeverity)'>$(ConvertTo-HtmlText $techContact)</span>"
@@ -430,17 +444,20 @@ if ($CertExpiryDays -ge 0 -and $CertExpiryDays -le 30) {
 }
 
 # --- Technical Contact domain check ---
-# Flags any technical notification email that is not from a NeConnect group domain.
-# A non-NeConnect address likely belongs to a previous MSP and should be removed.
-if ($orgInfo -and $orgInfo.TechnicalNotificationMails.Count -gt 0) {
+# Flags any technical notification email that is not from an MSP domain (MspDomains in config.psd1).
+# A foreign address likely belongs to a previous MSP and should be removed.
+if ($_mspDomains.Count -eq 0) {
+    Write-Warning "MspDomains is not configured in config.psd1 — Technical Contact domain check skipped."
+}
+elseif ($orgInfo -and $orgInfo.TechnicalNotificationMails.Count -gt 0) {
     $_foreignContacts = @($orgInfo.TechnicalNotificationMails | Where-Object {
         $domain = ($_ -split '@')[-1].ToLower()
-        $domain -notin $_ncDomains
+        $domain -notin $_mspDomains
     })
     if ($_foreignContacts.Count -gt 0) {
         $_contactList = $_foreignContacts -join ', '
         Add-ActionItem -Severity 'critical' -Category 'Tenant / Technical Contact' `
-            -Text "Technical Contact address(es) are not from a NeConnect domain: $_contactList — this may be a previous MSP's details still on the tenant. Review and update the Technical Notification email in the Microsoft 365 admin centre (Settings &rarr; Org settings &rarr; Organisation profile)."
+            -Text "Technical Contact address(es) are not from a recognised MSP domain: $_contactList — this may be a previous MSP's details still on the tenant. Review and update the Technical Notification email in the Microsoft 365 admin centre (Settings &rarr; Org settings &rarr; Organisation profile)."
     }
 }
 
@@ -522,12 +539,14 @@ if (Test-Path $_aiSsprCsv) {
 }
 
 # Partner / GDAP relationships
-# Expected NeConnect group partners — these are legitimate and should not be flagged.
-# Webb Bros (trading as NeConnect group brands) appears as an indirect reseller under Ingram Micro.
-$_knownPartners = @('Ingram Micro Pty Ltd', 'Webb Bros')
+# Known partners are loaded from config.psd1 (KnownPartners). Relationships not
+# matching any entry are flagged as potential previous-MSP access.
 
 $_partnerCsv = Join-Path $entraDir "Entra_PartnerRelationships.csv"
-if (Test-Path $_partnerCsv) {
+if ($_knownPartners.Count -eq 0) {
+    Write-Warning "KnownPartners is not configured in config.psd1 — GDAP partner checks skipped."
+}
+elseif (Test-Path $_partnerCsv) {
     $_partners = @(Import-Csv $_partnerCsv)
     $_unknownPartners = @($_partners | Where-Object {
         $name = $_.DisplayName
@@ -538,11 +557,11 @@ if (Test-Path $_partnerCsv) {
     if ($_unknownPartners.Count -gt 0) {
         $_partnerList = ($_unknownPartners | ForEach-Object { "$($_.DisplayName) (expires $($_.EndDateTime -replace 'T.*'))" }) -join '<br>'
         Add-ActionItem -Severity 'critical' -Category 'Entra / Partner Access' `
-            -Text "$($_unknownPartners.Count) unrecognised active GDAP/delegated admin relationship(s) found. These are not NeConnect group partners and may belong to a previous MSP — review and remove if no longer required:<br>$_partnerList" `
+            -Text "$($_unknownPartners.Count) unrecognised active GDAP/delegated admin relationship(s) found. These are not recognised MSP partners and may belong to a previous MSP — review and remove if no longer required:<br>$_partnerList" `
             -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/misc/delegated-admin-privileges'
     }
 
-    # Check that NeConnect's own partner relationship has auto-extend enabled.
+    # Check that known partner relationships have auto-extend enabled.
     # AutoExtendDuration of PT0S or absent means the relationship will expire without manual renewal.
     $_knownWithoutAutoExtend = @($_partners | Where-Object {
         $name = $_.DisplayName
@@ -553,7 +572,7 @@ if (Test-Path $_partnerCsv) {
     if ($_knownWithoutAutoExtend.Count -gt 0) {
         $_noExtendList = ($_knownWithoutAutoExtend | ForEach-Object { "$($_.DisplayName) (expires $($_.EndDateTime -replace 'T.*'))" }) -join '<br>'
         Add-ActionItem -Severity 'critical' -Category 'Entra / Partner Access' `
-            -Text "NeConnect partner relationship(s) do not have auto-extend enabled — the relationship will expire and must be manually renewed before the expiry date or audit access will be lost:<br>$_noExtendList" `
+            -Text "Partner relationship(s) do not have auto-extend enabled — the relationship will expire and must be manually renewed before the expiry date or audit access will be lost:<br>$_noExtendList" `
             -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/misc/delegated-admin-privileges'
     }
 }

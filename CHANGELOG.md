@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.10.0 | Config loaded from `config.psd1` — `HuduApiKey`, `HuduBaseUrl`, and `HuduAssetLayoutId` sourced from file instead of environment variables; Hudu asset fetch now paginates (do/while until empty page — was a single request that missed assets beyond the first page); run context (mode, selected modules, timestamp, script path) written to transcript after module selection |
 | 2.9.3 | Audit transcript now saved to `Raw Files\AuditLog.txt`; works with the shared `Raw Files` output layout instead of the `Logs\` subfolder |
 | 2.9.2 | Audit transcript now saved to `Logs\AuditLog.txt` inside the customer output folder instead of the root; `Logs\` subfolder is created in the `finally` block before the move |
 | 2.9.1 | Added option 5 "Intune / Endpoint Audit" (`Invoke-IntuneAudit.ps1`); option 9 "Run All" updated to include all five modules (1–5); `ValidateSet` on `-Modules` extended to include 5 |
@@ -39,6 +40,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.6.0 | Config loaded from `config.psd1` — `HuduApiKey`, `HuduBaseUrl`, `HuduAssetLayoutId`, and `AuditAppName` sourced from file instead of environment variables; `HuduAssetLayoutId` replaces all hardcoded `asset_layout_id=67` references |
 | 2.5.5 | Existing-asset consent remediation now distinguishes missing application permissions from missing admin consent, retries consent interactively when app-only assignment is denied, and removes the `Start-ThreadJob` timeout wrapper from the interactive `Connect-MgGraph` fallback to avoid `$using:` timer errors |
 | 2.5.4 | Added four Intune Graph application permissions: `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `DeviceManagementApps.Read.All`, `DeviceManagementServiceConfig.Read.All` |
 | 2.5.3 | Added `DelegatedAdminRelationship.Read.All` to required Graph permissions — enables GDAP/partner relationship collection in `Invoke-EntraAudit.ps1` |
@@ -77,6 +79,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.14.0 | Lazy-load Entra-specific Graph sub-modules via `Import-GraphSubModules` after connect — loads `Users`, `Groups`, `Reports`, `Identity.SignIns`, and `Applications` on demand instead of at startup; adds `Microsoft.Graph.Applications` required for `Get-MgServicePrincipal` and `Get-MgServicePrincipalAppRoleAssignment` |
 | 1.13.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Entra\` subfolder |
 | 1.12.0 | Output CSVs written to `Entra\` subfolder inside the customer output directory instead of the root |
 | 1.11.0 | Added GDAP/partner relationship collection (`Entra_PartnerRelationships.csv`) — active delegated admin relationships fetched via `Invoke-MgGraphRequest` to `/tenantRelationships/delegatedAdminRelationships`; gracefully skips with a clear warning if `DelegatedAdminRelationship.Read.All` is not yet granted; added third-party enterprise app consent collection (`Entra_EnterpriseApps.csv`) — all non-Microsoft service principals tagged as enterprise apps with admin-consented API permissions; `$totalSteps` updated from 12 to 14 |
@@ -103,6 +106,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.13.0 | Module install now verifies the module is discoverable after `Install-Module` and includes the installed version in the confirmation message; `Install-Module` uses `-ErrorAction Stop` for consistent failure handling |
 | 1.12.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Exchange\` subfolder |
 | 1.11.0 | Output CSVs written to `Exchange\` subfolder inside the customer output directory instead of the root |
 | 1.10.0 | Added mail connector collection (`Exchange_MailConnectors.csv`) — inbound and outbound connectors with direction, name, enabled status, type, source, sender domains, and TLS certificate name; `$totalSteps` updated from 15 to 16 |
@@ -127,6 +131,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.11.0 | Per-site group/user collection converted to `ForEach-Object -Parallel -ThrottleLimit 5` for concurrent execution; `SecureString` cert password extracted to plain text before the parallel block and reconstructed inside each runspace to avoid serialisation failure; `Connect-PnPOnline -ReturnConnection` now used with explicit `-Connection` on every PnP cmdlet to prevent thread-local connection loss; `Disconnect-PnPOnline` wrapped in `try/catch` in `finally` block; `Microsoft.Graph.Users` loaded on demand for `Get-MgUser` (unlicensed OneDrive detection); module install now verifies post-install and shows installed version |
 | 2.10.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `SharePoint\` subfolder |
 | 2.9.0 | Output CSVs written to `SharePoint\` subfolder inside the customer output directory instead of the root |
 | 2.8.0 | Switched to certificate-based app-only auth: reads `$AuditAppId`/`$AuditCertFilePath`/`$AuditCertPassword` from launcher scope; uses `Connect-PnPOnline -CertificatePath/-CertificatePassword` (portable .pfx, no cert store required); removes interactive auth, PnP app ID pre-flight, and `Get-PnPAccessToken`; falls back to interactive when cert vars absent |
@@ -157,6 +162,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.9.0 | `Resolve-TxtRecord` now falls back from `dig` to `nslookup` on Linux/macOS when `dig` is unavailable, with a clear warning if neither tool is found; module install now verifies post-install and shows installed version |
 | 1.8.0 | Output CSVs and JSON files now written to the shared `Raw Files\` folder inside the customer output directory instead of the `MailSecurity\` subfolder |
 | 1.7.0 | Output CSVs and JSON files written to `MailSecurity\` subfolder inside the customer output directory instead of the root |
 | 1.6.1 | Linux/macOS: added `Resolve-TxtRecord` helper that uses `dig` when `Resolve-DnsName` is unavailable; DMARC uses `-join ''` to correctly reassemble fragmented TXT records per RFC 7489; SPF fallback label changed from "DNS query failed" to "Not Found" for consistency |
@@ -175,6 +181,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.7.0 | Lazy-load Intune-specific Graph sub-modules via `Import-GraphSubModules` after connect — loads `DeviceManagement`, `Devices.CorporateManagement`, and `DeviceManagement.Enrollment` on demand; Graph 429 throttle retry added to `Invoke-GraphCollectionRequest` — exponential backoff up to 5 attempts, honouring `Retry-After` header when present |
 | 1.6.0 | Intune exports refined after live validation: app install counts now populate correctly; configuration profile setting names/values are more human-readable (including Edge/Startup labels and duplicate-child suppression); Intune assignment details now resolve Entra group display names instead of raw GUIDs |
 | 1.5.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Intune\` subfolder |
 | 1.4.0 | Added Intune export enrichment for summary drilldowns: device table source remains `Intune_Devices.csv`; compliance policy exports now include IDs, descriptions, types, assignment details, and normalized setting values; configuration collection now includes modern `deviceManagement/configurationPolicies` via Graph beta with settings and assignment detail; app exports now include IDs, descriptions, timestamps, and assignment details |
@@ -188,6 +195,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.30.0 | `MspDomains` and `KnownPartners` loaded from `config.psd1` — replaces hardcoded domain and partner lists; Technical Contact domain check and GDAP partner checks are guarded and skipped with a warning when the respective config values are absent; action item text uses generic wording instead of MSP-specific names |
 | 1.29.0 | Summary styling streamlined; added severity colouring for Technical Contact when the corresponding action item is raised; Action Items now group `CRITICAL` before `WARNING`, sort by module order (Entra, Exchange, SharePoint, Mail Security, Intune), and use fixed column alignment; Conditional Access drilldowns expanded to show richer scope and condition detail when newer `Entra_CA_Policies.csv` exports are present |
 | 1.28.0 | All CSV discovery now reads from the shared `Raw Files\` folder while report sections continue grouping by filename prefix; raw-file links in the HTML report now point to `Raw Files\<filename>` |
 | 1.27.0 | Intune section enhanced: full managed-device inventory table; clickable compliance policy drilldowns with per-setting detail; clickable app drilldowns with installation summary; configuration profile/policy section now supports the richer Intune exports including modern configuration policies |
@@ -227,6 +235,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.3.0 | Config loaded from `config.psd1` — `HuduApiKey` and `HuduBaseUrl` sourced from file instead of environment variables |
 | 2.2.0 | Console output logging delegated to `Start-365Audit.ps1` — each customer's full run log is saved as `AuditLog.txt` in that customer's audit output folder; no separate bulk transcript needed since `Start-365Audit.ps1` stops its transcript in `finally` before the next customer begins |
 | 2.1.0 | Customer list extracted to `UnattendedCustomers.json` — techs edit the JSON file rather than the script; each entry has `HuduCompanySlug` and `Modules` (per-customer module selection); `-Modules` param now acts as a global override for all customers; `-Customers` param filters by slug; summary table includes per-customer modules column; script hard-errors with copy hint if JSON file is not found |
 | 2.0.0 | Full rewrite: Hudu-based credential management — customer list uses Hudu company IDs/slugs, no credentials stored in the script; per-customer flow: (1) call `Setup-365AuditApp.ps1 -HuduCompanyId` to check/renew cert automatically, (2) call `Start-365Audit.ps1 -HuduCompanyId -Modules` with fresh credentials from Hudu; supports `-Customers` override, `-Modules` selection, `-SkipCertCheck`, and `-HuduApiKey`/`-HuduBaseUrl`; per-customer error isolation (one failure does not stop remaining customers); final summary table with status per customer |
@@ -234,10 +243,11 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
-## common/Audit-Common.ps1
+## Common/Audit-Common.ps1
 
 | Version | Notes |
 |---------|-------|
+| 1.21.0 | Graph sub-module loading refactored to lazy-load via new `Import-GraphSubModules` helper — only installs and imports the modules required by the running audit section instead of all 9 at startup; core bootstrap reduced to `Authentication` and `Identity.DirectoryManagement`; `Resolve-GraphModuleVersion` simplified to use `Authentication` version only (all Graph sub-modules are versioned in lockstep); `Install-Module` for sub-modules uses `-WarningAction SilentlyContinue` to suppress spurious dependency-in-use warnings; all install blocks now verify the module is discoverable post-install and display the installed version |
 | 1.20.0 | Delegated `Connect-MgGraphSecure` now passes `-NoWelcome` so the Microsoft Graph SDK banner does not clutter launcher or diagnostic-script output |
 | 1.19.0 | `Initialize-AuditOutput` now creates and returns a shared `Raw Files\` subfolder (`RawOutputPath`) under each customer run folder so all modules and the launcher transcript can write to a single raw-output location |
 | 1.16.0 | Removed `Microsoft.Graph.DeviceManagement.Enrolment` from the sub-module list — that name (British spelling) is a v1.x-only module; its presence caused PowerShellGet to pull `Microsoft.Graph.Authentication` v1.28.0 as a dependency, which conflicts with the v2.x installation; all required Intune cmdlets are available via `Microsoft.Graph.DeviceManagement` and `Microsoft.Graph.Devices.CorporateManagement` in v2.x; added `-SkipPublisherCheck` to `Install-Module` to prevent catalog signing false-positives on Microsoft's own modules |
@@ -256,3 +266,27 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 | 1.2.0 | Import required Microsoft Graph sub-modules in `Connect-MgGraphSecure` |
 | 1.1.0 | Added `CmdletBinding`, `Invoke-VersionCheck`, centralised `RemoteBaseUrl` |
 | 1.0.0 | Initial creation and migration of shared helpers from launcher |
+
+---
+
+## Helpers/Get-HuduAssetLayouts.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — connects to Hudu and lists all asset layouts with their IDs; assists in identifying the correct `HuduAssetLayoutId` for `config.psd1` since the ID is not exposed in the Hudu UI |
+
+---
+
+## Helpers/Get-ModuleVersionStatus.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — performs a single bulk PSGallery lookup for all 365Audit required modules and displays installed vs latest version with status (OK / UPDATE AVAILABLE / NOT INSTALLED / MULTIPLE VERSIONS) |
+
+---
+
+## Helpers/Uninstall-AuditModules.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — uninstalls all versions of all 365Audit required modules; pre-flight check blocks execution if any modules are currently loaded in the session; supports `-WhatIf` |

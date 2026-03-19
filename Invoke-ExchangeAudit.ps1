@@ -21,7 +21,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.12.0
+    Version     : 1.13.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -57,8 +57,13 @@ catch {
 
 # === Ensure ExchangeOnlineManagement module is available ===
 if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
-    Write-Host "Installing ExchangeOnlineManagement module..." -ForegroundColor Yellow
-    Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force
+    Write-Host "Required module 'ExchangeOnlineManagement' not found — installing..." -ForegroundColor Yellow
+    Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -ErrorAction Stop
+    $_exoMod = Get-Module -ListAvailable -Name ExchangeOnlineManagement | Sort-Object Version -Descending | Select-Object -First 1
+    if (-not $_exoMod) {
+        Write-Error "Installation of 'ExchangeOnlineManagement' failed — module still not found after install." -ErrorAction Stop
+    }
+    Write-Host "  Installed 'ExchangeOnlineManagement' v$($_exoMod.Version)." -ForegroundColor Green
 }
 Import-Module ExchangeOnlineManagement -ErrorAction Stop
 
