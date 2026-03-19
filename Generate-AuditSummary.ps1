@@ -22,6 +22,7 @@
     - Entra_AccountCreations.csv
     - Entra_AccountDeletions.csv
     - Entra_AuditEvents.csv
+    - Entra_Groups.csv
     - Exchange_Mailboxes.csv
     - Exchange_InboxForwardingRules.csv
     - SharePoint_TenantStorage.csv
@@ -37,6 +38,8 @@
     - MailSec_SPF.csv
     - Entra_PartnerRelationships.csv
     - Entra_EnterpriseApps.csv
+    - Entra_RiskyUsers.csv
+    - Entra_RiskySignIns.csv
     - Exchange_MailConnectors.csv
     - Intune_LicenceCheck.csv
     - Intune_Devices.csv
@@ -51,7 +54,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.30.0
+    Version     : 1.31.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -73,20 +76,18 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.29.0"
+$ScriptVersion = "1.31.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# Load config.psd1 — MSP-specific values (domains, known partners)
+# Load config.psd1 — MSP-specific values (domains)
 $_configPath    = Join-Path $PSScriptRoot 'config.psd1'
 $_mspDomains    = @()
-$_knownPartners = @()
 if (Test-Path $_configPath) {
     try {
         $_config = Import-PowerShellDataFile -Path $_configPath
-        if ($_config.MspDomains)    { $_mspDomains    = @($_config.MspDomains) }
-        if ($_config.KnownPartners) { $_knownPartners = @($_config.KnownPartners) }
+        if ($_config.MspDomains) { $_mspDomains = @($_config.MspDomains) }
     }
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
@@ -538,56 +539,37 @@ if (Test-Path $_aiSsprCsv) {
     }
 }
 
-# Partner / GDAP relationships
-# Known partners are loaded from config.psd1 (KnownPartners). Relationships not
-# matching any entry are flagged as potential previous-MSP access.
-
-$_partnerCsv = Join-Path $entraDir "Entra_PartnerRelationships.csv"
-if ($_knownPartners.Count -eq 0) {
-    Write-Warning "KnownPartners is not configured in config.psd1 — GDAP partner checks skipped."
-}
-elseif (Test-Path $_partnerCsv) {
-    $_partners = @(Import-Csv $_partnerCsv)
-    $_unknownPartners = @($_partners | Where-Object {
-        $name = $_.DisplayName
-        $isKnown = $false
-        foreach ($partner in $_knownPartners) { if ($name -like "*$partner*") { $isKnown = $true; break } }
-        -not $isKnown
-    })
-    if ($_unknownPartners.Count -gt 0) {
-        $_partnerList = ($_unknownPartners | ForEach-Object { "$($_.DisplayName) (expires $($_.EndDateTime -replace 'T.*'))" }) -join '<br>'
-        Add-ActionItem -Severity 'critical' -Category 'Entra / Partner Access' `
-            -Text "$($_unknownPartners.Count) unrecognised active GDAP/delegated admin relationship(s) found. These are not recognised MSP partners and may belong to a previous MSP — review and remove if no longer required:<br>$_partnerList" `
-            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/misc/delegated-admin-privileges'
-    }
-
-    # Check that known partner relationships have auto-extend enabled.
-    # AutoExtendDuration of PT0S or absent means the relationship will expire without manual renewal.
-    $_knownWithoutAutoExtend = @($_partners | Where-Object {
-        $name = $_.DisplayName
-        $isKnown = $false
-        foreach ($partner in $_knownPartners) { if ($name -like "*$partner*") { $isKnown = $true; break } }
-        $isKnown -and ($_.AutoExtendDuration -eq 'PT0S' -or [string]::IsNullOrWhiteSpace($_.AutoExtendDuration))
-    })
-    if ($_knownWithoutAutoExtend.Count -gt 0) {
-        $_noExtendList = ($_knownWithoutAutoExtend | ForEach-Object { "$($_.DisplayName) (expires $($_.EndDateTime -replace 'T.*'))" }) -join '<br>'
-        Add-ActionItem -Severity 'critical' -Category 'Entra / Partner Access' `
-            -Text "Partner relationship(s) do not have auto-extend enabled — the relationship will expire and must be manually renewed before the expiry date or audit access will be lost:<br>$_noExtendList" `
-            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/misc/delegated-admin-privileges'
-    }
-}
-
 # Third-party enterprise apps with admin-consented permissions
 # Apps with admin consent have been granted API access to the tenant. Review for unknown or MSP-installed apps.
 $_aiAppsCsv = Join-Path $entraDir "Entra_EnterpriseApps.csv"
 if (Test-Path $_aiAppsCsv) {
-    $_aiApps         = @(Import-Csv $_aiAppsCsv)
+    $_aiApps         = @(Import-Csv $_aiAppsCsv -Encoding UTF8)
     $_aiConsentedApps = @($_aiApps | Where-Object { $_.AdminConsented -eq 'True' })
     if ($_aiConsentedApps.Count -gt 0) {
         $_appList = ($_aiConsentedApps | ForEach-Object { "$($_.DisplayName) ($($_.PublisherName))" }) -join '<br>'
         Add-ActionItem -Severity 'warning' -Category 'Entra / Enterprise Apps' `
             -Text "$($_aiConsentedApps.Count) third-party app(s) have admin-consented API permissions. Review to confirm all are authorised and none were installed by a previous MSP:<br>$_appList" `
             -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-consent-requests'
+    }
+
+    # AvePoint SaaS backup detection — AvePoint registers service principals in the tenant when configured
+    $_avePoint = @($_aiApps | Where-Object { $_.DisplayName -like 'AvePoint*' })
+    if ($_avePoint.Count -eq 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Backup' `
+            -Text "No AvePoint service principal detected in this tenant. Confirm that SaaS backup (Microsoft 365 data) is configured and active for this customer." `
+            -DocUrl 'https://partner.avepointonlineservices.com/Dashboard#/directory'
+    }
+}
+
+# Identity Protection — risky users
+$_aiRiskyUsersCsv = Join-Path $entraDir "Entra_RiskyUsers.csv"
+if (Test-Path $_aiRiskyUsersCsv) {
+    $_aiRiskyUsers = @(Import-Csv $_aiRiskyUsersCsv | Where-Object { $_.RiskState -in @('atRisk','confirmedCompromised') -and $_.RiskLevel -in @('medium','high') })
+    if ($_aiRiskyUsers.Count -gt 0) {
+        $_ruList = ($_aiRiskyUsers | ForEach-Object { "$(ConvertTo-HtmlText $_.UserPrincipalName) — $($_.RiskLevel) ($($_.RiskState))" }) -join '<br>'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Identity Protection' `
+            -Text "$($_aiRiskyUsers.Count) user(s) flagged as at-risk or compromised by Entra Identity Protection. Investigate and remediate immediately:<br>$_ruList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-investigate-risk'
     }
 }
 
@@ -1052,7 +1034,13 @@ $implHtml
             $entraSummary.Add("<p class='ok'>Security Defaults: <b>Enabled</b></p>")
         }
         else {
-            $entraSummary.Add("<p class='warn'>Security Defaults: <b>Disabled</b> — ensure Conditional Access policies are in place</p>")
+            $_sdCaCount = if ($null -ne $_aiEnabledCa) { @($_aiEnabledCa).Count } else { 0 }
+            if ($_sdCaCount -gt 0) {
+                $entraSummary.Add("<p class='ok'>Security Defaults: <b>Disabled</b> — $_sdCaCount Conditional Access polic$(if ($_sdCaCount -eq 1) { 'y' } else { 'ies' }) active</p>")
+            }
+            else {
+                $entraSummary.Add("<p class='critical'>Security Defaults: <b>Disabled</b> — no Conditional Access policies are enabled</p>")
+            }
         }
     }
 
@@ -1094,12 +1082,12 @@ $implHtml
 
         $tableRows = foreach ($user in ($userSummary | Sort-Object UPN)) {
             $mfaCell = if ($user.MFAEnabled -eq "False") {
-                "<td class='mfa-miss'>$($user.MFAEnabled)</td>"
+                "<td style='background:#ffebee;color:#b71c1c;font-weight:bold'>False</td>"
             } else {
                 "<td>$($user.MFAEnabled)</td>"
             }
             $statusCell = if ($user.AccountStatus -eq "Blocked") {
-                "<td class='warn'>Blocked</td>"
+                "<td style='background:#ffebee;color:#b71c1c;font-weight:bold'>Blocked</td>"
             } else {
                 "<td>$($user.AccountStatus)</td>"
             }
@@ -1143,9 +1131,17 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
     # Unlicensed member accounts
     $unlicensedUsersCsv = Join-Path $entraDir "Entra_Users_Unlicensed.csv"
     if (Test-Path $unlicensedUsersCsv) {
-        $unlicCount = @(Import-Csv $unlicensedUsersCsv).Count
-        if ($unlicCount -gt 0) {
-            $entraSummary.Add("<p class='warn'>$unlicCount member account(s) have no licence assigned (see Entra_Users_Unlicensed.csv)</p>")
+        $unlicUsers = @(Import-Csv $unlicensedUsersCsv)
+        if ($unlicUsers.Count -gt 0) {
+            $ulRows = ($unlicUsers | ForEach-Object {
+                "<tr><td>$($_.UPN)</td><td>$($_.FirstName) $($_.LastName)</td><td>$($_.AccountStatus)</td><td>$($_.LastSignIn)</td></tr>"
+            }) -join ""
+            $entraSummary.Add(@"
+<details>
+  <summary class='warn' style='cursor:pointer'>$($unlicUsers.Count) member account(s) have no licence assigned</summary>
+  <table><thead><tr><th>UPN</th><th>Name</th><th>Account Status</th><th>Last Sign-In</th></tr></thead><tbody>$ulRows</tbody></table>
+</details>
+"@)
         }
     }
 
@@ -1408,6 +1404,161 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
         }
         else {
             $entraSummary.Add("<p class='ok'>No notable audit events (role changes, security info changes) in the $auditWindowLabel</p>")
+        }
+    }
+
+    # --- Identity Protection ---
+    $_riskyUsersCsv   = Join-Path $entraDir "Entra_RiskyUsers.csv"
+    $_riskySignInsCsv = Join-Path $entraDir "Entra_RiskySignIns.csv"
+    $_hasRiskyData    = (Test-Path $_riskyUsersCsv) -or (Test-Path $_riskySignInsCsv)
+    if ($_hasRiskyData) {
+        $entraSummary.Add("<h4>Identity Protection</h4>")
+
+        if (Test-Path $_riskyUsersCsv) {
+            $_ruAll     = @(Import-Csv $_riskyUsersCsv)
+            $_ruAtRisk  = @($_ruAll | Where-Object { $_.RiskState -in @('atRisk','confirmedCompromised') })
+            $_ruStateColor = @{ 'atRisk' = 'color:#e65100;font-weight:bold'; 'confirmedCompromised' = 'color:#b71c1c;font-weight:bold'; 'remediated' = 'color:#2e7d32'; 'dismissed' = 'color:#888' }
+            $_ruLevelColor = @{ 'high' = 'color:#b71c1c;font-weight:bold'; 'medium' = 'color:#e65100;font-weight:bold'; 'low' = 'color:#f9a825' }
+
+            if ($_ruAtRisk.Count -gt 0) {
+                $entraSummary.Add("<p class='critical'>$($_ruAtRisk.Count) user(s) currently at risk or confirmed compromised.</p>")
+            } else {
+                $entraSummary.Add("<p class='ok'>No users currently flagged as at-risk or compromised ($($_ruAll.Count) total assessed).</p>")
+            }
+
+            if ($_ruAll.Count -gt 0) {
+                $_ruRows = foreach ($_ru in ($_ruAll | Sort-Object RiskLevel, UserPrincipalName)) {
+                    $_ruLStyle = if ($_ruLevelColor.ContainsKey($_ru.RiskLevel)) { " style='$($_ruLevelColor[$_ru.RiskLevel])'" } else { "" }
+                    $_ruSStyle = if ($_ruStateColor.ContainsKey($_ru.RiskState)) { " style='$($_ruStateColor[$_ru.RiskState])'" } else { "" }
+                    "<tr><td>$(ConvertTo-HtmlText $_ru.UserPrincipalName)</td><td>$(ConvertTo-HtmlText $_ru.DisplayName)</td><td$_ruLStyle>$($_ru.RiskLevel)</td><td$_ruSStyle>$($_ru.RiskState)</td><td>$(ConvertTo-HtmlText $_ru.RiskDetail)</td><td>$($_ru.RiskLastUpdated)</td></tr>"
+                }
+                $entraSummary.Add(@"
+<table>
+  <thead><tr><th>UPN</th><th>Name</th><th>Risk Level</th><th>Risk State</th><th>Detail</th><th>Last Updated</th></tr></thead>
+  <tbody>$($_ruRows -join "`n")</tbody>
+</table>
+"@)
+            }
+        }
+
+        if (Test-Path $_riskySignInsCsv) {
+            $_rsi = @(Import-Csv $_riskySignInsCsv)
+            if ($_rsi.Count -gt 0) {
+                $entraSummary.Add("<h5 style='margin-top:1rem'>Risky Sign-ins ($($_rsi.Count))</h5>")
+                $_rsiLevelColor = @{ 'high' = 'color:#b71c1c;font-weight:bold'; 'medium' = 'color:#e65100;font-weight:bold'; 'low' = 'color:#f9a825' }
+                $_rsiRows = foreach ($_rs in ($_rsi | Sort-Object { $_.CreatedDateTime } -Descending)) {
+                    $_rsLStyle = if ($_rsiLevelColor.ContainsKey($_rs.RiskLevel)) { " style='$($_rsiLevelColor[$_rs.RiskLevel])'" } else { "" }
+                    "<tr><td>$(ConvertTo-HtmlText $_rs.UserPrincipalName)</td><td$_rsLStyle>$($_rs.RiskLevel)</td><td>$(ConvertTo-HtmlText $_rs.RiskState)</td><td>$(ConvertTo-HtmlText $_rs.RiskEventTypes)</td><td>$(ConvertTo-HtmlText $_rs.IPAddress)</td><td>$(ConvertTo-HtmlText "$($_rs.City), $($_rs.CountryOrRegion)")</td><td>$(ConvertTo-HtmlText $_rs.AppDisplayName)</td><td>$($_rs.CreatedDateTime)</td></tr>"
+                }
+                $entraSummary.Add(@"
+<table>
+  <thead><tr><th>UPN</th><th>Risk Level</th><th>State</th><th>Event Types</th><th>IP</th><th>Location</th><th>App</th><th>Time</th></tr></thead>
+  <tbody>$($_rsiRows -join "`n")</tbody>
+</table>
+"@)
+            } else {
+                $entraSummary.Add("<p class='ok'>No risky sign-ins recorded.</p>")
+            }
+        }
+    }
+
+    # --- Groups ---
+    $_grpCsv = Join-Path $entraDir "Entra_Groups.csv"
+    if (Test-Path $_grpCsv) {
+        $_grps = @(Import-Csv $_grpCsv)
+        if ($_grps.Count -gt 0) {
+            $_grpM365     = @($_grps | Where-Object { $_.GroupType -eq 'Microsoft 365' }).Count
+            $_grpSec      = @($_grps | Where-Object { $_.GroupType -eq 'Security' }).Count
+            $_grpDynamic  = @($_grps | Where-Object { $_.MembershipType -eq 'Dynamic' }).Count
+            $_grpAssigned = @($_grps | Where-Object { $_.MembershipType -eq 'Assigned' }).Count
+            $_grpOnPrem   = @($_grps | Where-Object { $_.OnPremSyncEnabled -eq 'True' }).Count
+            $_grpRoleAssignable = @($_grps | Where-Object { $_.IsAssignableToRole -eq 'True' })
+            $_grpNoOwners       = @($_grps | Where-Object { -not $_.Owners })
+
+            $entraSummary.Add("<h4>Groups ($($_grps.Count) total)</h4>")
+            $entraSummary.Add("<p>Microsoft 365: <b>$_grpM365</b> &nbsp;|&nbsp; Security: <b>$_grpSec</b> &nbsp;|&nbsp; Dynamic: <b>$_grpDynamic</b> &nbsp;|&nbsp; Assigned: <b>$_grpAssigned</b>$(if ($_grpOnPrem -gt 0) { " &nbsp;|&nbsp; On-Prem Synced: <b>$_grpOnPrem</b>" })</p>")
+
+            if ($_grpNoOwners.Count -gt 0) {
+                $entraSummary.Add("<p class='warn'>$($_grpNoOwners.Count) group(s) have no owner assigned — these groups are unmanaged and may accumulate stale members.</p>")
+            }
+            if ($_grpRoleAssignable.Count -gt 0) {
+                $_raNames = ($_grpRoleAssignable | ForEach-Object { ConvertTo-HtmlText $_.DisplayName }) -join ', '
+                $entraSummary.Add("<p class='warn'>$($_grpRoleAssignable.Count) role-assignable group(s) — membership grants Entra directory roles: <b>$_raNames</b></p>")
+            }
+
+            $_grpRows = foreach ($_grp in ($_grps | Sort-Object DisplayName)) {
+                $_grpMemberList = if ($_grp.Members) {
+                    ($_grp.Members -split '; ' | Where-Object { $_ } | ForEach-Object {
+                        $m = $_
+                        $mStyle = if ($m -like '*#EXT#*') { " style='color:#e65100'" } elseif ($m -match '@') { " style='color:#2e7d32'" } else { "" }
+                        "<span$mStyle>$(ConvertTo-HtmlText $m)</span>"
+                    }) -join '<br>'
+                } else { '<em style="color:#888">No members</em>' }
+
+                $_grpOwnerCell = if ($_grp.Owners) { ConvertTo-HtmlText $_grp.Owners } else { "<span style='color:#e65100'>None</span>" }
+                $_grpRaBadge   = if ($_grp.IsAssignableToRole -eq 'True') { " <span style='background:#fff3e0;color:#e65100;border:1px solid #ffcc02;border-radius:3px;padding:1px 5px;font-size:0.78rem'>Role-Assignable</span>" } else { "" }
+                $_grpDynBadge  = if ($_grp.MembershipType -eq 'Dynamic') { " <span style='background:#e3f2fd;color:#1565c0;border:1px solid #90caf9;border-radius:3px;padding:1px 5px;font-size:0.78rem'>Dynamic</span>" } else { "" }
+                $_grpOpBadge   = if ($_grp.Source -eq 'On-Premises') { " <span style='background:#f3e5f5;color:#6a1b9a;border:1px solid #ce93d8;border-radius:3px;padding:1px 5px;font-size:0.78rem'>On-Prem</span>" } elseif ($_grp.Source -eq 'Cloud (Sync Stopped)') { " <span style='background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:3px;padding:1px 5px;font-size:0.78rem'>Sync Stopped</span>" } else { "" }
+
+                $memberCount = if ($_grp.Members) { @($_grp.Members -split '; ' | Where-Object { $_ }).Count } else { 0 }
+
+                $_grpEmail = if ($_grp.Email) { "<span style='color:#888;font-size:0.88em'>$(ConvertTo-HtmlText $_grp.Email)</span>" } else { "" }
+                $_grpSrc   = switch ($_grp.Source) {
+                    'On-Premises'        { "<span style='color:#6a1b9a'>On-Premises</span>" }
+                    'Cloud (Sync Stopped)' { "<span style='color:#e65100'>Cloud (Sync Stopped)</span>" }
+                    default              { "Cloud" }
+                }
+
+                "<tr class='user-row' onclick='togglePerms(this)' title='Click to show/hide members'>" +
+                "<td>$(ConvertTo-HtmlText $_grp.DisplayName)$_grpRaBadge$_grpDynBadge$_grpOpBadge<br>$_grpEmail</td>" +
+                "<td>$(ConvertTo-HtmlText $_grp.GroupType)</td>" +
+                "<td>$_grpSrc</td>" +
+                "<td>$_grpOwnerCell</td>" +
+                "<td>$memberCount</td>" +
+                "</tr>" +
+                "<tr class='signin-detail' style='display:none'><td colspan='5'><div style='padding:0.5rem 1rem'>$_grpMemberList</div></td></tr>"
+            }
+            $entraSummary.Add(@"
+<table>
+  <thead><tr><th>Group Name</th><th>Type</th><th>Source</th><th>Owner(s)</th><th>Members</th></tr></thead>
+  <tbody>$($_grpRows -join "`n")</tbody>
+</table>
+"@)
+        }
+    }
+
+    # --- Enterprise Apps ---
+    $_eaHtmlCsv = Join-Path $entraDir "Entra_EnterpriseApps.csv"
+    if (Test-Path $_eaHtmlCsv) {
+        $_eaApps = @(Import-Csv $_eaHtmlCsv -Encoding UTF8)
+        if ($_eaApps.Count -gt 0) {
+            $_eaAvePoint = @($_eaApps | Where-Object { $_.DisplayName -like 'AvePoint*' })
+            $_eaAveName  = if ($_eaAvePoint.Count -gt 0) { $_eaAvePoint[0].DisplayName } else { $null }
+            $_eaRows = foreach ($_ea in ($_eaApps | Sort-Object DisplayName)) {
+                $_eaIsAvePoint = $_ea.DisplayName -like 'AvePoint*'
+                $_eaStyle      = if ($_eaIsAvePoint) { " style='background:#e8f5e9'" } else { "" }
+                $_eaConsented  = if ($_ea.AdminConsented -eq 'True') { "<span style='color:#c62828;font-weight:bold'>Yes</span>" } else { "No" }
+                $_eaEnabled    = if ($_ea.Enabled -eq 'True') { "Yes" } else { "<span style='color:#888'>No</span>" }
+                $_eaRoles      = if ($_ea.ConsentedRoles -and [int]$_ea.ConsentedRoles -gt 0) { "<b>$($_ea.ConsentedRoles)</b>" } else { $_ea.ConsentedRoles }
+                $publisher     = if ($_ea.PublisherName) { $(ConvertTo-HtmlText $_ea.PublisherName) } elseif ($_ea.PublisherDomain) { $(ConvertTo-HtmlText $_ea.PublisherDomain) } else { '<span style=''color:#888''>Unknown</span>' }
+                "<tr$_eaStyle><td>$(ConvertTo-HtmlText $_ea.DisplayName)</td><td>$publisher</td><td>$_eaEnabled</td><td>$_eaConsented</td><td>$_eaRoles</td></tr>"
+            }
+            $_eaAveStatus = if ($_eaAvePoint.Count -gt 0) {
+                "<p class='ok'>AvePoint detected — SaaS backup service principal is present in this tenant.</p>"
+            } else {
+                "<p class='critical'>AvePoint not detected — no AvePoint service principal found. Confirm SaaS backup is configured.</p>"
+            }
+            $entraSummary.Add("<h4>Enterprise Apps ($($_eaApps.Count) third-party)</h4>")
+            $entraSummary.Add($_eaAveStatus)
+            $entraSummary.Add(@"
+<table>
+  <thead><tr><th>App Name</th><th>Publisher</th><th>Enabled</th><th>Admin Consented</th><th>Consented Roles</th></tr></thead>
+  <tbody>$($_eaRows -join "`n")</tbody>
+</table>
+"@)
+        }
+        else {
+            $entraSummary.Add("<p class='ok'>No third-party enterprise apps found in this tenant.</p>")
         }
     }
 
@@ -2040,6 +2191,26 @@ if ($spFiles.Count -gt 0) {
             'ENTERWIKI#0'               = 'Enterprise Wiki'
         }
 
+        # Count sharing link group types across all sites for the summary line
+        $_sharingLinkCounts = @{ Anonymous = 0; Organisation = 0; SpecificPeople = 0; Other = 0 }
+        foreach ($_slg in ($groupsBySite.Values | ForEach-Object { $_ })) {
+            if ($_slg.GroupName -match '^SharingLinks\..+?\.(Anonymous|Organization|Flexible)') {
+                switch -Regex ($Matches[1]) {
+                    'Anonymous'    { $_sharingLinkCounts.Anonymous++ }
+                    'Organization' { $_sharingLinkCounts.Organisation++ }
+                    'Flexible'     { $_sharingLinkCounts.SpecificPeople++ }
+                    default        { $_sharingLinkCounts.Other++ }
+                }
+            }
+        }
+        $_totalSharingLinks = $_sharingLinkCounts.Anonymous + $_sharingLinkCounts.Organisation + $_sharingLinkCounts.SpecificPeople + $_sharingLinkCounts.Other
+
+        # Derive admin centre URL from first site URL (e.g. https://contoso.sharepoint.com → https://contoso-admin.sharepoint.com)
+        $_spAdminUrl = if ($sites.Count -gt 0) {
+            $sites[0].Url -replace 'https://([^.]+)\.sharepoint\.com.*', 'https://$1-admin.sharepoint.com'
+        } else { 'https://admin.microsoft.com' }
+        $_sharingReportUrl = "$_spAdminUrl/_layouts/15/online/ExternalSharingReportManager.aspx"
+
         $spSummary.Add("<h4>Site Collections ($($sites.Count))</h4>")
         $spSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand SharePoint groups for that site.'))
 
@@ -2063,22 +2234,34 @@ if ($spFiles.Count -gt 0) {
 
             # Groups detail row
             $siteGroups = if ($groupsBySite.ContainsKey($site.Url)) { @($groupsBySite[$site.Url]) } else { @() }
-            if ($siteGroups.Count -gt 0) {
-                $groupRows = ($siteGroups | ForEach-Object {
+            # Filter out system-generated and sharing link groups — counted separately below
+            $visibleGroups = @($siteGroups | Where-Object {
+                $_.GroupName -notmatch '^Limited Access System Group For (List|Web) ' -and
+                $_.GroupName -notmatch '^SharingLinks\.'
+            })
+            if ($visibleGroups.Count -gt 0) {
+                $groupRows = ($visibleGroups | ForEach-Object {
                     # Resolve SharePoint claim tokens to readable labels
                     $cleanMembers = if ($_.Members) {
                         ($_.Members -split ';\s*' | ForEach-Object {
                             $m = $_.Trim()
-                            if     ($m -match '^i:0#\.f\|membership\|(.+)$')           { $Matches[1] }
-                            elseif ($m -match '^c:0t\.c\|tenant\|')                    { '[All org users]' }
-                            elseif ($m -match '^c:0-\.f\|rolemanager\|spo-grid-all-users') { '[Everyone]' }
-                            elseif ($m -match '^c:0o\.c\|federateddirectoryclaimprovider\|') { '[M365 Group]' }
-                            elseif ($m -match '^c:0\(\.s\|true')                       { '[All authenticated users]' }
-                            elseif ($m -eq 'SHAREPOINT\system')                        { '[SharePoint System]' }
-                            elseif ($m)                                                 { ($m -split '\|')[-1] }
+                            $resolved = if     ($m -match '^i:0#\.f\|membership\|(.+)$')               { $Matches[1] }
+                                        elseif ($m -match '^c:0t\.c\|tenant\|')                        { '[All org users]' }
+                                        elseif ($m -match '^c:0-\.f\|rolemanager\|spo-grid-all-users') { '[Everyone]' }
+                                        elseif ($m -match '^c:0o\.c\|federateddirectoryclaimprovider\|') { '[M365 Group]' }
+                                        elseif ($m -match '^c:0\(\.s\|true')                           { '[All authenticated users]' }
+                                        elseif ($m -eq 'SHAREPOINT\system')                            { '[SharePoint System]' }
+                                        elseif ($m)                                                    { ($m -split '\|')[-1] }
+                            if (-not $resolved) { return }
+                            if ($resolved -match '^[0-9a-f]{40,}$') { return }
+                            $color = if     ($resolved -match '^\[')                         { $null }
+                                     elseif ($resolved -match '#ext#')                       { 'darkorange' }
+                                     elseif ($resolved -match '^[^@\s]+@[^@\s]+\.[^@\s]+$') { 'green' }
+                                     else                                                    { $null }
+                            if ($color) { "<span style='color:$color'>$resolved</span>" } else { $resolved }
                         } | Where-Object { $_ }) -join ', '
                     } else { '—' }
-                    "<tr><td>$($_.GroupName)</td><td>$($_.Owner)</td><td style='text-align:center'>$($_.MemberCount)</td><td style='font-size:0.8rem;word-break:break-all'>$cleanMembers</td></tr>"
+                    "<tr><td>$(ConvertTo-HtmlText $_.GroupName)</td><td>$($_.Owner)</td><td style='text-align:center'>$($_.MemberCount)</td><td style='font-size:0.8rem;word-break:break-all'>$cleanMembers</td></tr>"
                 }) -join ""
                 $detailRow = "<tr class='signin-detail' style='display:none'><td colspan='5'><table class='inner-table'><thead><tr><th>Group</th><th>Owner</th><th>Members</th><th>Member Accounts</th></tr></thead><tbody>$groupRows</tbody></table></td></tr>"
             }
@@ -2098,6 +2281,18 @@ if ($spFiles.Count -gt 0) {
   <tbody>$($siteRows -join "`n")</tbody>
 </table>
 "@)
+
+        # Sharing links summary line
+        if ($_totalSharingLinks -gt 0) {
+            $_slParts = [System.Collections.Generic.List[string]]::new()
+            if ($_sharingLinkCounts.Anonymous     -gt 0) { $_slParts.Add("<span style='color:#e65100;font-weight:bold'>$($_sharingLinkCounts.Anonymous) anonymous</span>") }
+            if ($_sharingLinkCounts.Organisation  -gt 0) { $_slParts.Add("<span style='color:#1565c0'>$($_sharingLinkCounts.Organisation) organisation-wide</span>") }
+            if ($_sharingLinkCounts.SpecificPeople -gt 0) { $_slParts.Add("<span style='color:#6a1b9a'>$($_sharingLinkCounts.SpecificPeople) specific people</span>") }
+            if ($_sharingLinkCounts.Other         -gt 0) { $_slParts.Add("$($_sharingLinkCounts.Other) other") }
+            $_slColor = if ($_sharingLinkCounts.Anonymous -gt 0) { 'warn' } else { '' }
+            $_slStyle = if ($_slColor) { " class='$_slColor'" } else { '' }
+            $spSummary.Add("<p$_slStyle>$_totalSharingLinks sharing link(s) detected across all sites: $($_slParts -join ', ') &mdash; <a href='$_sharingReportUrl' target='_blank'>Generate External Sharing Report in SharePoint Admin Centre</a></p>")
+        }
     }
 
     # --- 3. External Sharing ---
@@ -2329,9 +2524,10 @@ $intuneFiles = @(Get-ChildItem "$intuneDir\Intune_*.csv" -ErrorAction SilentlyCo
 if ($intuneFiles.Count -gt 0) {
     $intuneSummary = [System.Collections.Generic.List[string]]::new()
 
-    $intLicCsv     = Join-Path $intuneDir "Intune_LicenceCheck.csv"
-    $intDevCsv     = Join-Path $intuneDir "Intune_Devices.csv"
-    $intPolCsv     = Join-Path $intuneDir "Intune_CompliancePolicies.csv"
+    $intLicCsv         = Join-Path $intuneDir "Intune_LicenceCheck.csv"
+    $intDevCsv         = Join-Path $intuneDir "Intune_Devices.csv"
+    $intDevStatesCsv   = Join-Path $intuneDir "Intune_DeviceComplianceStates.csv"
+    $intPolCsv         = Join-Path $intuneDir "Intune_CompliancePolicies.csv"
     $intPolSetCsv  = Join-Path $intuneDir "Intune_CompliancePolicySettings.csv"
     $intProfCsv    = Join-Path $intuneDir "Intune_ConfigProfiles.csv"
     $intProfSetCsv = Join-Path $intuneDir "Intune_ConfigProfileSettings.csv"
@@ -2347,7 +2543,27 @@ if ($intuneFiles.Count -gt 0) {
         $intuneSummary.Add("<p><em>No Intune-capable licence was detected on this tenant. Intune device management data was not collected.</em></p>")
     }
     else {
-        $intuneSummary.Add("<p><strong>Licenced SKUs:</strong> $($_intLicRow.LicencedSKUs)</p>")
+        $_skuFriendlyNames = @{
+            'SPB'                  = 'Microsoft 365 Business Premium'
+            'BUSINESS_PREMIUM'     = 'Microsoft 365 Business Premium'
+            'ENTERPRISEPREMIUM'    = 'Microsoft 365 E5'
+            'ENTERPRISEPACK'       = 'Microsoft 365 E3'
+            'M365_F1'              = 'Microsoft 365 F1'
+            'M365_F3'              = 'Microsoft 365 F3'
+            'INTUNE_A'             = 'Microsoft Intune Plan 1'
+            'INTUNE_A_D'           = 'Microsoft Intune Plan 1 for Education'
+            'INTUNE_P2'            = 'Microsoft Intune Plan 2'
+            'EMS'                  = 'Enterprise Mobility + Security E3'
+            'EMS_S_1'              = 'Enterprise Mobility + Security E3'
+            'EMS_S_3'              = 'Enterprise Mobility + Security E3'
+            'EMS_S_5'              = 'Enterprise Mobility + Security E5'
+            'EMSPREMIUM'           = 'Enterprise Mobility + Security E5'
+        }
+        $_skuDisplay = ($($_intLicRow.LicencedSKUs) -split ',\s*' | ForEach-Object {
+            $sku = $_.Trim()
+            if ($_skuFriendlyNames.ContainsKey($sku)) { "$($_skuFriendlyNames[$sku]) ($sku)" } else { $sku }
+        }) -join ', '
+        $intuneSummary.Add("<p><strong>Licenced SKUs:</strong> $_skuDisplay</p>")
 
         # Device inventory
         if (Test-Path $intDevCsv) {
@@ -2379,7 +2595,19 @@ if ($intuneFiles.Count -gt 0) {
             }
             $intuneSummary.Add("</tbody></table>")
 
+            # Build per-device compliance state lookup
+            $_devStatesMap = @{}
+            if (Test-Path $intDevStatesCsv) {
+                foreach ($_ds in (Import-Csv $intDevStatesCsv)) {
+                    if (-not $_devStatesMap.ContainsKey($_ds.DeviceName)) {
+                        $_devStatesMap[$_ds.DeviceName] = [System.Collections.Generic.List[object]]::new()
+                    }
+                    $_devStatesMap[$_ds.DeviceName].Add($_ds)
+                }
+            }
+
             $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Managed Devices</h4>")
+            $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand per-policy compliance states for that device.'))
             $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Device</th><th>OS</th><th>OS Version</th><th>Type</th><th>Owner</th><th>Compliance</th><th>Assigned User</th><th>Manufacturer</th><th>Model</th><th>Last Sync</th><th>Agent</th></tr></thead><tbody>")
             foreach ($_dev in ($_intDevices | Sort-Object DeviceName, OS, LastSyncDateTime)) {
                 $_complianceStyle = switch ($_dev.ComplianceState) {
@@ -2387,22 +2615,37 @@ if ($intuneFiles.Count -gt 0) {
                     'noncompliant' { 'color:#c62828;font-weight:bold' }
                     default        { '' }
                 }
-                $intuneSummary.Add("<tr><td>$(ConvertTo-HtmlText $_dev.DeviceName)</td><td>$(ConvertTo-HtmlText $_dev.OS)</td><td>$(ConvertTo-HtmlText $_dev.OSVersion)</td><td>$(ConvertTo-HtmlText $_dev.DeviceType)</td><td>$(ConvertTo-HtmlText $_dev.OwnerType)</td><td style='$_complianceStyle'>$(ConvertTo-HtmlText $_dev.ComplianceState)</td><td>$(ConvertTo-HtmlText $_dev.AssignedUser)</td><td>$(ConvertTo-HtmlText $_dev.Manufacturer)</td><td>$(ConvertTo-HtmlText $_dev.Model)</td><td>$(ConvertTo-HtmlText $_dev.LastSyncDateTime)</td><td>$(ConvertTo-HtmlText $_dev.ManagementAgent)</td></tr>")
+                $_syncDt = [datetime]::MinValue
+                $_syncStale = $_dev.LastSyncDateTime -and [datetime]::TryParse($_dev.LastSyncDateTime, [ref]$_syncDt) -and (([datetime]::UtcNow - $_syncDt).TotalDays -gt 30)
+                $_syncStyle = if ($_syncStale) { "background:#ffebee;color:#b71c1c;font-weight:bold" } else { "" }
+                $intuneSummary.Add("<tr class='user-row' onclick='togglePerms(this)' title='Click to show/hide compliance policy states'><td>$(ConvertTo-HtmlText $_dev.DeviceName)</td><td>$(ConvertTo-HtmlText $_dev.OS)</td><td>$(ConvertTo-HtmlText $_dev.OSVersion)</td><td>$(ConvertTo-HtmlText $_dev.DeviceType)</td><td>$(ConvertTo-HtmlText $_dev.OwnerType)</td><td style='$_complianceStyle'>$(ConvertTo-HtmlText $_dev.ComplianceState)</td><td>$(ConvertTo-HtmlText $_dev.AssignedUser)</td><td>$(ConvertTo-HtmlText $_dev.Manufacturer)</td><td>$(ConvertTo-HtmlText $_dev.Model)</td><td style='$_syncStyle'>$(ConvertTo-HtmlText $_dev.LastSyncDateTime)</td><td>$(ConvertTo-HtmlText $_dev.ManagementAgent)</td></tr>")
+
+                # Detail row — per-policy compliance states (deduplicated: worst state wins per policy name)
+                $_devPolicyStates = if ($_devStatesMap.ContainsKey($_dev.DeviceName)) { @($_devStatesMap[$_dev.DeviceName]) } else { @() }
+                if ($_devPolicyStates.Count -gt 0) {
+                    $_stateRank = @{ 'error' = 4; 'nonCompliant' = 3; 'unknown' = 2; 'notApplicable' = 1; 'compliant' = 0 }
+                    $_deduped = $_devPolicyStates |
+                        Group-Object PolicyName |
+                        ForEach-Object {
+                            $_.Group | Sort-Object { if ($_stateRank.ContainsKey($_.State)) { $_stateRank[$_.State] } else { -1 } } -Descending | Select-Object -First 1
+                        } | Sort-Object @{ Expression = { if ($_stateRank.ContainsKey($_.State)) { $_stateRank[$_.State] } else { -1 } }; Descending = $true }, @{ Expression = 'PolicyName'; Descending = $false }
+                    $_policyStateRows = ($_deduped | ForEach-Object {
+                        $_ps = $_
+                        $_psStyle = switch ($_ps.State) {
+                            'compliant'    { 'color:#388e3c;font-weight:bold' }
+                            'nonCompliant' { 'color:#c62828;font-weight:bold' }
+                            'error'        { 'color:#e65100;font-weight:bold' }
+                            default        { '' }
+                        }
+                        "<tr><td>$(ConvertTo-HtmlText $_ps.PolicyName)</td><td style='$_psStyle'>$(ConvertTo-HtmlText $_ps.State)</td><td>$(ConvertTo-HtmlText $_ps.LastReportedDateTime)</td></tr>"
+                    }) -join ""
+                    $intuneSummary.Add("<tr class='signin-detail' style='display:none'><td colspan='11'><table class='inner-table'><thead><tr><th>Policy</th><th>State</th><th>Last Reported</th></tr></thead><tbody>$_policyStateRows</tbody></table></td></tr>")
+                }
+                else {
+                    $intuneSummary.Add("<tr class='signin-detail' style='display:none'><td colspan='11'><em style='color:#888'>No per-policy compliance state data available for this device.</em></td></tr>")
+                }
             }
             $intuneSummary.Add("</tbody></table>")
-
-            $_intStale = @($_intDevices | Where-Object {
-                $dt = [datetime]::MinValue
-                $_.LastSyncDateTime -and [datetime]::TryParse($_.LastSyncDateTime, [ref]$dt) -and (([datetime]::UtcNow - $dt).TotalDays -gt 30)
-            })
-            if ($_intStale.Count -gt 0) {
-                $intuneSummary.Add("<details style='margin-top:0.75rem'><summary style='cursor:pointer;color:#b71c1c;font-size:0.9rem'>Stale Devices (30+ days since last check-in): $($_intStale.Count)</summary>")
-                $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Device</th><th>OS</th><th>Owner</th><th>Last Sync</th></tr></thead><tbody>")
-                foreach ($_sd in ($_intStale | Sort-Object LastSyncDateTime)) {
-                    $intuneSummary.Add("<tr><td>$(ConvertTo-HtmlText $_sd.DeviceName)</td><td>$(ConvertTo-HtmlText $_sd.OS)</td><td>$(ConvertTo-HtmlText $_sd.OwnerType)</td><td>$(ConvertTo-HtmlText $_sd.LastSyncDateTime)</td></tr>")
-                }
-                $intuneSummary.Add("</tbody></table></details>")
-            }
         }
 
         # Compliance policies

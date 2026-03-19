@@ -45,7 +45,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.6.0"
+$ScriptVersion = "1.7.0"
 Write-Verbose "Invoke-IntuneAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -961,8 +961,15 @@ $_hasIntune      = $_intuneLicSkus.Count -gt 0
 if (-not $_hasIntune) {
     Write-Warning "No Intune-capable licence found for $($context.OrgName). Skipping Intune data collection."
     Write-Progress -Id 1 -Activity $activity -Completed
-    return
+    # Note: cannot use `return` here — script is dot-sourced by the launcher and return only exits
+    # the current statement. Setting a skip flag instead; all remaining steps check this flag.
+    $_intuneSkip = $true
 }
+else {
+    $_intuneSkip = $false
+}
+
+if (-not $_intuneSkip) {
 
 Write-Host "  Intune licence confirmed: $($_intuneLicSkus.SkuPartNumber -join ', ')" -ForegroundColor Green
 
@@ -1384,6 +1391,8 @@ catch {
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_EnrollmentRestrictions.csv') -NoTypeInformation -Encoding UTF8
 }
 
+
+} # end if (-not $_intuneSkip)
 
 Write-Progress -Id 1 -Activity $activity -Completed
 Write-Host "`nIntune Audit complete. Output saved to: $outputDir" -ForegroundColor Green

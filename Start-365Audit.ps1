@@ -118,7 +118,7 @@ param (
     [int[]]$Modules
 )
 
-$ScriptVersion = "2.9.3"
+$ScriptVersion = "2.10.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

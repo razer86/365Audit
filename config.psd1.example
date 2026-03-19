@@ -31,11 +31,4 @@
     MspDomains = @(
         'yourdomain.com'
     )
-
-    # Partner/reseller display-name substrings that are recognised as your own
-    # legitimate GDAP relationships. Any other active delegated-admin partner
-    # is flagged as potentially a previous MSP in the summary report.
-    KnownPartners = @(
-        'Your Distributor Name'
-    )
 }

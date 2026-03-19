@@ -20,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.20.0"
+$ScriptVersion = "1.21.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 

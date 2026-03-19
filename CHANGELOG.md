@@ -285,6 +285,22 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
+## Helpers/New-HuduAssetLayout.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — creates the M365 Audit Toolkit asset layout in Hudu via the REST API; reads layout name from `HuduAssetName` in `config.psd1`; prints a field summary and requires confirmation before creating; prints the new layout ID for use in `HuduAssetLayoutId`; handles 401, 404, and 422 with actionable error messages; supports `-WhatIf` and `-Force`; requires Hudu Administrator or Super Administrator |
+
+---
+
+## Helpers/Sync-UnattendedCustomers.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — queries Hudu for all assets matching `HuduAssetLayoutId`, resolves company slugs, and merges results into `UnattendedCustomers.psd1`; preserves existing entries, appends new companies with `Modules = @(9)`, warns about slugs no longer in Hudu; supports `-WhatIf` and `-DefaultModules` |
+
+---
+
 ## Helpers/Uninstall-AuditModules.ps1
 
 | Version | Notes |

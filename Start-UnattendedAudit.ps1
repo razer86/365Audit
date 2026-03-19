@@ -73,7 +73,7 @@ param (
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.2.0"
+$ScriptVersion = "2.3.0"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

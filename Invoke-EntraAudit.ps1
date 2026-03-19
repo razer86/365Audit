@@ -32,12 +32,13 @@
     - Entra_AccountCreations.csv
     - Entra_AccountDeletions.csv
     - Entra_AuditEvents.csv
-    - Entra_PartnerRelationships.csv
     - Entra_EnterpriseApps.csv
+    - Entra_RiskyUsers.csv
+    - Entra_RiskySignIns.csv
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.14.0
+    Version     : 1.15.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -55,7 +56,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.13.0"
+$ScriptVersion = "1.15.0"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -912,6 +913,8 @@ $groupData = foreach ($group in (Get-MgGroup -All)) {
         GroupId            = $group.Id
         GroupType          = if ($group.GroupTypes -contains "Unified") { "Microsoft 365" } else { "Security" }
         MembershipType     = if ($group.MembershipRule) { "Dynamic" } else { "Assigned" }
+        Email              = $group.Mail
+        Source             = if ($group.OnPremisesSyncEnabled -eq $true) { "On-Premises" } elseif ($group.OnPremisesSyncEnabled -eq $false) { "Cloud (Sync Stopped)" } else { "Cloud" }
         Owners             = $owners
         Members            = $members
         MailEnabled        = $group.MailEnabled
@@ -1146,45 +1149,6 @@ catch {
 
 
 # ================================
-# ===   Partner / GDAP Relationships ===
-# ================================
-$step++
-Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting partner/GDAP relationships..." -PercentComplete ([int]($step / $totalSteps * 100))
-
-try {
-    $gdapResponse   = Invoke-MgGraphRequest -Method GET -Uri '/v1.0/tenantRelationships/delegatedAdminRelationships?$filter=status eq ''active''' -ErrorAction Stop
-    $gdapData = foreach ($rel in $gdapResponse.value) {
-        [PSCustomObject]@{
-            DisplayName        = $rel.displayName
-            Status             = $rel.status
-            PartnerTenantId    = $rel.partner.tenantId
-            CreatedDateTime    = $rel.createdDateTime
-            ActivatedDateTime  = $rel.activatedDateTime
-            EndDateTime        = $rel.endDateTime
-            AutoExtendDuration = $rel.autoExtendDuration   # PT0S or absent = disabled; e.g. P180D = enabled
-            RoleCount          = @($rel.accessDetails.unifiedRoles).Count
-        }
-    }
-
-    if ($gdapData) {
-        $gdapData | Export-Csv "$outputDir\Entra_PartnerRelationships.csv" -NoTypeInformation -Encoding UTF8
-        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting partner/GDAP relationships..." -CurrentOperation "Saved: Entra_PartnerRelationships.csv ($(@($gdapData).Count) active)" -PercentComplete ([int]($step / $totalSteps * 100))
-    }
-    else {
-        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting partner/GDAP relationships..." -CurrentOperation "No active partner relationships found." -PercentComplete ([int]($step / $totalSteps * 100))
-    }
-}
-catch {
-    if ($_.Exception.Message -match '403|Forbidden|valid permissions|valid roles|Authorization') {
-        Write-Warning "Partner Relationships: permission denied (DelegatedAdminRelationship.Read.All not yet granted). Re-run Setup-365AuditApp.ps1 to add the missing permission."
-    }
-    else {
-        Write-Warning "Unable to retrieve partner relationships: $_"
-    }
-}
-
-
-# ================================
 # ===   Enterprise Applications ===
 # ================================
 $step++
@@ -1225,6 +1189,80 @@ try {
 }
 catch {
     Write-Warning "Unable to retrieve enterprise applications: $_"
+}
+
+
+# ================================
+# ===   Identity Protection     ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Identity Protection risk data..." -PercentComplete ([int]($step / $totalSteps * 100))
+
+# Identity Protection requires Azure AD Premium P2.
+# Pre-check SKUs before attempting API calls to avoid noisy warnings on unlicensed tenants.
+$_p2Skus = @(
+    'AAD_PREMIUM_P2', 'EMS_E5', 'EMSPREMIUM', 'SPE_E5', 'SPE_E5_USGOV_GCCHIGH',
+    'M365EDU_A5_FACULTY', 'M365EDU_A5_STUDENT', 'IDENTITY_THREAT_PROTECTION',
+    'IDENTITY_THREAT_PROTECTION_FOR_SMB'
+)
+$_hasP2 = ($subscribedSkus.SkuPartNumber | Where-Object { $_ -in $_p2Skus }).Count -gt 0
+
+if (-not $_hasP2) {
+    Write-Verbose "No Azure AD Premium P2 licence detected — skipping Identity Protection collection."
+}
+else {
+    # Use Invoke-MgGraphRequest directly — no SDK cmdlets exist for these endpoints
+    try {
+        $riskyUsersResp = Invoke-MgGraphRequest -Method GET -Uri '/v1.0/identityProtection/riskyUsers?$top=500' -OutputType PSObject -ErrorAction Stop
+        $riskyUsers = @($riskyUsersResp.value)
+        if ($riskyUsers.Count -gt 0) {
+            $riskyUsers | ForEach-Object {
+                [PSCustomObject]@{
+                    UserPrincipalName = $_.userPrincipalName
+                    DisplayName       = $_.userDisplayName
+                    RiskLevel         = $_.riskLevel
+                    RiskState         = $_.riskState
+                    RiskDetail        = $_.riskDetail
+                    RiskLastUpdated   = $_.riskLastUpdatedDateTime
+                }
+            } | Export-Csv "$outputDir\Entra_RiskyUsers.csv" -NoTypeInformation -Encoding UTF8
+            Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Identity Protection risk data..." -CurrentOperation "Saved: Entra_RiskyUsers.csv ($($riskyUsers.Count) risky users)" -PercentComplete ([int]($step / $totalSteps * 100))
+        }
+        else {
+            Write-Verbose "No risky users detected — skipping Entra_RiskyUsers.csv"
+        }
+    }
+    catch {
+        Write-Warning "Unable to retrieve risky users: $_"
+    }
+
+    try {
+        $riskySignInsResp = Invoke-MgGraphRequest -Method GET -Uri '/v1.0/identityProtection/riskySignIns?$top=500' -OutputType PSObject -ErrorAction Stop
+        $riskySignIns = @($riskySignInsResp.value)
+        if ($riskySignIns.Count -gt 0) {
+            $riskySignIns | ForEach-Object {
+                [PSCustomObject]@{
+                    UserPrincipalName = $_.userPrincipalName
+                    UserDisplayName   = $_.userDisplayName
+                    RiskLevel         = $_.riskLevelDuringSignIn
+                    RiskState         = $_.riskState
+                    RiskEventTypes    = ($_.riskEventTypes -join ', ')
+                    IPAddress         = $_.ipAddress
+                    City              = $_.location.city
+                    CountryOrRegion   = $_.location.countryOrRegion
+                    AppDisplayName    = $_.appDisplayName
+                    CreatedDateTime   = $_.createdDateTime
+                }
+            } | Export-Csv "$outputDir\Entra_RiskySignIns.csv" -NoTypeInformation -Encoding UTF8
+            Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Identity Protection risk data..." -CurrentOperation "Saved: Entra_RiskySignIns.csv ($($riskySignIns.Count) risky sign-ins)" -PercentComplete ([int]($step / $totalSteps * 100))
+        }
+        else {
+            Write-Verbose "No risky sign-ins detected — skipping Entra_RiskySignIns.csv"
+        }
+    }
+    catch {
+        Write-Warning "Unable to retrieve risky sign-ins: $_"
+    }
 }
 
 

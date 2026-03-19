@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.6.0
+    Version     : 2.7.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey
 )
 
-$ScriptVersion      = '2.5.5'
+$ScriptVersion      = '2.7.0'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -134,11 +134,12 @@ $script:GraphPermissions = @(
     'Group.Read.All',
     'AuditLog.Read.All',
     'SecurityEvents.Read.All',
-    'DelegatedAdminRelationship.Read.All',
     'DeviceManagementManagedDevices.Read.All',
     'DeviceManagementConfiguration.Read.All',
     'DeviceManagementApps.Read.All',
     'DeviceManagementServiceConfig.Read.All',
+    'IdentityRiskyUser.Read.All',
+    'IdentityRiskEvent.Read.All',
     'Application.ReadWrite.OwnedBy'
 )
 

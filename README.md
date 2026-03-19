@@ -6,13 +6,15 @@ Monthly Microsoft 365 audit toolkit for MSP maintenance reporting. Run per custo
 
 ## First-Time Setup
 
+> **New Hudu instance?** Before setting up any customers, run `New-HuduAssetLayout.ps1` once to create the required asset layout in Hudu. See [Helpers — New-HuduAssetLayout.ps1](#new-huduassetlayoutps1).
+
 Before running the toolkit for any customer, run `Setup-365AuditApp.ps1` once in that tenant as a **Global Administrator**.
 
 The script will:
 1. Create an app registration with all required Microsoft Graph, Exchange Online, and SharePoint permissions and grant admin consent
 2. Generate a self-signed certificate, upload the public key to the app registration
 3. Print all credentials to the terminal
-4. **Automatically push credentials to Hudu** if `HuduApiKey` is configured in `config.psd1`
+4. **Push credentials to Hudu** if `HuduApiKey` is configured in `config.psd1` and a matching asset already exists for the company
 
 ### With Hudu integration (recommended)
 
@@ -44,31 +46,31 @@ Credentials are printed to the terminal — store them in Hudu manually under th
 
 ## Rotating the Certificate
 
-Certificates are valid for 2 years by default (`-CertExpiryYears 1–5`).
+Certificates are valid for 2 years by default (`-CertExpiryYears 1–5`). All rotation paths are non-interactive once the initial setup has been completed — no browser login is required for renewals.
 
-### Interactive rotation (requires Global Admin browser login)
+### With Hudu (recommended)
+
+Credentials are fetched automatically from Hudu — no copy/pasting required:
 
 ```powershell
 .\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>'           # rotate only if expiring within 30 days
 .\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>' -Force    # rotate regardless of expiry
 ```
 
-### Non-interactive rotation (no browser — automated-friendly)
+Updated credentials are written back to the existing Hudu asset automatically.
 
-Once the initial setup has been run interactively (which grants `Application.ReadWrite.OwnedBy` and registers the service principal as owner of the app registration), future renewals can be done without a browser login by supplying the existing credentials:
+### Without Hudu
+
+Supply the existing credentials explicitly:
 
 ```powershell
 .\Setup-365AuditApp.ps1 -AppId '<AppId>' -TenantId '<TenantId>' `
     -CertBase64 '<paste>' -CertPassword (Read-Host -AsSecureString 'Cert Password') -Force
 ```
 
-Or, if using Hudu, pass only the company ID — credentials are fetched automatically and the cert is renewed if expiring within 30 days:
+> **Note:** Non-interactive renewal requires the initial interactive setup (`Setup-365AuditApp.ps1` run as Global Admin without parameters) to have been completed at least once per tenant. This grants `Application.ReadWrite.OwnedBy` and registers the service principal as an owner of the app registration, which is required for the app to renew its own certificate without a browser login.
 
-```powershell
-.\Setup-365AuditApp.ps1 -HuduCompanyId '<slug>'
-```
-
-The updated credentials are pushed to Hudu automatically. The audit HTML summary report also includes a **Toolkit / Certificate** action item when fewer than 30 days remain, prompting the reviewing tech to schedule a renewal.
+The audit HTML summary report includes a **Toolkit / Certificate** action item when fewer than 30 days remain, prompting the reviewing tech to schedule a renewal.
 
 ---
 
@@ -101,7 +103,7 @@ Then edit `config.psd1`:
 
 ### Asset Layout
 
-Credentials are stored in a dedicated Hudu asset layout (one asset per customer company). The asset is created automatically by `Setup-365AuditApp.ps1` and named `<HuduAssetName> - <Company Name>`, where `HuduAssetName` is set in `config.psd1`.
+Credentials are stored in a dedicated Hudu asset layout — one asset per customer company. The asset layout must already exist in Hudu and be configured via `HuduAssetLayoutId` in `config.psd1`. When a matching asset is found for the company, `Setup-365AuditApp.ps1` updates it with the latest credentials. The asset is named `<HuduAssetName> - <Company Name>`, where `HuduAssetName` is set in `config.psd1`.
 
 ---
 
@@ -464,6 +466,30 @@ Performs a single bulk PSGallery lookup for all modules required by the toolkit 
 
 ---
 
+### New-HuduAssetLayout.ps1
+
+Creates the M365 Audit Toolkit asset layout in Hudu. Run this once on a new Hudu instance before running `Setup-365AuditApp.ps1` for the first time — the layout must exist before credentials can be pushed to it.
+
+```powershell
+# Preview what would be created
+.\Helpers\New-HuduAssetLayout.ps1 -WhatIf
+
+# Create the layout
+.\Helpers\New-HuduAssetLayout.ps1
+```
+
+After creation, copy the printed layout ID into `config.psd1`:
+
+```powershell
+HuduAssetLayoutId = <id printed by the script>
+```
+
+> Requires **Hudu Administrator or Super Administrator** — a standard user API key will receive a 422 error.
+
+Reads `HuduBaseUrl`, `HuduApiKey`, and `HuduAssetName` from `config.psd1`.
+
+---
+
 ### Uninstall-AuditModules.ps1
 
 Removes all installed versions of every module required by the toolkit. Useful for testing a clean first-run install experience or resolving conflicting module versions.
@@ -501,6 +527,8 @@ All modules accept the `-DevMode` switch for standalone testing.
 ├── Helpers/
 │   ├── Get-HuduAssetLayouts.ps1              # Lists Hudu asset layouts to find the correct layout ID
 │   ├── Get-ModuleVersionStatus.ps1           # Checks installed vs latest PSGallery versions for all modules
+│   ├── New-HuduAssetLayout.ps1              # Creates the M365 Audit Toolkit asset layout in Hudu
+│   ├── Sync-UnattendedCustomers.ps1          # Syncs UnattendedCustomers.psd1 from Hudu assets
 │   └── Uninstall-AuditModules.ps1            # Removes all toolkit modules (clean reinstall / conflict resolution)
 ├── CHANGELOG.md                              # Full version history for all scripts
 ├── config.psd1.example                       # Config template (copy to config.psd1)
