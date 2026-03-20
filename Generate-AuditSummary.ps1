@@ -54,7 +54,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.31.0
+    Version     : 1.32.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -76,7 +76,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.31.0"
+$ScriptVersion = "1.32.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -112,10 +112,15 @@ function Add-Section {
     [CmdletBinding()]
     param (
         [string]   $Title,
+        [string]   $AnchorId = "",
         [string[]] $CsvFiles,
         [string]   $SummaryHtml,
         [string]   $ModuleVersion
     )
+
+    if ([string]::IsNullOrWhiteSpace($AnchorId)) {
+        $AnchorId = ($Title -replace '[^a-zA-Z0-9]+', '-' -replace '^-|-$', '').ToLower()
+    }
 
     $csvLinks = ""
     if ($CsvFiles.Count -gt 0) {
@@ -133,13 +138,16 @@ function Add-Section {
     $versionMarkup  = if ($encodedVersion) { "<span class='section-version'>$encodedVersion</span>" } else { "" }
 
     return @"
-<details class='section'>
-  <summary class='section-toggle'><span class='section-summary'><span class='section-title'>$encodedTitle</span>$versionMarkup</span></summary>
-  <div class='content'>
+<section class='module' id='$AnchorId'>
+  <div class='module-hdr' onclick='toggleModule(this)'>
+    <span class='module-title'>$encodedTitle</span>$versionMarkup
+    <span class='module-toggle open'>&#9658;</span>
+  </div>
+  <div class='module-body'>
     $SummaryHtml
     $csvLinks
   </div>
-</details>
+</section>
 "@
 }
 
@@ -241,88 +249,120 @@ $html.Add(@"
 <meta charset='UTF-8'>
 <title>Microsoft 365 Audit Summary</title>
 <style>
-  body        { font-family: Segoe UI, sans-serif; margin: 2rem; transition: background 0.2s ease; background: #f4f6f9; color: #233244; }
-  h1          { text-align: center; }
-  .subtitle   { text-align: center; color: #5b6675; margin-top: -0.5rem; margin-bottom: 2rem; }
-  .section    { margin-bottom: 1.5rem; overflow: hidden; transition: transform 0.16s ease, box-shadow 0.16s ease; border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff; box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06); }
-  .section:hover { transform: translateY(-1px); box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09); }
-  .section-toggle { font-size: 1.08rem; font-weight: bold; cursor: pointer; list-style: none; position: relative; background: linear-gradient(180deg, #eef2f6 0%, #e4eaf1 100%); color: #223247; }
-  .section-toggle::-webkit-details-marker { display: none; }
-  .section-toggle::after { content: '▸'; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); font-size: 1rem; transition: transform 0.16s ease; pointer-events: none; color: #44566c; }
-  .section[open] > .section-toggle::after { transform: translateY(-50%) rotate(90deg); }
-  .section[open] > .section-toggle { background: linear-gradient(180deg, #dfe8f2 0%, #d4e0ec 100%); }
-  .section-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; box-sizing: border-box; padding: 1rem 3.8rem 1rem 1.1rem; }
-  .section-title { flex: 1 1 auto; }
-  .section-version { flex: 0 0 auto; font-size: 0.82rem; font-weight: 600; white-space: nowrap; border-radius: 999px; padding: 0.2rem 0.55rem; margin-right: 0.2rem; background: #ffffff; border: 1px solid #b6c4d4; color: #44566c; }
-  .content    { padding: 1rem; overflow-x: auto; }
-  .raw-files  { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed #d6dee8; }
-  .raw-files > summary { cursor: pointer; list-style: none; position: relative; font-size: 0.85rem; font-weight: 600; padding: 0.65rem 2rem 0.65rem 0.85rem; border-radius: 10px; background: #f7f9fb; color: #516375; }
-  .raw-files > summary::-webkit-details-marker { display: none; }
-  .raw-files > summary::after { content: '▸'; position: absolute; right: 0.85rem; top: 50%; transform: translateY(-50%); font-size: 0.85rem; transition: transform 0.16s ease; }
-  .raw-files[open] > summary::after { transform: translateY(-50%) rotate(90deg); }
-  .raw-files-list { margin: 0.5rem 0 0 1rem; padding-left: 0.6rem; font-size: 0.86rem; }
-  .raw-files-list li { margin: 0.2rem 0; }
-  table       { border-collapse: collapse; width: 100%; }
-  th, td      { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: 0.9rem; }
-  th          { background: #f0f0f0; }
-  tr:nth-child(even) { background: #fafafa; }
-  .ok         { color: green;      font-weight: bold; }
-  .warn       { color: darkorange; font-weight: bold; }
-  .critical   { color: red;        font-weight: bold; }
-  .mfa-miss          { background-color: #ffcccc; }
-  .expand-hint       { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0 0 0.65rem; padding: 0.45rem 0.8rem; font-size: 0.84rem; font-weight: 600; color: #4d6278; background: #f5f8fb; border: 1px solid #d8e2ec; border-radius: 999px; }
-  .expand-hint::before { content: '▸'; font-size: 0.74rem; color: #6b7f95; }
-  .user-row          { cursor: pointer; }
-  .user-row td       { position: relative; transition: background-color 0.16s ease, border-color 0.16s ease; }
-  .user-row > td:first-child { padding-left: 1.9rem; }
-  .user-row > td:first-child::before { content: '▸'; position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); font-size: 0.78rem; color: #6a7d91; transition: transform 0.16s ease, color 0.16s ease; }
-  .user-row:hover td { background-color: #eaf3fb !important; }
-  .user-row.expanded td { background-color: #dbe9f6 !important; border-color: #c6d7e7; }
-  .user-row.expanded > td:first-child::before { transform: translateY(-50%) rotate(90deg); color: #2f4b67; }
-  .signin-detail     { background: transparent !important; }
-  .signin-detail > td { padding: 0.75rem 1rem !important; background: linear-gradient(180deg, #f8fbff 0%, #f1f6fb 100%) !important; border-top: none; border-bottom: 1px solid #d5dfeb; }
-  .inner-table       { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; margin: 0; border: 1px solid #cbd8e5; border-radius: 8px; overflow: hidden; background: #ffffff; }
-  .inner-table th    { background: #ddeaf6; color: #24384d; }
-  .inner-table td, .inner-table th { border-right: 1px solid #cbd8e5; border-bottom: 1px solid #cbd8e5; padding: 5px 8px; }
-  .inner-table th:last-child, .inner-table td:last-child { border-right: none; }
-  .inner-table tbody tr:last-child td { border-bottom: none; }
-  .inner-table tr:nth-child(even) td { background: #fbfdff; }
-  .detail-empty     { color: #6b7280; font-style: italic; }
-  .signin-ok         { color: green;  font-weight: bold; }
-  .signin-fail       { color: red;    font-weight: bold; }
-  .size-warn         { background-color: #fff3cd; }
-  .size-critical     { background-color: #ffcccc; }
-  .company-info      { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem 1.5rem; margin: 0 auto 1.5rem; max-width: 700px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-  .company-info h2   { margin: 0 0 0.75rem; font-size: 1.15rem; color: #333; }
-  .company-info table { width: auto; min-width: 500px; }
-  .company-info th   { background: transparent; font-weight: 600; padding: 4px 1.5rem 4px 0; width: 160px; border: none; border-bottom: 1px solid #eee; vertical-align: top; }
-  .company-info td   { border: none; border-bottom: 1px solid #eee; padding: 4px 0; }
-  .company-info-lines { display: flex; flex-direction: column; gap: 0.35rem; min-width: 430px; }
-  .company-info-line  { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 2rem; }
-  .company-info-meta  { color: #666; font-size: 0.85rem; text-align: right; white-space: nowrap; }
-  .company-info-severity.critical { color: #c00; font-weight: 600; }
-  .company-info-severity.warning  { color: #805500; font-weight: 600; }
-  .action-items      { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-  .action-items h2   { margin: 0 0 0.75rem; font-size: 1.1rem; color: #333; }
-  .action-group      { margin-top: 1rem; }
-  .action-group:first-of-type { margin-top: 0.35rem; }
-  .action-group-title { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.08em; }
-  .action-group-title.critical { color: #b42318; }
-  .action-group-title.warning  { color: #8a5a00; }
-  .action-item       { display: grid; grid-template-columns: 92px 170px minmax(0, 1fr); column-gap: 0.8rem; align-items: start; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0; }
-  .action-group .action-item:last-child { border-bottom: none; }
-  .action-badge      { display: inline-flex; align-items: center; justify-content: center; width: 82px; font-size: 0.7rem; font-weight: bold; padding: 2px 7px; border-radius: 3px; white-space: nowrap; margin-top: 2px; box-sizing: border-box; }
-  .action-badge.critical { background: #ffcccc; color: #c00; border: 1px solid #f5a0a0; }
-  .action-badge.warning  { background: #fff3cd; color: #805500; border: 1px solid #ffe082; }
-  .action-cat        { font-weight: 600; color: #555; font-size: 0.85rem; margin-top: 2px; min-width: 0; }
-  .action-text       { font-size: 0.9rem; color: #333; min-width: 0; }
-  .action-doc        { font-size: 0.8rem; color: #1565c0; white-space: nowrap; text-decoration: none; margin-left: 0.4rem; }
-  .action-none       { color: #4caf50; font-weight: bold; font-size: 0.9rem; }
+/* ── Reset & layout ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293b;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:14px;}
+/* ── App header ── */
+.app-header{background:linear-gradient(135deg,#0f2744 0%,#1d4ed8 100%);color:#fff;padding:0.6rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,0.25);}
+.app-header h1{font-size:0.97rem;font-weight:700;letter-spacing:0.01em;}
+.app-header-sub{font-size:0.72rem;opacity:0.7;margin-top:0.1rem;}
+/* ── KPI strip ── */
+.kpi-strip{background:#fff;border-bottom:1px solid #dde3ea;display:flex;flex-shrink:0;}
+.kpi-card{flex:1;padding:0.55rem 0.9rem;border-right:1px solid #e8edf3;text-align:center;}
+.kpi-card:last-child{border-right:none;}
+.kpi-value{font-size:1.45rem;font-weight:800;line-height:1;}
+.kpi-label{font-size:0.67rem;color:#64748b;margin-top:0.2rem;}
+.kpi-sub{font-size:0.63rem;color:#94a3b8;margin-top:0.05rem;}
+.kpi-value.ok{color:#16a34a;} .kpi-value.warn{color:#d97706;} .kpi-value.critical{color:#dc2626;}
+/* ── Layout ── */
+.layout{display:flex;flex:1;overflow:hidden;}
+/* ── Sidebar ── */
+.sidebar{width:208px;background:#1e293b;color:#94a3b8;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;overflow-x:hidden;}
+.sidebar::-webkit-scrollbar{width:3px;} .sidebar::-webkit-scrollbar-thumb{background:#334155;}
+.sb-section-label{padding:0.85rem 1rem 0.3rem;font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#475569;}
+.sb-item{display:flex;align-items:center;gap:0.5rem;padding:0.46rem 1rem;font-size:0.81rem;color:#94a3b8;text-decoration:none;border-left:3px solid transparent;transition:background 0.12s,color 0.12s,border-color 0.12s;white-space:nowrap;cursor:pointer;}
+.sb-item:hover{background:#263548;color:#e2e8f0;border-left-color:#3b82f6;}
+.sb-item.active{background:#172034;color:#93c5fd;border-left-color:#3b82f6;font-weight:600;}
+.sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.dot-ok{background:#22c55e;} .dot-warn{background:#f59e0b;} .dot-critical{background:#ef4444;} .dot-neutral{background:#475569;}
+.sb-badge{margin-left:auto;font-size:0.67rem;font-weight:700;background:rgba(239,68,68,0.25);color:#fca5a5;border-radius:999px;padding:1px 6px;}
+.sb-badge.warn{background:rgba(245,158,11,0.25);color:#fcd34d;}
+.sb-divider{margin:0.4rem 1rem;border:none;border-top:1px solid #263548;}
+/* ── Main content ── */
+.main{flex:1;overflow-y:auto;scroll-behavior:smooth;}
+.main::-webkit-scrollbar{width:6px;} .main::-webkit-scrollbar-thumb{background:#c8d3de;border-radius:3px;}
+.content-area{padding:0.9rem 1.1rem;}
+/* ── Company card ── */
+.company-card{background:#fff;border:1px solid #dde3ea;border-radius:8px;padding:0.7rem 1rem;margin-bottom:0.8rem;}
+.company-card h2{font-size:0.95rem;font-weight:700;color:#0f2744;margin-bottom:0.45rem;padding-bottom:0.35rem;border-bottom:1px solid #f0f4f8;}
+.company-info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0.3rem 1.25rem;}
+.ci-field{display:flex;flex-direction:column;}
+.ci-key{font-size:0.67rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;}
+.ci-val{font-size:0.82rem;color:#1e293b;margin-top:0.08rem;}
+.company-info-severity.critical{color:#c00;font-weight:600;} .company-info-severity.warning{color:#805500;font-weight:600;}
+.company-info-lines{display:flex;flex-direction:column;gap:0.25rem;}
+.company-info-line{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;column-gap:1.5rem;}
+.company-info-meta{color:#666;font-size:0.82rem;text-align:right;white-space:nowrap;}
+/* ── Action items ── */
+.ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.8rem;}
+.ai-panel{border-radius:8px;overflow:hidden;border:1px solid;}
+.ai-panel.critical{border-color:#fca5a5;} .ai-panel.warning{border-color:#fcd34d;}
+.ai-panel-header{padding:0.48rem 0.85rem;font-weight:700;font-size:0.79rem;letter-spacing:0.02em;}
+.ai-panel.critical .ai-panel-header{background:#fee2e2;color:#991b1b;border-bottom:1px solid #fca5a5;}
+.ai-panel.warning  .ai-panel-header{background:#fef3c7;color:#92400e;border-bottom:1px solid #fcd34d;}
+.ai-panel-body{background:#fff;}
+.ai-row{padding:0.52rem 0.85rem;border-bottom:1px solid #f8fafc;}
+.ai-row:last-child{border-bottom:none;}
+.ai-cat{font-size:0.69rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.12rem;}
+.ai-text{font-size:0.84rem;color:#1e293b;line-height:1.45;}
+.ai-doc{font-size:0.73rem;color:#2563eb;text-decoration:none;display:inline-block;margin-top:0.12rem;}
+.ai-doc:hover{text-decoration:underline;}
+.ai-none{color:#16a34a;font-weight:600;padding:0.5rem 0;font-size:0.88rem;}
+/* ── Module sections ── */
+.module{background:#fff;border:1px solid #dde3ea;border-radius:8px;margin-bottom:0.8rem;overflow:hidden;scroll-margin-top:0.6rem;}
+.module-hdr{display:flex;align-items:center;padding:0.65rem 1rem;background:linear-gradient(180deg,#f8fafc 0%,#f1f5f9 100%);border-bottom:1px solid #e2e8f0;cursor:pointer;user-select:none;gap:0.55rem;}
+.module-hdr:hover{background:linear-gradient(180deg,#f1f5f9 0%,#e8edf4 100%);}
+.module-title{flex:1;font-weight:700;font-size:0.9rem;color:#1e293b;}
+.section-version{font-size:0.74rem;font-weight:600;border-radius:999px;padding:0.15rem 0.5rem;background:#fff;border:1px solid #b6c4d4;color:#44566c;white-space:nowrap;}
+.module-toggle{font-size:0.78rem;color:#64748b;transition:transform 0.18s;flex-shrink:0;}
+.module-toggle.open{transform:rotate(90deg);}
+.module-body{padding:0.8rem 1rem;}
+/* ── Raw CSV files ── */
+.raw-files{margin-top:0.9rem;padding-top:0.65rem;border-top:1px dashed #d6dee8;}
+.raw-files>summary{cursor:pointer;list-style:none;position:relative;font-size:0.82rem;font-weight:600;padding:0.5rem 2rem 0.5rem 0.8rem;border-radius:8px;background:#f7f9fb;color:#516375;}
+.raw-files>summary::-webkit-details-marker{display:none;}
+.raw-files>summary::after{content:'▸';position:absolute;right:0.8rem;top:50%;transform:translateY(-50%);font-size:0.82rem;transition:transform 0.16s ease;}
+.raw-files[open]>summary::after{transform:translateY(-50%) rotate(90deg);}
+.raw-files-list{margin:0.4rem 0 0 1rem;padding-left:0.5rem;font-size:0.82rem;}
+.raw-files-list li{margin:0.18rem 0;}
+/* ── Tables ── */
+table{border-collapse:collapse;width:100%;}
+th,td{border:1px solid #dde3ea;padding:5px 9px;text-align:left;font-size:0.87rem;}
+th{background:#f1f5f9;color:#334155;font-weight:700;font-size:0.79rem;}
+tr:nth-child(even){background:#fafcff;}
+/* ── Utility ── */
+.ok{color:green;font-weight:bold;} .warn{color:darkorange;font-weight:bold;} .critical{color:red;font-weight:bold;}
+.mfa-miss{background-color:#ffcccc;}
+.expand-hint{display:inline-flex;align-items:center;gap:0.45rem;margin:0 0 0.6rem;padding:0.38rem 0.75rem;font-size:0.82rem;font-weight:600;color:#4d6278;background:#f5f8fb;border:1px solid #d8e2ec;border-radius:999px;}
+.expand-hint::before{content:'▸';font-size:0.72rem;color:#6b7f95;}
+.user-row{cursor:pointer;}
+.user-row td{position:relative;transition:background-color 0.16s ease,border-color 0.16s ease;}
+.user-row>td:first-child{padding-left:1.9rem;}
+.user-row>td:first-child::before{content:'▸';position:absolute;left:0.7rem;top:50%;transform:translateY(-50%);font-size:0.78rem;color:#6a7d91;transition:transform 0.16s ease,color 0.16s ease;}
+.user-row:hover td{background-color:#eaf3fb !important;}
+.user-row.expanded td{background-color:#dbe9f6 !important;border-color:#c6d7e7;}
+.user-row.expanded>td:first-child::before{transform:translateY(-50%) rotate(90deg);color:#2f4b67;}
+.signin-detail{background:transparent !important;}
+.signin-detail>td{padding:0.75rem 1rem !important;background:linear-gradient(180deg,#f8fbff 0%,#f1f6fb 100%) !important;border-top:none;border-bottom:1px solid #d5dfeb;}
+.inner-table{width:100%;border-collapse:separate;border-spacing:0;font-size:0.85rem;margin:0;border:1px solid #cbd8e5;border-radius:8px;overflow:hidden;background:#fff;}
+.inner-table th{background:#ddeaf6;color:#24384d;}
+.inner-table td,.inner-table th{border-right:1px solid #cbd8e5;border-bottom:1px solid #cbd8e5;padding:5px 8px;}
+.inner-table th:last-child,.inner-table td:last-child{border-right:none;}
+.inner-table tbody tr:last-child td{border-bottom:none;}
+.inner-table tr:nth-child(even) td{background:#fbfdff;}
+.detail-empty{color:#6b7280;font-style:italic;}
+.signin-ok{color:green;font-weight:bold;} .signin-fail{color:red;font-weight:bold;}
+.size-warn{background-color:#fff3cd;} .size-critical{background-color:#ffcccc;}
+code{background:#f1f5f9;border-radius:3px;padding:1px 4px;font-family:Consolas,monospace;font-size:0.82rem;color:#334155;}
 </style>
 </head>
 <body>
-<h1>Microsoft 365 Audit Summary</h1>
-<p class='subtitle'>Generated: $reportDate &nbsp;|&nbsp; Folder: $(Split-Path $AuditFolder -Leaf)</p>
+<div class='app-header'>
+  <div>
+    <h1>Microsoft 365 Audit Summary</h1>
+    <div class='app-header-sub'>Generated: $reportDate &nbsp;|&nbsp; Folder: $(Split-Path $AuditFolder -Leaf)</div>
+  </div>
+</div>
 "@)
 
 
@@ -367,10 +407,8 @@ if (Test-Path $orgInfoPath) {
         $lastSyncFmt = $lastSyncDt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
         $syncClass   = if ($hoursSince -gt 24) { "critical" } elseif ($hoursSince -gt 4) { "warn" } else { "ok" }
         $syncCell    = "<span class='$syncClass'>Enabled &mdash; last sync $lastSyncFmt ($hoursSince h ago)</span>"
-        $errCell     = if ($syncErrors -gt 0) { "<span class='critical'>$syncErrors error(s)</span>" } else { "<span class='ok'>None</span>" }
-        $syncRows    = "<tr><th>Azure AD Sync</th><td>$syncCell</td></tr><tr><th>Sync Errors</th><td>$errCell</td></tr>"
     } else {
-        $syncRows = "<tr><th>Azure AD Sync</th><td>Not configured (cloud-only)</td></tr>"
+        $syncCell    = $null
     }
 
     # Verified domains — exclude the internal EOP routing domain (*.mail.onmicrosoft.com)
@@ -383,22 +421,31 @@ if (Test-Path $orgInfoPath) {
     }
     $domainsHtml = if ($domainRows.Count -gt 0) { "<div class='company-info-lines'>$($domainRows -join '')</div>" } else { '&mdash;' }
 
-    $addrRow  = if ($address)  { "<tr><th>Address</th><td>$address</td></tr>" } else { "" }
-    $phoneRow = if ($phone)    { "<tr><th>Phone</th><td>$phone</td></tr>" }    else { "" }
+    $_addrField  = if ($address) { "<div class='ci-field'><span class='ci-key'>Address</span><span class='ci-val'>$(ConvertTo-HtmlText $address)</span></div>" } else { "" }
+    $_phoneField = if ($phone)   { "<div class='ci-field'><span class='ci-key'>Phone</span><span class='ci-val'>$(ConvertTo-HtmlText $phone)</span></div>" } else { "" }
 
-    $html.Add(@"
-<div class='company-info'>
+    if ($syncEnabled) {
+        $syncField = "<div class='ci-field'><span class='ci-key'>Azure AD Sync</span><span class='ci-val'>$syncCell</span></div>"
+        $errField  = if ($syncErrors -gt 0) { "<div class='ci-field'><span class='ci-key'>Sync Errors</span><span class='ci-val'><span class='critical'>$syncErrors error(s)</span></span></div>" } else { "" }
+    } else {
+        $syncField = "<div class='ci-field'><span class='ci-key'>Azure AD Sync</span><span class='ci-val'>Not configured (cloud-only)</span></div>"
+        $errField  = ""
+    }
+
+    $script:companyCardHtml = @"
+<div class='company-card'>
   <h2>$($orgInfo.DisplayName)</h2>
-  <table>
-    <tr><th>Tenant ID</th><td><code>$($orgInfo.Id)</code></td></tr>
-    $addrRow
-    $phoneRow
-    <tr><th>Technical Contact</th><td>$techContactHtml</td></tr>
-    $syncRows
-    <tr><th>Domains</th><td>$domainsHtml</td></tr>
-  </table>
+  <div class='company-info-grid'>
+    <div class='ci-field'><span class='ci-key'>Tenant ID</span><span class='ci-val'><code>$($orgInfo.Id)</code></span></div>
+    <div class='ci-field'><span class='ci-key'>Technical Contact</span><span class='ci-val'>$techContactHtml</span></div>
+    $syncField
+    <div class='ci-field'><span class='ci-key'>Domains</span><span class='ci-val'>$domainsHtml</span></div>
+    $_addrField
+    $_phoneField
+    $errField
+  </div>
 </div>
-"@)
+"@
 }
 
 
@@ -907,47 +954,116 @@ if (Test-Path $_aiIntuneLicCsv) {
     }
 }
 
+# --- Build KPI strip values (uses data already loaded during action item checks) ---
+$_kpiMfaPct    = if ($null -ne $_aiPct)   { $_aiPct }   else { $null }
+$_kpiUserCount = if ($null -ne $_aiTotal) { $_aiTotal } else { $null }
+$_kpiCritCount = @($actionItems | Where-Object { $_.Severity -eq 'critical' }).Count
+$_kpiWarnCount = @($actionItems | Where-Object { $_.Severity -eq 'warning'  }).Count
+
+$_kpiScoreVal  = '&mdash;'
+$_kpiScorePct  = $null
+$_kpiScorePath = Join-Path $entraDir 'Entra_SecureScore.csv'
+if (Test-Path $_kpiScorePath) {
+    $_kpiSs = Import-Csv $_kpiScorePath | Select-Object -First 1
+    if ($_kpiSs) {
+        $_kpiScoreVal = "$($_kpiSs.CurrentScore) / $($_kpiSs.MaxScore)"
+        $_kpiScorePct = [double]$_kpiSs.Percentage
+    }
+}
+
+$_kpiDevCount     = $null
+$_kpiNonCompliant = $null
+$_kpiDevPath = Join-Path $intuneDir 'Intune_Devices.csv'
+if (Test-Path $_kpiDevPath) {
+    $_kpiDevRows      = @(Import-Csv $_kpiDevPath)
+    $_kpiDevCount     = $_kpiDevRows.Count
+    $_kpiNonCompliant = @($_kpiDevRows | Where-Object { $_.ComplianceState -eq 'noncompliant' }).Count
+}
+
+$_kpiMfaClass   = if ($null -eq $_kpiMfaPct)  { 'ok' } elseif ($_kpiMfaPct -eq 100) { 'ok' } elseif ($_kpiMfaPct -ge 80) { 'warn' } else { 'critical' }
+$_kpiScoreClass = if ($null -eq $_kpiScorePct) { 'ok' } elseif ($_kpiScorePct -ge 80) { 'ok' } elseif ($_kpiScorePct -ge 50) { 'warn' } else { 'critical' }
+$_kpiAiClass    = if ($_kpiCritCount -gt 0)  { 'critical' } elseif ($_kpiWarnCount -gt 0) { 'warn' } else { 'ok' }
+$_kpiDevClass   = if ($null -eq $_kpiNonCompliant -or $_kpiNonCompliant -eq 0) { 'ok' } else { 'critical' }
+
+$_kpiMfaStr     = if ($null -ne $_kpiMfaPct)    { "${_kpiMfaPct}%" }            else { '&mdash;' }
+$_kpiMfaSub     = if ($null -ne $_kpiUserCount)  { "$_kpiUserCount licensed users" } else { '' }
+$_kpiScoreSub   = if ($null -ne $_kpiScorePct)   { "$_kpiScorePct%" }            else { '' }
+$_kpiDevStr     = if ($null -ne $_kpiDevCount)    { "$_kpiDevCount" }             else { '&mdash;' }
+$_kpiDevSub     = if ($null -ne $_kpiNonCompliant -and $_kpiNonCompliant -gt 0) { "$_kpiNonCompliant non-compliant" } elseif ($null -ne $_kpiDevCount) { 'all compliant' } else { '' }
+$_kpiAiStr      = if ($_kpiCritCount -gt 0) { "$_kpiCritCount critical" } elseif ($_kpiWarnCount -gt 0) { "$_kpiWarnCount warnings" } else { 'All clear' }
+$_kpiAiSub      = if ($_kpiCritCount -gt 0 -and $_kpiWarnCount -gt 0) { "+ $_kpiWarnCount warnings" } else { '' }
+
+# --- Build sidebar nav (status dots derived from action item categories) ---
+$_sbModules = @(
+    @{ Id = 'entra';       Label = 'Entra / Identity';      Prefix = 'Entra' },
+    @{ Id = 'exchange';    Label = 'Exchange Online';        Prefix = 'Exchange' },
+    @{ Id = 'sharepoint';  Label = 'SharePoint / OneDrive';  Prefix = 'SharePoint' },
+    @{ Id = 'mailsec';     Label = 'Mail Security';          Prefix = 'Mail Security' },
+    @{ Id = 'intune';      Label = 'Intune';                 Prefix = 'Intune' }
+)
+$_sbItemsHtml = foreach ($_mod in $_sbModules) {
+    $_mc = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_mod.Prefix)*" }).Count
+    $_mw = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_mod.Prefix)*" }).Count
+    $_dotClass   = if ($_mc -gt 0) { 'dot-critical' } elseif ($_mw -gt 0) { 'dot-warn' } else { 'dot-ok' }
+    $_badgeHtml  = if ($_mc -gt 0) { "<span class='sb-badge'>$_mc</span>" } elseif ($_mw -gt 0) { "<span class='sb-badge warn'>$_mw</span>" } else { '' }
+    "<a class='sb-item' href='#$($_mod.Id)'><span class='sb-dot $_dotClass'></span>$($_mod.Label)$_badgeHtml</a>"
+}
+
+# --- Emit KPI strip + layout wrapper + sidebar + main open ---
+$_companyCard = if ($script:companyCardHtml) { $script:companyCardHtml } else { '' }
+
+$html.Add(@"
+<div class='kpi-strip'>
+  <div class='kpi-card'><div class='kpi-value $_kpiMfaClass'>$_kpiMfaStr</div><div class='kpi-label'>MFA Coverage</div><div class='kpi-sub'>$_kpiMfaSub</div></div>
+  <div class='kpi-card'><div class='kpi-value $_kpiScoreClass'>$_kpiScoreVal</div><div class='kpi-label'>Identity Secure Score</div><div class='kpi-sub'>$_kpiScoreSub</div></div>
+  <div class='kpi-card'><div class='kpi-value $_kpiDevClass'>$_kpiDevStr</div><div class='kpi-label'>Managed Devices</div><div class='kpi-sub'>$_kpiDevSub</div></div>
+  <div class='kpi-card'><div class='kpi-value $_kpiAiClass'>$_kpiAiStr</div><div class='kpi-label'>Action Items</div><div class='kpi-sub'>$_kpiAiSub</div></div>
+</div>
+<div class='layout'>
+  <nav class='sidebar'>
+    <div class='sb-section-label'>Modules</div>
+    $($_sbItemsHtml -join "`n    ")
+    <hr class='sb-divider'>
+    <div class='sb-section-label'>Report</div>
+    <a class='sb-item' href='$(([System.IO.Path]::GetRelativePath($script:ReportBaseDir, (Join-Path $AuditFolder "Raw Files")) -replace '\\', '/'))' target='_blank'><span class='sb-dot dot-neutral'></span>Raw CSV Files</a>
+  </nav>
+  <main class='main'>
+    <div class='content-area'>
+    $_companyCard
+"@)
+
 # --- Render Action Items block ---
 if ($actionItems.Count -gt 0) {
-    $actionGroups = foreach ($severity in @('critical', 'warning')) {
-        $groupItems = @(
-            $actionItems |
-                Where-Object { $_.Severity -eq $severity } |
-                Sort-Object `
-                    @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, `
-                    @{ Expression = { $_.Sequence } }
-        )
+    $_critItems = @($actionItems | Where-Object { $_.Severity -eq 'critical' } | Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
+    $_warnItems = @($actionItems | Where-Object { $_.Severity -eq 'warning'  } | Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
 
-        if ($groupItems.Count -eq 0) {
-            continue
-        }
-
-        $groupRows = foreach ($ai in $groupItems) {
-            $badgeClass = $ai.Severity
-            $badgeLabel = if ($ai.Severity -eq 'critical') { 'CRITICAL' } else { 'WARNING' }
-            $docLink    = if ($ai.DocUrl) { " <a class='action-doc' href='$($ai.DocUrl)' target='_blank' title='Microsoft documentation'>&#128279; Docs</a>" } else { "" }
-            "<div class='action-item'><span class='action-badge $badgeClass'>$badgeLabel</span><span class='action-cat'>$($ai.Category)</span><span class='action-text'>$($ai.Text)$docLink</span></div>"
-        }
-
-        $groupTitle = if ($severity -eq 'critical') { 'CRITICAL' } else { 'WARNING' }
-        $groupRowsHtml = $groupRows -join "`n"
-        "<div class='action-group'><h3 class='action-group-title $severity'>$groupTitle ($($groupItems.Count))</h3>$groupRowsHtml</div>"
+    $_critRows = foreach ($ai in $_critItems) {
+        $docLink = if ($ai.DocUrl) { "<a class='ai-doc' href='$($ai.DocUrl)' target='_blank'>&#128279; Docs</a>" } else { "" }
+        "<div class='ai-row'><div class='ai-cat'>$($ai.Category)</div><div class='ai-text'>$($ai.Text)</div>$docLink</div>"
+    }
+    $_warnRows = foreach ($ai in $_warnItems) {
+        $docLink = if ($ai.DocUrl) { "<a class='ai-doc' href='$($ai.DocUrl)' target='_blank'>&#128279; Docs</a>" } else { "" }
+        "<div class='ai-row'><div class='ai-cat'>$($ai.Category)</div><div class='ai-text'>$($ai.Text)</div>$docLink</div>"
     }
 
-    $html.Add(@"
-<div class='action-items'>
-  <h2>&#9888; Action Items ($($actionItems.Count))</h2>
-  $($actionGroups -join "`n  ")
+    $_critPanel = if ($_critItems.Count -gt 0) { @"
+<div class='ai-panel critical'>
+  <div class='ai-panel-header'>&#9889; Critical Issues ($($_critItems.Count))</div>
+  <div class='ai-panel-body'>$($_critRows -join '')</div>
 </div>
-"@)
+"@ } else { "" }
+
+    $_warnPanel = if ($_warnItems.Count -gt 0) { @"
+<div class='ai-panel warning'>
+  <div class='ai-panel-header'>&#9888; Warnings ($($_warnItems.Count))</div>
+  <div class='ai-panel-body'>$($_warnRows -join '')</div>
+</div>
+"@ } else { "" }
+
+    $html.Add("<div class='ai-grid'>$_critPanel$_warnPanel</div>")
 }
 else {
-    $html.Add(@"
-<div class='action-items'>
-  <h2>Action Items</h2>
-  <p class='action-none'>&#10003; No issues identified. All checked areas meet best-practice recommendations.</p>
-</div>
-"@)
+    $html.Add("<p class='ai-none'>&#10003; No issues identified. All checked areas meet best-practice recommendations.</p>")
 }
 
 
@@ -1533,7 +1649,6 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
         $_eaApps = @(Import-Csv $_eaHtmlCsv -Encoding UTF8)
         if ($_eaApps.Count -gt 0) {
             $_eaAvePoint = @($_eaApps | Where-Object { $_.DisplayName -like 'AvePoint*' })
-            $_eaAveName  = if ($_eaAvePoint.Count -gt 0) { $_eaAvePoint[0].DisplayName } else { $null }
             $_eaRows = foreach ($_ea in ($_eaApps | Sort-Object DisplayName)) {
                 $_eaIsAvePoint = $_ea.DisplayName -like 'AvePoint*'
                 $_eaStyle      = if ($_eaIsAvePoint) { " style='background:#e8f5e9'" } else { "" }
@@ -1562,7 +1677,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
         }
     }
 
-    $html.Add((Add-Section -Title "Microsoft Entra" -CsvFiles $entraFiles.FullName -SummaryHtml ($entraSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-EntraAudit.ps1')))
+    $html.Add((Add-Section -Title "Microsoft Entra" -AnchorId 'entra' -CsvFiles $entraFiles.FullName -SummaryHtml ($entraSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-EntraAudit.ps1')))
 }
 
 
@@ -2096,7 +2211,7 @@ if ($exchangeFiles.Count -gt 0) {
         $exchangeSummary.Add("<p style='color:#888'>Safe Links data not collected — Defender for Office 365 P1 may not be licensed on this tenant.</p>")
     }
 
-    $html.Add((Add-Section -Title "Exchange Online" -CsvFiles $exchangeFiles.FullName -SummaryHtml ($exchangeSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-ExchangeAudit.ps1')))
+    $html.Add((Add-Section -Title "Exchange Online" -AnchorId 'exchange' -CsvFiles $exchangeFiles.FullName -SummaryHtml ($exchangeSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-ExchangeAudit.ps1')))
 }
 
 
@@ -2424,7 +2539,7 @@ if ($spFiles.Count -gt 0) {
         }
     }
 
-    $html.Add((Add-Section -Title "SharePoint / OneDrive" -CsvFiles $spFiles.FullName -SummaryHtml ($spSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-SharePointAudit.ps1')))
+    $html.Add((Add-Section -Title "SharePoint / OneDrive" -AnchorId 'sharepoint' -CsvFiles $spFiles.FullName -SummaryHtml ($spSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-SharePointAudit.ps1')))
 }
 
 
@@ -2512,7 +2627,7 @@ if ($mailSecFiles.Count -gt 0) {
 "@)
     }
 
-    $html.Add((Add-Section -Title "Mail Security" -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-MailSecurityAudit.ps1')))
+    $html.Add((Add-Section -Title "Mail Security" -AnchorId 'mailsec' -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-MailSecurityAudit.ps1')))
 }
 
 
@@ -2787,7 +2902,7 @@ if ($intuneFiles.Count -gt 0) {
         }
     }
 
-    $html.Add((Add-Section -Title "Intune / Endpoint Management" -CsvFiles $intuneFiles.FullName -SummaryHtml ($intuneSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-IntuneAudit.ps1')))
+    $html.Add((Add-Section -Title "Intune / Endpoint Management" -AnchorId 'intune' -CsvFiles $intuneFiles.FullName -SummaryHtml ($intuneSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-IntuneAudit.ps1')))
 }
 
 
@@ -2795,23 +2910,54 @@ if ($intuneFiles.Count -gt 0) {
 # ===   Close and Write Report          ===
 # =========================================
 $html.Add(@"
+    </div><!-- /content-area -->
+  </main>
+</div><!-- /layout -->
 <script>
+// Row expand (sign-in history / permissions)
 function toggleSignIns(row) {
-    var detail = row.nextElementSibling;
-    if (detail && detail.classList.contains('signin-detail')) {
-        var hidden = (detail.style.display === 'none' || detail.style.display === '');
-        detail.style.display = hidden ? 'table-row' : 'none';
+    var d = row.nextElementSibling;
+    if (d && d.classList.contains('signin-detail')) {
+        var hidden = (d.style.display === 'none' || d.style.display === '');
+        d.style.display = hidden ? 'table-row' : 'none';
         row.classList.toggle('expanded', hidden);
     }
 }
 function togglePerms(row) {
-    var detail = row.nextElementSibling;
-    if (detail && detail.classList.contains('signin-detail')) {
-        var hidden = (detail.style.display === 'none' || detail.style.display === '');
-        detail.style.display = hidden ? 'table-row' : 'none';
+    var d = row.nextElementSibling;
+    if (d && d.classList.contains('signin-detail')) {
+        var hidden = (d.style.display === 'none' || d.style.display === '');
+        d.style.display = hidden ? 'table-row' : 'none';
         row.classList.toggle('expanded', hidden);
     }
 }
+// Module section collapse/expand
+function toggleModule(hdr) {
+    var body   = hdr.nextElementSibling;
+    var toggle = hdr.querySelector('.module-toggle');
+    var isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : '';
+    if (toggle) toggle.classList.toggle('open', !isOpen);
+}
+// Sidebar scroll-spy
+(function() {
+    var main  = document.querySelector('.main');
+    var links = document.querySelectorAll('.sb-item[href^="#"]');
+    if (!main || !links.length) return;
+    main.addEventListener('scroll', function() {
+        var scrollTop = main.scrollTop + 80;
+        var current   = '';
+        links.forEach(function(link) {
+            var id  = link.getAttribute('href').substring(1);
+            var sec = document.getElementById(id);
+            if (sec && sec.offsetTop <= scrollTop) current = id;
+        });
+        links.forEach(function(link) {
+            var id = link.getAttribute('href').substring(1);
+            link.classList.toggle('active', id === current);
+        });
+    }, { passive: true });
+})();
 </script>
 </body></html>
 "@)

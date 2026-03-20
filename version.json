@@ -8,7 +8,7 @@
     "Invoke-SharePointAudit.ps1": "2.11.0",
     "Invoke-MailSecurityAudit.ps1": "1.9.0",
     "Invoke-IntuneAudit.ps1": "1.7.0",
-    "Generate-AuditSummary.ps1": "1.31.0",
+    "Generate-AuditSummary.ps1": "1.32.0",
     "Helpers/Get-HuduAssetLayouts.ps1": "1.0.0",
     "Helpers/Get-ModuleVersionStatus.ps1": "1.0.0",
     "Helpers/New-HuduAssetLayout.ps1": "1.0.0",
