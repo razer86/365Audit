@@ -354,6 +354,19 @@ tr:nth-child(even){background:#fafcff;}
 .signin-ok{color:green;font-weight:bold;} .signin-fail{color:red;font-weight:bold;}
 .size-warn{background-color:#fff3cd;} .size-critical{background-color:#ffcccc;}
 code{background:#f1f5f9;border-radius:3px;padding:1px 4px;font-family:Consolas,monospace;font-size:0.82rem;color:#334155;}
+/* ── Module body spacing & subsection headers ── */
+.module-body h4{margin:1.1rem 0 0.4rem;font-size:0.88rem;font-weight:700;color:#1e293b;padding-top:0.9rem;border-top:1px solid #e8edf3;}
+.module-body h4:first-child{border-top:none;padding-top:0;margin-top:0;}
+.module-body p{margin-bottom:0.3rem;line-height:1.55;}
+.module-body p:last-child{margin-bottom:0;}
+.module-body details{margin:0.3rem 0;}
+.module-body table{margin-bottom:0.5rem;}
+/* ── Sidebar sub-items ── */
+.sb-module-group{display:flex;flex-direction:column;}
+.sb-sub-group{border-left:1px solid #253245;margin-left:1.45rem;display:flex;flex-direction:column;padding-bottom:0.3rem;}
+.sb-sub{display:block;padding:0.27rem 0.65rem;font-size:0.76rem;color:#4e6888;text-decoration:none;border-left:2px solid transparent;transition:color 0.12s,border-color 0.12s;white-space:nowrap;}
+.sb-sub:hover{color:#94a3b8;border-left-color:#475569;}
+.sb-sub.active{color:#93c5fd;border-left-color:#3b82f6;font-weight:600;}
 </style>
 </head>
 <body>
@@ -994,19 +1007,45 @@ $_kpiAiStr      = if ($_kpiCritCount -gt 0) { "$_kpiCritCount critical" } elseif
 $_kpiAiSub      = if ($_kpiCritCount -gt 0 -and $_kpiWarnCount -gt 0) { "+ $_kpiWarnCount warnings" } else { '' }
 
 # --- Build sidebar nav (status dots derived from action item categories) ---
-$_sbModules = @(
-    @{ Id = 'entra';       Label = 'Entra / Identity';      Prefix = 'Entra' },
-    @{ Id = 'exchange';    Label = 'Exchange Online';        Prefix = 'Exchange' },
-    @{ Id = 'sharepoint';  Label = 'SharePoint / OneDrive';  Prefix = 'SharePoint' },
-    @{ Id = 'mailsec';     Label = 'Mail Security';          Prefix = 'Mail Security' },
-    @{ Id = 'intune';      Label = 'Intune';                 Prefix = 'Intune' }
+$_sbDefinitions = @(
+    @{ Id = 'entra';      Label = 'Microsoft Entra';       Prefix = 'Entra';        Subs = @(
+        @{ Id = 'entra-score';   Label = 'Secure Score'        },
+        @{ Id = 'entra-users';   Label = 'User Accounts'       },
+        @{ Id = 'entra-licenses';Label = 'Licences'            },
+        @{ Id = 'entra-admins';  Label = 'Admin Roles'         },
+        @{ Id = 'entra-ca';      Label = 'Conditional Access'  },
+        @{ Id = 'entra-idprot';  Label = 'Identity Protection' },
+        @{ Id = 'entra-groups';  Label = 'Groups'              },
+        @{ Id = 'entra-apps';    Label = 'Enterprise Apps'     }
+    )},
+    @{ Id = 'exchange';   Label = 'Exchange Online';       Prefix = 'Exchange';     Subs = @(
+        @{ Id = 'exchange-mailboxes';  Label = 'Mailboxes'         },
+        @{ Id = 'exchange-forwarding'; Label = 'Forwarding Rules'  },
+        @{ Id = 'exchange-policies';   Label = 'Security Policies' }
+    )},
+    @{ Id = 'sharepoint'; Label = 'SharePoint / OneDrive'; Prefix = 'SharePoint';   Subs = @(
+        @{ Id = 'sp-storage';  Label = 'Storage'          },
+        @{ Id = 'sp-sites';    Label = 'Sites'            },
+        @{ Id = 'sp-sharing';  Label = 'External Sharing' },
+        @{ Id = 'sp-onedrive'; Label = 'OneDrive'         }
+    )},
+    @{ Id = 'mailsec';    Label = 'Mail Security';         Prefix = 'Mail Security'; Subs = @(
+        @{ Id = 'mailsec-records'; Label = 'DNS Records' }
+    )},
+    @{ Id = 'intune';     Label = 'Intune';                Prefix = 'Intune';       Subs = @(
+        @{ Id = 'intune-devices';    Label = 'Devices'         },
+        @{ Id = 'intune-compliance'; Label = 'Compliance'      },
+        @{ Id = 'intune-config';     Label = 'Config Profiles' },
+        @{ Id = 'intune-apps';       Label = 'Apps'            }
+    )}
 )
-$_sbItemsHtml = foreach ($_mod in $_sbModules) {
+$_sbItemsHtml = foreach ($_mod in $_sbDefinitions) {
     $_mc = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_mod.Prefix)*" }).Count
     $_mw = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_mod.Prefix)*" }).Count
-    $_dotClass   = if ($_mc -gt 0) { 'dot-critical' } elseif ($_mw -gt 0) { 'dot-warn' } else { 'dot-ok' }
-    $_badgeHtml  = if ($_mc -gt 0) { "<span class='sb-badge'>$_mc</span>" } elseif ($_mw -gt 0) { "<span class='sb-badge warn'>$_mw</span>" } else { '' }
-    "<a class='sb-item' href='#$($_mod.Id)'><span class='sb-dot $_dotClass'></span>$($_mod.Label)$_badgeHtml</a>"
+    $_dotClass  = if ($_mc -gt 0) { 'dot-critical' } elseif ($_mw -gt 0) { 'dot-warn' } else { 'dot-ok' }
+    $_badgeHtml = if ($_mc -gt 0) { "<span class='sb-badge'>$_mc</span>" } elseif ($_mw -gt 0) { "<span class='sb-badge warn'>$_mw</span>" } else { '' }
+    $_subLinks  = ($_mod.Subs | ForEach-Object { "<a class='sb-sub' href='#$($_.Id)'>$($_.Label)</a>" }) -join ''
+    "<div class='sb-module-group'><a class='sb-item' href='#$($_mod.Id)'><span class='sb-dot $_dotClass'></span>$($_mod.Label)$_badgeHtml</a><div class='sb-sub-group'>$_subLinks</div></div>"
 }
 
 # --- Emit KPI strip + layout wrapper + sidebar + main open ---
@@ -1094,6 +1133,7 @@ if ($entraFiles.Count -gt 0) {
             $ssPct   = [double]$ss.Percentage
             $ssColor = if ($ssPct -ge 80) { '#27ae60' } elseif ($ssPct -ge 50) { '#f39c12' } else { '#e74c3c' }
             $ssBar   = "<div style='background:#e0e0e0;border-radius:4px;height:14px;width:100%;max-width:300px;overflow:hidden;display:inline-block;vertical-align:middle'><div style='background:$ssColor;width:$($ssPct)%;height:14px'></div></div>"
+            $entraSummary.Add("<h4 id='entra-score'>Secure Score</h4>")
             $entraSummary.Add("<p><b>Identity Secure Score:</b> $($ss.CurrentScore) / $($ss.MaxScore) &nbsp;($($ss.Percentage)%) &nbsp;$ssBar &nbsp;<span style='color:#888;font-size:0.85em'>as of $($ss.Date)</span></p>")
         }
     }
@@ -1142,33 +1182,34 @@ $implHtml
         }
     }
 
-    # --- Security Defaults ---
+    # --- Security Defaults + SSPR (buffered — emitted inside the CA block) ---
+    $_sdHtml = ""
     $secDefaultsCsv = Join-Path $entraDir "Entra_SecurityDefaults.csv"
     if (Test-Path $secDefaultsCsv) {
         $secDef = Import-Csv $secDefaultsCsv | Select-Object -First 1
         if ($secDef.SecurityDefaultsEnabled -eq "True") {
-            $entraSummary.Add("<p class='ok'>Security Defaults: <b>Enabled</b></p>")
+            $_sdHtml = "<p class='ok'>Security Defaults: <b>Enabled</b></p>"
         }
         else {
             $_sdCaCount = if ($null -ne $_aiEnabledCa) { @($_aiEnabledCa).Count } else { 0 }
             if ($_sdCaCount -gt 0) {
-                $entraSummary.Add("<p class='ok'>Security Defaults: <b>Disabled</b> — $_sdCaCount Conditional Access polic$(if ($_sdCaCount -eq 1) { 'y' } else { 'ies' }) active</p>")
+                $_sdHtml = "<p class='ok'>Security Defaults: <b>Disabled</b> — $_sdCaCount Conditional Access polic$(if ($_sdCaCount -eq 1) { 'y' } else { 'ies' }) active</p>"
             }
             else {
-                $entraSummary.Add("<p class='critical'>Security Defaults: <b>Disabled</b> — no Conditional Access policies are enabled</p>")
+                $_sdHtml = "<p class='critical'>Security Defaults: <b>Disabled</b> — no Conditional Access policies are enabled</p>"
             }
         }
     }
 
-    # --- SSPR ---
+    $_ssprHtml = ""
     $ssprCsv = Join-Path $entraDir "Entra_SSPR.csv"
     if (Test-Path $ssprCsv) {
         $ssprData = Import-Csv $ssprCsv | Select-Object -First 1
         if ($ssprData.SSPREnabled -eq "Enabled") {
-            $entraSummary.Add("<p class='ok'>Self-Service Password Reset: <b>Enabled</b></p>")
+            $_ssprHtml = "<p class='ok'>Self-Service Password Reset: <b>Enabled</b></p>"
         }
         else {
-            $entraSummary.Add("<p class='critical'>Self-Service Password Reset: <b>$($ssprData.SSPREnabled)</b></p>")
+            $_ssprHtml = "<p class='critical'>Self-Service Password Reset: <b>$($ssprData.SSPREnabled)</b></p>"
         }
     }
 
@@ -1182,6 +1223,7 @@ $implHtml
         $mfaPercent  = if ($mfaTotal -gt 0) { [math]::Round(($mfaEnabled / $mfaTotal) * 100, 1) } else { 0 }
         $mfaClass    = if ($mfaPercent -eq 100) { "ok" } elseif ($mfaPercent -gt 0) { "warn" } else { "critical" }
 
+        $entraSummary.Add("<h4 id='entra-users'>User Accounts</h4>")
         $entraSummary.Add("<p class='$mfaClass'>MFA enabled for <b>$mfaPercent%</b> of licensed users ($mfaEnabled / $mfaTotal)</p>")
 
         # Load sign-in history for expandable rows (keyed by UPN)
@@ -1270,7 +1312,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
                 "<tr><td>$($lic.SkuFriendlyName)</td><td>$($lic.EnabledUnits)</td><td>$($lic.SuspendedUnits)</td><td>$($lic.WarningUnits)</td><td>$($lic.ConsumedUnits)</td><td>$($lic.PurchaseChannel)</td></tr>"
             }
             $entraSummary.Add(@"
-<h4>Licence Summary</h4>
+<h4 id='entra-licenses'>Licence Summary</h4>
 <table>
   <thead><tr><th>Licence</th><th>Total</th><th>Suspended</th><th>Warning</th><th>Assigned</th><th>Channel</th></tr></thead>
   <tbody>$($licRows -join "`n")</tbody>
@@ -1309,7 +1351,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
             "<tr><td>$($assignment.RoleName)</td><td>$($assignment.MemberDisplayName)</td><td>$($assignment.MemberUserPrincipalName)</td></tr>"
         }
         $entraSummary.Add(@"
-<h4>Admin Role Assignments ($memberCount user(s) across $roleCount role(s))</h4>
+<h4 id='entra-admins'>Admin Role Assignments ($memberCount user(s) across $roleCount role(s))</h4>
 <table>
   <thead><tr><th>Role</th><th>User</th><th>UPN</th></tr></thead>
   <tbody>$($roleRows -join "`n")</tbody>
@@ -1332,6 +1374,9 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
             $caDisabled = ($caPolicies | Where-Object { $_.State -eq "disabled" }).Count
             $caClass    = if ($caEnabled -gt 0) { "ok" } else { "warn" }
 
+            $entraSummary.Add("<h4 id='entra-ca'>Conditional Access</h4>")
+            if ($_sdHtml)   { $entraSummary.Add($_sdHtml) }
+            if ($_ssprHtml) { $entraSummary.Add($_ssprHtml) }
             $entraSummary.Add("<p class='$caClass'>$($caPolicies.Count) Conditional Access policies: <b>$caEnabled enabled</b>, $caReport report-only, $caDisabled disabled</p>")
 
             $entraSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand policy scope and conditions.'))
@@ -1428,6 +1473,9 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
                 $hasCALicense = ($tenantSkus | Where-Object { $_ -in $caCapableSkus }).Count -gt 0
             }
 
+            $entraSummary.Add("<h4 id='entra-ca'>Conditional Access</h4>")
+            if ($_sdHtml)   { $entraSummary.Add($_sdHtml) }
+            if ($_ssprHtml) { $entraSummary.Add($_ssprHtml) }
             if ($hasCALicense) {
                 $entraSummary.Add("<p class='critical'>No Conditional Access policies configured — tenant has a CA-capable licence; policies are strongly recommended</p>")
             }
@@ -1528,7 +1576,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
     $_riskySignInsCsv = Join-Path $entraDir "Entra_RiskySignIns.csv"
     $_hasRiskyData    = (Test-Path $_riskyUsersCsv) -or (Test-Path $_riskySignInsCsv)
     if ($_hasRiskyData) {
-        $entraSummary.Add("<h4>Identity Protection</h4>")
+        $entraSummary.Add("<h4 id='entra-idprot'>Identity Protection</h4>")
 
         if (Test-Path $_riskyUsersCsv) {
             $_ruAll     = @(Import-Csv $_riskyUsersCsv)
@@ -1591,7 +1639,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
             $_grpRoleAssignable = @($_grps | Where-Object { $_.IsAssignableToRole -eq 'True' })
             $_grpNoOwners       = @($_grps | Where-Object { -not $_.Owners })
 
-            $entraSummary.Add("<h4>Groups ($($_grps.Count) total)</h4>")
+            $entraSummary.Add("<h4 id='entra-groups'>Groups ($($_grps.Count) total)</h4>")
             $entraSummary.Add("<p>Microsoft 365: <b>$_grpM365</b> &nbsp;|&nbsp; Security: <b>$_grpSec</b> &nbsp;|&nbsp; Dynamic: <b>$_grpDynamic</b> &nbsp;|&nbsp; Assigned: <b>$_grpAssigned</b>$(if ($_grpOnPrem -gt 0) { " &nbsp;|&nbsp; On-Prem Synced: <b>$_grpOnPrem</b>" })</p>")
 
             if ($_grpNoOwners.Count -gt 0) {
@@ -1663,7 +1711,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
             } else {
                 "<p class='critical'>AvePoint not detected — no AvePoint service principal found. Confirm SaaS backup is configured.</p>"
             }
-            $entraSummary.Add("<h4>Enterprise Apps ($($_eaApps.Count) third-party)</h4>")
+            $entraSummary.Add("<h4 id='entra-apps'>Enterprise Apps ($($_eaApps.Count) third-party)</h4>")
             $entraSummary.Add($_eaAveStatus)
             $entraSummary.Add(@"
 <table>
@@ -1724,6 +1772,7 @@ if ($exchangeFiles.Count -gt 0) {
     if (Test-Path $mbxCsv) {
         $mailboxes = @(Import-Csv $mbxCsv)
 
+        $exchangeSummary.Add("<h4 id='exchange-mailboxes'>Mailboxes</h4>")
         $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand delegated permissions.'))
 
         $mbxRows = foreach ($mbx in ($mailboxes | Sort-Object @{Expression={ switch ($_.RecipientType) { 'UserMailbox' { 0 } 'SharedMailbox' { 1 } default { 2 } } }}, DisplayName)) {
@@ -1775,6 +1824,28 @@ if ($exchangeFiles.Count -gt 0) {
   <tbody>$($mbxRows -join "`n")</tbody>
 </table>
 "@)
+
+        # --- Shared Mailbox Sign-In Status ---
+        $sharedSignInCsv = Join-Path $exchangeDir "Exchange_SharedMailboxSignIn.csv"
+        if (Test-Path $sharedSignInCsv) {
+            $sharedMbx     = @(Import-Csv $sharedSignInCsv)
+            $signInEnabled = @($sharedMbx | Where-Object { $_.AccountDisabled -eq "False" })
+            if ($signInEnabled.Count -eq 0) {
+                $exchangeSummary.Add("<p class='ok'>Shared mailbox interactive sign-in: all $($sharedMbx.Count) disabled.</p>")
+            }
+            else {
+                $exchangeSummary.Add("<p class='warn'>$($signInEnabled.Count) of $($sharedMbx.Count) shared mailbox(es) have interactive sign-in <b>enabled</b> — should be disabled to prevent direct login.</p>")
+                $siRows = foreach ($m in ($signInEnabled | Sort-Object DisplayName)) {
+                    "<tr class='warn'><td>$($m.DisplayName)</td><td>$($m.UserPrincipalName)</td></tr>"
+                }
+                $exchangeSummary.Add(@"
+<table>
+  <thead><tr><th>Display Name</th><th>UPN</th></tr></thead>
+  <tbody>$($siRows -join "`n")</tbody>
+</table>
+"@)
+            }
+        }
     }
 
     # --- Inbox Forwarding Rules ---
@@ -1784,7 +1855,7 @@ if ($exchangeFiles.Count -gt 0) {
             $fwdRows = foreach ($r in $forwarding) {
                 "<tr><td>$($r.Mailbox)</td><td>$($r.RuleName)</td><td>$($r.ForwardTo)</td><td>$($r.RedirectTo)</td></tr>"
             }
-            $exchangeSummary.Add("<h4>Inbox Forwarding Rules</h4>")
+            $exchangeSummary.Add("<h4 id='exchange-forwarding'>Inbox Forwarding Rules</h4>")
             $exchangeSummary.Add("<p class='warn'>$($forwarding.Count) inbox rule(s) with external forwarding detected</p>")
             $exchangeSummary.Add(@"
 <table>
@@ -1911,7 +1982,7 @@ if ($exchangeFiles.Count -gt 0) {
     $antiPhishCsv = Join-Path $exchangeDir "Exchange_AntiPhishPolicies.csv"
     if (Test-Path $antiPhishCsv) {
         $antiPhish = @(Import-Csv $antiPhishCsv)
-        $exchangeSummary.Add("<h4>Anti-Phish Policies</h4>")
+        $exchangeSummary.Add("<h4 id='exchange-policies'>Anti-Phish Policies</h4>")
         $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand setting descriptions.'))
         $apRows = foreach ($p in $antiPhish) {
             $spoofClass  = if ($p.EnableSpoofIntelligence -ne 'True') { " class='warn'" } else { "" }
@@ -2118,30 +2189,6 @@ if ($exchangeFiles.Count -gt 0) {
 "@)
     }
 
-    # --- Shared Mailbox Sign-In Status ---
-    $sharedSignInCsv = Join-Path $exchangeDir "Exchange_SharedMailboxSignIn.csv"
-    if (Test-Path $sharedSignInCsv) {
-        $sharedMbx     = @(Import-Csv $sharedSignInCsv)
-        $signInEnabled = @($sharedMbx | Where-Object { $_.AccountDisabled -eq "False" })
-        $siClass       = if ($signInEnabled.Count -eq 0) { "ok" } else { "warn" }
-        $exchangeSummary.Add("<h4>Shared Mailbox Sign-In</h4>")
-        if ($signInEnabled.Count -eq 0) {
-            $exchangeSummary.Add("<p class='ok'>All $($sharedMbx.Count) shared mailbox(es) have interactive sign-in disabled.</p>")
-        }
-        else {
-            $exchangeSummary.Add("<p class='warn'>$($signInEnabled.Count) of $($sharedMbx.Count) shared mailbox(es) have interactive sign-in <b>enabled</b>. Shared mailboxes should have sign-in disabled to prevent direct login.</p>")
-            $siRows = foreach ($m in ($signInEnabled | Sort-Object DisplayName)) {
-                "<tr class='warn'><td>$($m.DisplayName)</td><td>$($m.UserPrincipalName)</td></tr>"
-            }
-            $exchangeSummary.Add(@"
-<table>
-  <thead><tr><th>Display Name</th><th>UPN</th></tr></thead>
-  <tbody>$($siRows -join "`n")</tbody>
-</table>
-"@)
-        }
-    }
-
     # --- Safe Attachments ---
     $safeAttCsv = Join-Path $exchangeDir "Exchange_SafeAttachments.csv"
     $exchangeSummary.Add("<h4>Defender for Office 365 — Safe Attachments</h4>")
@@ -2264,7 +2311,7 @@ if ($spFiles.Count -gt 0) {
         $freeGB   = [math]::Round($freeMB  / 1024, 1)
 
         $storageBar = "<div style='display:flex;align-items:center;gap:10px;margin-bottom:0.4rem'><div style='background:#e0e0e0;border-radius:4px;width:240px;height:16px;flex-shrink:0;overflow:hidden'><div style='background:$barColor;width:${barPct}%;height:16px'></div></div><span style='font-size:0.85rem;color:#555'>$usedPct% used &mdash; $usedGB GB of $quotaGB GB ($freeGB GB free)</span></div>"
-        $spSummary.Add("<h4>Tenant Storage</h4>$storageBar<p style='font-size:0.85rem;color:#666;margin-top:0'>OneDrive storage quota per user: $odQuotaGB GB</p>")
+        $spSummary.Add("<h4 id='sp-storage'>Tenant Storage</h4>$storageBar<p style='font-size:0.85rem;color:#666;margin-top:0'>OneDrive storage quota per user: $odQuotaGB GB</p>")
     }
 
     # --- 2. Site Collections ---
@@ -2326,7 +2373,7 @@ if ($spFiles.Count -gt 0) {
         } else { 'https://admin.microsoft.com' }
         $_sharingReportUrl = "$_spAdminUrl/_layouts/15/online/ExternalSharingReportManager.aspx"
 
-        $spSummary.Add("<h4>Site Collections ($($sites.Count))</h4>")
+        $spSummary.Add("<h4 id='sp-sites'>Site Collections ($($sites.Count))</h4>")
         $spSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand SharePoint groups for that site.'))
 
         $siteRows = foreach ($site in ($sites | Sort-Object Title)) {
@@ -2411,7 +2458,7 @@ if ($spFiles.Count -gt 0) {
     }
 
     # --- 3. External Sharing ---
-    $spSummary.Add("<h4>External Sharing</h4>")
+    $spSummary.Add("<h4 id='sp-sharing'>External Sharing</h4>")
 
     if (Test-Path $tenantShareCsv) {
         $ts = Import-Csv $tenantShareCsv | Select-Object -First 1
@@ -2515,7 +2562,7 @@ if ($spFiles.Count -gt 0) {
     }
 
     # --- 5. OneDrive ---
-    $spSummary.Add("<h4>OneDrive</h4>")
+    $spSummary.Add("<h4 id='sp-onedrive'>OneDrive</h4>")
 
     if (Test-Path $odUsageCsv) {
         $odDrives  = @(Import-Csv $odUsageCsv)
@@ -2585,6 +2632,7 @@ if ($mailSecFiles.Count -gt 0) {
     $spfOkCount   = ($spfByDomain.Values   | Where-Object { $_.SPF -ne "DNS query failed" -and $_.SPF }).Count
     $total        = $allDomains.Count
 
+    $mailSecSummary.Add("<h4 id='mailsec-records'>DNS Records</h4>")
     $mailSecSummary.Add("<p class='$(if ($dkimOkCount -eq $total) {"ok"} else {"warn"})'>DKIM: <b>$dkimOkCount / $total</b> domains signing enabled</p>")
     $mailSecSummary.Add("<p class='$(if ($dmarcOkCount -eq $total) {"ok"} else {"warn"})'>DMARC: <b>$dmarcOkCount / $total</b> domains configured</p>")
     $mailSecSummary.Add("<p class='$(if ($spfOkCount -eq $total) {"ok"} else {"warn"})'>SPF: <b>$spfOkCount / $total</b> domains configured</p>")
@@ -2615,7 +2663,7 @@ if ($mailSecFiles.Count -gt 0) {
         }
 
         $mailSecSummary.Add(@"
-<h4 style='margin-top:1.2rem;margin-bottom:0.3rem'>$domain</h4>
+<h4>$domain</h4>
 <table>
   <thead><tr><th style='width:80px'>Record</th><th>Value</th></tr></thead>
   <tbody>
@@ -2689,24 +2737,12 @@ if ($intuneFiles.Count -gt 0) {
             $_corpDev     = @($_intDevices | Where-Object { $_.OwnerType -eq 'company' }).Count
             $_persDev     = @($_intDevices | Where-Object { $_.OwnerType -eq 'personal' }).Count
 
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Device Inventory ($_totalDev total)</h4>")
+            $intuneSummary.Add("<h4 id='intune-devices'>Device Inventory ($_totalDev total)</h4>")
             $intuneSummary.Add("<p>Corporate: $_corpDev &nbsp;|&nbsp; Personal (BYOD): $_persDev</p>")
 
             $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Operating System</th><th>Count</th></tr></thead><tbody>")
             foreach ($_osGroup in $_osCounts) {
                 $intuneSummary.Add("<tr><td>$(ConvertTo-HtmlText $_osGroup.Name)</td><td>$($_osGroup.Count)</td></tr>")
-            }
-            $intuneSummary.Add("</tbody></table>")
-
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Compliance State Summary</h4>")
-            $intuneSummary.Add("<table class='summary-table'><thead><tr><th>State</th><th>Count</th></tr></thead><tbody>")
-            foreach ($_compGroup in $_compCounts) {
-                $_stateColor = switch ($_compGroup.Name) {
-                    'compliant'    { 'color:#388e3c' }
-                    'noncompliant' { 'color:#c62828;font-weight:bold' }
-                    default        { '' }
-                }
-                $intuneSummary.Add("<tr><td style='$_stateColor'>$(ConvertTo-HtmlText $_compGroup.Name)</td><td>$($_compGroup.Count)</td></tr>")
             }
             $intuneSummary.Add("</tbody></table>")
 
@@ -2721,7 +2757,7 @@ if ($intuneFiles.Count -gt 0) {
                 }
             }
 
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Managed Devices</h4>")
+            $intuneSummary.Add("<h4>Managed Devices</h4>")
             $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand per-policy compliance states for that device.'))
             $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Device</th><th>OS</th><th>OS Version</th><th>Type</th><th>Owner</th><th>Compliance</th><th>Assigned User</th><th>Manufacturer</th><th>Model</th><th>Last Sync</th><th>Agent</th></tr></thead><tbody>")
             foreach ($_dev in ($_intDevices | Sort-Object DeviceName, OS, LastSyncDateTime)) {
@@ -2761,6 +2797,12 @@ if ($intuneFiles.Count -gt 0) {
                 }
             }
             $intuneSummary.Add("</tbody></table>")
+
+            $_compLine = ($_compCounts | ForEach-Object {
+                $s = switch ($_.Name) { 'compliant' { 'color:#388e3c;font-weight:bold' } 'noncompliant' { 'color:#c62828;font-weight:bold' } default { '' } }
+                if ($s) { "<span style='$s'>$($_.Count) $($_.Name)</span>" } else { "$($_.Count) $($_.Name)" }
+            }) -join ' &nbsp;&bull;&nbsp; '
+            $intuneSummary.Add("<p style='margin-top:0.4rem;font-size:0.87rem;color:#444'>Compliance breakdown: $_compLine</p>")
         }
 
         # Compliance policies
@@ -2769,7 +2811,7 @@ if ($intuneFiles.Count -gt 0) {
             $_intPolSettings = @()
             if (Test-Path $intPolSetCsv) { $_intPolSettings = @(Import-Csv $intPolSetCsv) }
 
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Compliance Policies ($($_intPols.Count))</h4>")
+            $intuneSummary.Add("<h4 id='intune-compliance'>Compliance Policies ($($_intPols.Count))</h4>")
             if ($_intPols.Count -gt 0) {
                 $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand policy details and settings.'))
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Platform</th><th>Assigned To</th><th>Grace Period (h)</th><th>Last Modified</th></tr></thead><tbody>")
@@ -2816,7 +2858,7 @@ if ($intuneFiles.Count -gt 0) {
             $_intProfSettings = @()
             if (Test-Path $intProfSetCsv) { $_intProfSettings = @(Import-Csv $intProfSetCsv) }
 
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Configuration Policies / Profiles ($($_intProfs.Count))</h4>")
+            $intuneSummary.Add("<h4 id='intune-config'>Configuration Policies / Profiles ($($_intProfs.Count))</h4>")
             if ($_intProfs.Count -gt 0) {
                 $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand profile details and settings.'))
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Profile</th><th>Platform</th><th>Type</th><th>Source</th><th>Last Modified</th><th>Assigned To</th></tr></thead><tbody>")
@@ -2852,7 +2894,7 @@ if ($intuneFiles.Count -gt 0) {
         # Apps
         if (Test-Path $intAppCsv) {
             $_intApps = @(Import-Csv $intAppCsv)
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Apps ($($_intApps.Count))</h4>")
+            $intuneSummary.Add("<h4 id='intune-apps'>Apps ($($_intApps.Count))</h4>")
             if ($_intApps.Count -gt 0) {
                 $intuneSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand app deployment details.'))
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>App</th><th>Type</th><th>Assigned To</th><th>Installed</th><th>Failed</th><th>Pending</th></tr></thead><tbody>")
@@ -2890,7 +2932,7 @@ if ($intuneFiles.Count -gt 0) {
         # Enrollment restrictions
         if (Test-Path $intEnrolCsv) {
             $_intEnrol = @(Import-Csv $intEnrolCsv)
-            $intuneSummary.Add("<h4 style='margin:1rem 0 0.25rem'>Enrollment Restrictions ($($_intEnrol.Count))</h4>")
+            $intuneSummary.Add("<h4>Enrollment Restrictions ($($_intEnrol.Count))</h4>")
             if ($_intEnrol.Count -gt 0) {
                 $intuneSummary.Add("<table class='summary-table'><thead><tr><th>Config</th><th>Platform</th><th>Block Personal</th><th>Max Devices/User</th><th>Priority</th><th>Assigned To</th></tr></thead><tbody>")
                 foreach ($_er in $_intEnrol) {
@@ -2939,24 +2981,27 @@ function toggleModule(hdr) {
     body.style.display = isOpen ? 'none' : '';
     if (toggle) toggle.classList.toggle('open', !isOpen);
 }
-// Sidebar scroll-spy
+// Sidebar scroll-spy (handles both module and sub-section links)
 (function() {
     var main  = document.querySelector('.main');
-    var links = document.querySelectorAll('.sb-item[href^="#"]');
+    var links = document.querySelectorAll('.sb-item[href^="#"], .sb-sub[href^="#"]');
     if (!main || !links.length) return;
-    main.addEventListener('scroll', function() {
-        var scrollTop = main.scrollTop + 80;
-        var current   = '';
+    function update() {
+        var mainRect = main.getBoundingClientRect();
+        var trigger  = mainRect.top + 80;
+        var current  = '';
         links.forEach(function(link) {
-            var id  = link.getAttribute('href').substring(1);
-            var sec = document.getElementById(id);
-            if (sec && sec.offsetTop <= scrollTop) current = id;
+            var id = link.getAttribute('href').substring(1);
+            var el = document.getElementById(id);
+            if (el && el.getBoundingClientRect().top <= trigger) current = id;
         });
         links.forEach(function(link) {
             var id = link.getAttribute('href').substring(1);
             link.classList.toggle('active', id === current);
         });
-    }, { passive: true });
+    }
+    main.addEventListener('scroll', update, { passive: true });
+    update();
 })();
 </script>
 </body></html>
