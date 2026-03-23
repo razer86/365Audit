@@ -21,7 +21,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.9.0
+    Version     : 1.9.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -39,7 +39,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "1.9.1"
 Write-Verbose "Invoke-MailSecurityAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -217,6 +217,7 @@ try {
     Export-Json -Data (Get-SpoofIntelligenceInsight) -Path "$outputDir\MailSec_SpoofIntelligence.json"
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Mail Security' -Collector 'Get-SpoofIntelligenceInsight' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Spoof Intelligence not available or permission denied: $_"
 }
 

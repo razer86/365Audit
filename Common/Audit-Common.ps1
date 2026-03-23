@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.21.0
+    Version     : 1.23.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -20,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.21.0"
+$ScriptVersion = "1.23.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -473,6 +473,79 @@ function Connect-ExchangeOnlineSecure {
 
 
 # ==========================================
+# ===   Connect-TeamsSecure             ===
+# ==========================================
+# Connects to Microsoft Teams PowerShell using certificate-based app-only auth.
+# Must be called after the MicrosoftTeams module is available.
+# Detects $AuditAppId/$AuditTenantId/$AuditCertFilePath/$AuditCertPassword from launcher scope.
+# When present: connects via -ApplicationId and -Certificate (no cert-store import required).
+# Requires TeamSettings.Read.All Graph permission granted on the app registration.
+# Falls back to interactive browser auth when credentials are absent.
+function Connect-TeamsSecure {
+    [CmdletBinding()]
+    param()
+
+    # Ensure MicrosoftTeams module is available
+    if (-not (Get-Module -ListAvailable -Name 'MicrosoftTeams')) {
+        Write-Host "Required module 'MicrosoftTeams' not found — installing latest..." -ForegroundColor Yellow
+        Install-Module MicrosoftTeams -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+        $_installedMod = Get-Module -ListAvailable -Name 'MicrosoftTeams' | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $_installedMod) {
+            throw "Installation of 'MicrosoftTeams' failed — module still not found after install."
+        }
+        Write-Host "  Installed 'MicrosoftTeams' v$($_installedMod.Version)." -ForegroundColor Green
+    }
+
+    Import-Module MicrosoftTeams -ErrorAction Stop -WarningAction SilentlyContinue
+
+    # Check if already connected
+    try {
+        Get-CsTenant -ErrorAction Stop | Out-Null
+        Write-Verbose "Already connected to Microsoft Teams."
+        return
+    }
+    catch { <# not connected — continue #> }
+
+    # Auto-detect app credentials from the launcher scope
+    $appId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
+    $tenantId     = Get-Variable -Name AuditTenantId     -ValueOnly -ErrorAction SilentlyContinue
+    $certFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue
+    $certPassword = Get-Variable -Name AuditCertPassword -ValueOnly -ErrorAction SilentlyContinue
+
+    if ($appId -and $tenantId -and $certFilePath) {
+        Write-Host "Connecting to Microsoft Teams (app-only auth)..." -ForegroundColor Cyan
+
+        # Load the X509Certificate2 directly from the .pfx — no cert-store import needed
+        $certBytes = [System.IO.File]::ReadAllBytes($certFilePath)
+        $_bstr     = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($certPassword)
+        try {
+            $plainPwd = [Runtime.InteropServices.Marshal]::PtrToStringAuto($_bstr)
+            $certObj  = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+                $certBytes, $plainPwd,
+                [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+        }
+        finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($_bstr)
+        }
+
+        Connect-MicrosoftTeams `
+            -ApplicationId $appId `
+            -TenantId      $tenantId `
+            -Certificate   $certObj `
+            -ErrorAction   Stop
+
+        $certObj.Dispose()
+        Write-Host "Connected to Microsoft Teams." -ForegroundColor Green
+    }
+    else {
+        Write-Host "Connecting to Microsoft Teams (interactive)..." -ForegroundColor Cyan
+        Connect-MicrosoftTeams -ErrorAction Stop
+        Write-Host "Connected to Microsoft Teams." -ForegroundColor Green
+    }
+}
+
+
+# ==========================================
 # ===   Initialize Audit Output Folder   ===
 # ==========================================
 function Initialize-AuditOutput {
@@ -517,7 +590,7 @@ function Initialize-AuditOutput {
     $cleanDisplayName = $orgExpanded.DisplayName -replace '[^a-zA-Z0-9]', ''
     $folderName       = "${cleanDisplayName}_$(Get-Date -Format 'yyyyMMdd')"
     $outputDir        = Join-Path $PSScriptRoot "..\..\$folderName"
-    $rawOutputDir     = Join-Path $outputDir "Raw Files"
+    $rawOutputDir     = Join-Path $outputDir "Raw"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     New-Item -ItemType Directory -Path $rawOutputDir -Force | Out-Null
 
@@ -588,5 +661,53 @@ function Invoke-VersionCheck {
     }
     else {
         Write-Host "All scripts are up to date.`n" -ForegroundColor Green
+    }
+}
+
+
+# ==========================================
+# ===   Audit Issue Logger              ===
+# ==========================================
+# Call from catch blocks in audit scripts to record collection failures,
+# permission errors, and module issues into AuditIssues.csv in the output folder.
+# Generate-AuditSummary.ps1 reads this file and renders it as a Technical Issues section.
+function Add-AuditIssue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('Critical', 'Warning', 'Info')]
+        [string]$Severity,
+
+        [Parameter(Mandatory)]
+        [string]$Section,
+
+        [Parameter(Mandatory)]
+        [string]$Collector,
+
+        [Parameter(Mandatory)]
+        [string]$Description,
+
+        [string]$Action = ''
+    )
+
+    if (-not $script:AuditOutputContext) {
+        Write-Warning "Add-AuditIssue called before Initialize-AuditOutput — issue not recorded."
+        return
+    }
+
+    $issuesPath = Join-Path $script:AuditOutputContext.OutputPath 'AuditIssues.csv'
+    $row = [PSCustomObject]@{
+        Timestamp   = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        Severity    = $Severity
+        Section     = $Section
+        Collector   = $Collector
+        Description = $Description
+        Action      = $Action
+    }
+
+    if (-not (Test-Path $issuesPath)) {
+        $row | Export-Csv -Path $issuesPath -NoTypeInformation -Encoding UTF8
+    } else {
+        $row | Export-Csv -Path $issuesPath -NoTypeInformation -Encoding UTF8 -Append
     }
 }

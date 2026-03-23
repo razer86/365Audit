@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.7.0
+    Version     : 2.10.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey
 )
 
-$ScriptVersion      = '2.7.0'
+$ScriptVersion      = '2.10.0'
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
@@ -140,7 +140,10 @@ $script:GraphPermissions = @(
     'DeviceManagementServiceConfig.Read.All',
     'IdentityRiskyUser.Read.All',
     'IdentityRiskEvent.Read.All',
-    'Application.ReadWrite.OwnedBy'
+    'Application.Read.All',
+    'Application.ReadWrite.OwnedBy',
+    'TeamSettings.Read.All',
+    'PrivilegedAccess.Read.AzureAD'
 )
 
 # Office 365 Exchange Online service principal app ID (constant in all Azure tenants)
@@ -386,7 +389,19 @@ function Connect-GraphForSetup {
     )
 
     Write-Status 'Connecting to Microsoft Graph (browser window will open for interactive sign-in)...'
-    Connect-MgGraph -Scopes $scopes -NoWelcome -ErrorAction Stop
+    try {
+        Connect-MgGraph -Scopes $scopes -NoWelcome -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception.Message -match 'WithBroker|BrokerExtension|MsalCacheHelper|InteractiveBrowserCredential|DeviceCodeCredential') {
+            throw (
+                "Interactive authentication failed due to a MSAL version conflict in the installed Graph module. " +
+                "To fix: open a standalone PowerShell 7 window (not an IDE terminal) and re-run this script, " +
+                "or run: Update-Module Microsoft.Graph -Force  then restart PowerShell and try again."
+            )
+        }
+        throw
+    }
 
     $ctx = Get-MgContext
     if (-not $ctx) { throw "Authentication completed but no Graph context was established." }
@@ -486,24 +501,27 @@ function Set-ExchangeAdminRole {
     [CmdletBinding()]
     param ([string]$ServicePrincipalId)
 
-    # Activate the role in the tenant if not yet activated (lazy-loaded roles)
-    $role = Get-MgDirectoryRole -Filter "displayName eq 'Exchange Administrator'" -ErrorAction SilentlyContinue
-    if (-not $role) {
-        $template = Get-MgDirectoryRoleTemplate -ErrorAction Stop |
-            Where-Object { $_.DisplayName -eq 'Exchange Administrator' }
-        if (-not $template) { throw "Exchange Administrator role template not found in tenant." }
-        $role = New-MgDirectoryRole -RoleTemplateId $template.Id -ErrorAction Stop
-    }
-
-    # Skip if already assigned (-All prevents pagination from missing members in large tenants)
-    $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All -ErrorAction SilentlyContinue |
-        Where-Object { $_.Id -eq $ServicePrincipalId }
-    if ($existing) {
-        Write-Verbose 'Exchange Administrator role already assigned — skipping.'
-        return
-    }
-
     try {
+        # Activate the role in the tenant if not yet activated (lazy-loaded roles)
+        $role = Get-MgDirectoryRole -Filter "displayName eq 'Exchange Administrator'" -ErrorAction SilentlyContinue
+        if (-not $role) {
+            $template = Get-MgDirectoryRoleTemplate -ErrorAction Stop |
+                Where-Object { $_.DisplayName -eq 'Exchange Administrator' }
+            if (-not $template) {
+                Write-Warning "Exchange Administrator role template not found — assign the role manually in Entra ID."
+                return
+            }
+            $role = New-MgDirectoryRole -RoleTemplateId $template.Id -ErrorAction Stop
+        }
+
+        # Skip if already assigned (-All prevents pagination from missing members in large tenants)
+        $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -eq $ServicePrincipalId }
+        if ($existing) {
+            Write-Verbose 'Exchange Administrator role already assigned — skipping.'
+            return
+        }
+
         $body = @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$ServicePrincipalId" }
         New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
         Write-Verbose "Exchange Administrator role assigned to service principal."
@@ -512,7 +530,55 @@ function Set-ExchangeAdminRole {
         if ($_.Exception.Message -match 'already exist') {
             Write-Verbose 'Exchange Administrator role already assigned — skipping.'
         }
-        else { throw }
+        else {
+            Write-Warning "Could not assign Exchange Administrator role automatically: $($_.Exception.Message)"
+            Write-Warning "ACTION REQUIRED: In Entra ID, assign the 'Exchange Administrator' role to the '$(Get-Variable -Name AppName -ValueOnly -ErrorAction SilentlyContinue)' service principal manually."
+        }
+    }
+}
+
+
+# ============================================================
+# Assign Global Reader Entra role to service principal
+# Required by ScubaGear for non-interactive M365 baseline assessment
+# ============================================================
+function Set-GlobalReaderRole {
+    [CmdletBinding()]
+    param ([string]$ServicePrincipalId)
+
+    try {
+        # Activate the role in the tenant if not yet activated (lazy-loaded roles)
+        $role = Get-MgDirectoryRole -Filter "displayName eq 'Global Reader'" -ErrorAction SilentlyContinue
+        if (-not $role) {
+            $template = Get-MgDirectoryRoleTemplate -ErrorAction Stop |
+                Where-Object { $_.DisplayName -eq 'Global Reader' }
+            if (-not $template) {
+                Write-Warning "Global Reader role template not found — assign the role manually in Entra ID."
+                return
+            }
+            $role = New-MgDirectoryRole -RoleTemplateId $template.Id -ErrorAction Stop
+        }
+
+        # Skip if already assigned (-All prevents pagination from missing members in large tenants)
+        $existing = Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -eq $ServicePrincipalId }
+        if ($existing) {
+            Write-Verbose 'Global Reader role already assigned — skipping.'
+            return
+        }
+
+        $body = @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$ServicePrincipalId" }
+        New-MgDirectoryRoleMemberByRef -DirectoryRoleId $role.Id -BodyParameter $body -ErrorAction Stop
+        Write-Verbose "Global Reader role assigned to service principal."
+    }
+    catch {
+        if ($_.Exception.Message -match 'already exist') {
+            Write-Verbose 'Global Reader role already assigned — skipping.'
+        }
+        else {
+            Write-Warning "Could not assign Global Reader role automatically: $($_.Exception.Message)"
+            Write-Warning "ACTION REQUIRED: In Entra ID, assign the 'Global Reader' role to the '$(Get-Variable -Name AppName -ValueOnly -ErrorAction SilentlyContinue)' service principal manually. This role is required by ScubaGear."
+        }
     }
 }
 
@@ -994,6 +1060,8 @@ function Invoke-PermissionCheck {
             Write-Status 'Assigning Exchange Administrator role...'
             Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
         }
+        Write-Status 'Assigning Global Reader role (required by ScubaGear)...'
+        Set-GlobalReaderRole -ServicePrincipalId $sp.Id
         Write-Status 'Permissions validated.' -Type Success
         return $true
     }
@@ -1018,22 +1086,38 @@ function Resolve-PermissionState {
 
     if ($script:SetupNeedsManualConsent) {
         Write-Status 'Automatic admin consent was not sufficient — reconnecting interactively to complete consent...' -Type Warning
-        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
 
-        $TenantId = Connect-GraphForSetup
-        $orgName  = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
-        Write-Status "Tenant: $orgName ($TenantId)" -Type Success
-
-        $App = Get-MgApplication -Filter "appId eq '$($App.AppId)'" -ErrorAction Stop | Select-Object -First 1
-        if (-not $App) {
-            throw "No app registration found for AppId '$($App.AppId)' after interactive reconnect."
+        # Capture org name while still connected app-only, before disconnecting
+        if (-not $orgName) {
+            $orgName = (Get-MgOrganization -ErrorAction SilentlyContinue | Select-Object -First 1).DisplayName
         }
 
-        $script:SetupNeedsManualConsent = $false
-        $permissionChanges = Invoke-PermissionCheck -App $App
+        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+
+        $interactiveOk = $false
+        try {
+            $TenantId     = Connect-GraphForSetup
+            $orgName      = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
+            Write-Status "Tenant: $orgName ($TenantId)" -Type Success
+            $interactiveOk = $true
+        }
+        catch {
+            Write-Status "Interactive sign-in unavailable: $($_.Exception.Message)" -Type Warning
+            Write-Status 'Falling back to manual portal consent...' -Type Warning
+        }
+
+        if ($interactiveOk) {
+            $App = Get-MgApplication -Filter "appId eq '$($App.AppId)'" -ErrorAction Stop | Select-Object -First 1
+            if (-not $App) {
+                throw "No app registration found for AppId '$($App.AppId)' after interactive reconnect."
+            }
+
+            $script:SetupNeedsManualConsent = $false
+            $permissionChanges = Invoke-PermissionCheck -App $App
+        }
 
         if ($script:SetupNeedsManualConsent) {
-            Request-AdminConsent -ApplicationId $App.AppId -TenantName $orgName
+            Request-AdminConsent -ApplicationId $App.AppId -TenantName ($orgName ?? $TenantId)
         }
     }
 
@@ -1050,6 +1134,11 @@ function Resolve-PermissionState {
 # Required for Application.ReadWrite.OwnedBy to permit non-interactive cert renewal.
 function Invoke-OwnerCheck {
     param ([object]$App)
+
+    if (-not (Get-MgContext)) {
+        Write-Verbose 'No active Graph session — skipping owner check.'
+        return
+    }
 
     $sp = Resolve-ServicePrincipal -AppId $App.AppId
     try {
@@ -1118,6 +1207,8 @@ function New-EntraApp {
     Grant-AdminConsent -OurSpId $sp.Id -Permissions $ePerms
     Write-Status 'Assigning Exchange Administrator role...'
     Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
+    Write-Status 'Assigning Global Reader role (required by ScubaGear)...'
+    Set-GlobalReaderRole -ServicePrincipalId $sp.Id
 
     Request-AdminConsent -ApplicationId $app.AppId -TenantName $OrgName
 

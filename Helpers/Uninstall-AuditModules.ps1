@@ -35,6 +35,13 @@ param()
 
 $ErrorActionPreference = 'Continue'
 
+# ScubaGear installs into the Windows PowerShell 5.1 module path.
+# Inject it into PSModulePath so Get-Module -ListAvailable and Uninstall-Module can reach it.
+$_ps51ModulePath = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\Modules'
+if ((Test-Path $_ps51ModulePath) -and ($env:PSModulePath -notlike "*$_ps51ModulePath*")) {
+    $env:PSModulePath += ";$_ps51ModulePath"
+}
+
 # ── Full module list ───────────────────────────────────────────────────────────
 
 $_modules = @(
@@ -59,6 +66,12 @@ $_modules = @(
 
     # SharePoint audit
     'PnP.PowerShell'
+
+    # Teams audit
+    'MicrosoftTeams'
+
+    # ScubaGear audit (Windows PowerShell 5.1 — installed to Documents\WindowsPowerShell\Modules)
+    'ScubaGear'
 )
 
 # ── Pre-flight: block if any modules are currently loaded ─────────────────────

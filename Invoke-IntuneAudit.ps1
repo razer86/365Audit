@@ -27,7 +27,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.7.0
+    Version     : 1.8.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -45,7 +45,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.7.0"
+$ScriptVersion = "1.8.1"
 Write-Verbose "Invoke-IntuneAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -88,7 +88,7 @@ catch {
 Write-Host "`nStarting Intune Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 8
+$totalSteps = 10
 $activity   = "Intune Audit — $($context.OrgName)"
 
 # Known SKU part numbers that include Intune
@@ -1006,6 +1006,7 @@ try {
     Write-Host "  Devices: $($_allDevices.Count) managed device(s) found." -ForegroundColor Green
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Get-MgDeviceManagementManagedDevice' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementManagedDevices.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Managed devices')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_Devices.csv') -NoTypeInformation -Encoding UTF8
 }
@@ -1119,6 +1120,7 @@ try {
     Write-Host "  Compliance policies: $($_policies.Count) policy(ies), $($_policySettingRows.Count) setting record(s)." -ForegroundColor Green
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Get-MgDeviceManagementDeviceCompliancePolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementConfiguration.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Compliance policies')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_CompliancePolicies.csv')       -NoTypeInformation -Encoding UTF8
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_CompliancePolicySettings.csv') -NoTypeInformation -Encoding UTF8
@@ -1226,6 +1228,7 @@ try {
         }
     }
     catch {
+        Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Invoke-GraphCollectionRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementConfiguration.Read.All permissions or re-run Setup-365AuditApp.ps1'
         Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Modern configuration policies')
     }
 
@@ -1234,6 +1237,7 @@ try {
     Write-Host "  Configuration profiles: $($_profileRows.Count) profile(s), $($_profileSettingRows.Count) setting record(s)." -ForegroundColor Green
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Get-MgDeviceManagementDeviceConfiguration' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementConfiguration.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Configuration profiles')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_ConfigProfiles.csv')        -NoTypeInformation -Encoding UTF8
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_ConfigProfileSettings.csv') -NoTypeInformation -Encoding UTF8
@@ -1310,6 +1314,7 @@ try {
     Write-Host "  Apps: $($_apps.Count) app(s)." -ForegroundColor Green
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Get-MgDeviceAppManagementMobileApp' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementApps.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Apps')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_Apps.csv') -NoTypeInformation -Encoding UTF8
 }
@@ -1338,6 +1343,7 @@ try {
     Write-Host "  Autopilot: $($_autopilot.Count) device(s) registered." -ForegroundColor Green
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Get-MgDeviceManagementWindowsAutopilotDeviceIdentity' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementServiceConfig.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Autopilot devices')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_AutopilotDevices.csv') -NoTypeInformation -Encoding UTF8
 }
@@ -1387,10 +1393,95 @@ try {
     Write-Host "  Enrollment restrictions: $($_restrictions.Count) configuration(s)." -ForegroundColor Green
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Get-MgDeviceManagementDeviceEnrollmentConfiguration' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementServiceConfig.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Enrollment restrictions')
     @() | Export-Csv -Path (Join-Path $outputDir 'Intune_EnrollmentRestrictions.csv') -NoTypeInformation -Encoding UTF8
 }
 
+
+    # ================================
+    # ===   9. Windows Update Rings  ===
+    # ================================
+    $step++
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Windows Update Rings..." -PercentComplete ([int]($step / $totalSteps * 100))
+    try {
+        $_updateRingUri  = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations?`$filter=isof('microsoft.graph.windowsUpdateForBusinessConfiguration')&`$top=200"
+        $_updateRingObjs = Invoke-GraphCollectionRequest -Uri $_updateRingUri -ErrorAction Stop
+
+        $_updateRingRows = foreach ($_ring in $_updateRingObjs) {
+            $_ap = $_ring.AdditionalProperties
+            $_assigned = Get-IntuneAssignmentSummary -ResourcePath "deviceManagement/deviceConfigurations/$($_ring.Id)/assignments"
+            [PSCustomObject]@{
+                RingName                  = $_ring.DisplayName
+                DeploymentChannel         = if ($_ap -and $_ap['businessReadyUpdatesOnly']) { $_ap['businessReadyUpdatesOnly'] } else { '' }
+                FeatureUpdateDeferralDays = if ($_ap -and $null -ne $_ap['featureUpdatesDeferralPeriodInDays']) { $_ap['featureUpdatesDeferralPeriodInDays'] } else { '' }
+                QualityUpdateDeferralDays = if ($_ap -and $null -ne $_ap['qualityUpdatesDeferralPeriodInDays']) { $_ap['qualityUpdatesDeferralPeriodInDays'] } else { '' }
+                AssignedTo                = $_assigned
+            }
+        }
+        $_updateRingRows | Export-Csv -Path (Join-Path $outputDir 'Intune_UpdateRings.csv') -NoTypeInformation -Encoding UTF8
+        Write-Host "  Windows Update Rings: $($_updateRingObjs.Count) ring(s)." -ForegroundColor Green
+    }
+    catch {
+        Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Invoke-GraphCollectionRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementConfiguration.Read.All permissions or re-run Setup-365AuditApp.ps1'
+        Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'Windows Update Rings')
+        @() | Export-Csv -Path (Join-Path $outputDir 'Intune_UpdateRings.csv') -NoTypeInformation -Encoding UTF8
+    }
+
+
+    # ================================
+    # ===   10. App Protection Policies (MAM)  ===
+    # ================================
+    $step++
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting App Protection Policies..." -PercentComplete ([int]($step / $totalSteps * 100))
+    try {
+        $_mamPolicies = Invoke-GraphCollectionRequest -Uri 'https://graph.microsoft.com/v1.0/deviceAppManagement/managedAppPolicies' -ErrorAction Stop
+
+        $_platformMap = @{
+            '#microsoft.graph.iosManagedAppProtection'     = 'iOS'
+            '#microsoft.graph.androidManagedAppProtection' = 'Android'
+            '#microsoft.graph.windowsManagedAppProtection' = 'Windows'
+            '#microsoft.graph.mdmWindowsInformationProtectionPolicy' = 'Windows (WIP/MDM)'
+        }
+
+        $_mamRows = foreach ($_pol in $_mamPolicies) {
+            $_odataType = if ($_pol.ODataType) { $_pol.ODataType } elseif ($_pol.AdditionalProperties -and $_pol.AdditionalProperties['@odata.type']) { $_pol.AdditionalProperties['@odata.type'] } else { '' }
+            $_platform  = if ($_platformMap.ContainsKey($_odataType)) { $_platformMap[$_odataType] } else { $_odataType }
+            $_ap        = if ($_pol.AdditionalProperties) { $_pol.AdditionalProperties } else { @{} }
+
+            # Assignments
+            $_assignUri = "https://graph.microsoft.com/v1.0/deviceAppManagement/managedAppPolicies/$($_pol.Id)/assignments"
+            $_assignObjs = @()
+            try { $_assignObjs = @(Invoke-GraphCollectionRequest -Uri $_assignUri) } catch {}
+            $_assignLabels = foreach ($_a in $_assignObjs) {
+                $_target = if ($_a.Target) { $_a.Target } elseif ($_a.AdditionalProperties -and $_a.AdditionalProperties['target']) { $_a.AdditionalProperties['target'] } else { $null }
+                if ($_target) {
+                    switch -Wildcard ($_target.'@odata.type') {
+                        '*allLicensedUsers*' { 'All Users' }
+                        '*allDevices*'       { 'All Devices' }
+                        '*group*'            { if ($_target.groupId) { $_target.groupId } else { 'Group' } }
+                        default              { 'Unknown' }
+                    }
+                }
+            }
+
+            [PSCustomObject]@{
+                PolicyName                       = $_pol.DisplayName
+                Platform                         = $_platform
+                PinRequired                      = if ($_ap.ContainsKey('pinRequired'))              { $_ap['pinRequired']              } else { '' }
+                DataBackupBlocked                = if ($_ap.ContainsKey('dataBackupBlocked'))         { $_ap['dataBackupBlocked']         } else { '' }
+                ManagedBrowserToOpenLinksRequired= if ($_ap.ContainsKey('managedBrowserToOpenLinksRequired')) { $_ap['managedBrowserToOpenLinksRequired'] } else { '' }
+                AssignedGroups                   = if ($_assignLabels.Count -gt 0) { $_assignLabels -join '; ' } else { 'Unassigned' }
+            }
+        }
+        $_mamRows | Export-Csv -Path (Join-Path $outputDir 'Intune_AppProtectionPolicies.csv') -NoTypeInformation -Encoding UTF8
+        Write-Host "  App Protection Policies (MAM): $($_mamPolicies.Count) policy/policies." -ForegroundColor Green
+    }
+    catch {
+        Add-AuditIssue -Severity 'Warning' -Section 'Intune' -Collector 'Invoke-GraphCollectionRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check DeviceManagementApps.Read.All permissions or re-run Setup-365AuditApp.ps1'
+        Write-Warning (Get-IntuneGraphErrorMessage -ErrorRecord $_ -Operation 'App Protection Policies')
+        @() | Export-Csv -Path (Join-Path $outputDir 'Intune_AppProtectionPolicies.csv') -NoTypeInformation -Encoding UTF8
+    }
 
 } # end if (-not $_intuneSkip)
 

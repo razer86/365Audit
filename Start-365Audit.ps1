@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.10.0
+    Version     : 2.13.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -110,15 +110,15 @@ param (
     # ── Automation ────────────────────────────────────────────────────────────
     # Provide module numbers to skip the menu and run non-interactively.
     # The HTML summary is generated but not opened automatically.
-    # Example: -Modules 1,2,3,4  or  -Modules 9
+    # Example: -Modules 1,2,3,4  or  -Modules A
     [Parameter(ParameterSetName = 'Manual')]
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [ValidateSet(1, 2, 3, 4, 5, 9)]
-    [int[]]$Modules
+    [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
+    [string[]]$Modules
 )
 
-$ScriptVersion = "2.10.0"
+$ScriptVersion = "2.13.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -391,14 +391,16 @@ $menu = @{
     3 = @{ Name = "SharePoint Online Audit";    Script = @("Invoke-SharePointAudit.ps1") }
     4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1") }
     5 = @{ Name = "Intune / Endpoint Audit";    Script = @("Invoke-IntuneAudit.ps1") }
-    9 = @{ Name = "Run All Modules (1-5)";      Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1") }
+    6 = @{ Name = "Microsoft Teams Audit";      Script = @("Invoke-TeamsAudit.ps1") }
+    7 = @{ Name = "ScubaGear CIS Baseline";     Script = @("Invoke-ScubaGearAudit.ps1") }
+    'A' = @{ Name = "Run All Modules (1-7)";    Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1", "Invoke-TeamsAudit.ps1", "Invoke-ScubaGearAudit.ps1") }
     0 = @{ Name = "Exit";                       Script = $null }
 }
 
 # === Select Modules ===
 if ($Modules) {
-    # Non-interactive: use the provided module list directly
-    $selectedIndexes = $Modules
+    # Non-interactive: coerce numeric strings to int so they match the hashtable keys; leave 'A' as string
+    $selectedIndexes = $Modules | ForEach-Object { if ($_ -match '^\d+$') { [int]$_ } else { $_.ToUpper() } }
 }
 else {
     # Interactive: display menu and prompt
@@ -406,7 +408,7 @@ else {
     Write-Host "║    Microsoft 365 Audit Launcher    ║"
     Write-Host "╚════════════════════════════════════╝"
 
-    foreach ($key in ($menu.Keys | Sort-Object { [int]$_ })) {
+    foreach ($key in ($menu.Keys | Sort-Object { if ($_ -is [int]) { [int]$_ } else { 99 } })) {
         Write-Host "$key. $($menu[$key].Name)"
     }
 
@@ -417,9 +419,9 @@ else {
     }
 
     $selectedIndexes = $selection -split "," |
-        ForEach-Object { $_.Trim() } |
-        Where-Object    { $_ -match '^\d+$' } |
-        ForEach-Object  { [int]$_ }
+        ForEach-Object { $_.Trim().ToUpper() } |
+        Where-Object    { $_ -match '^\d+$|^A$' } |
+        ForEach-Object  { if ($_ -match '^\d+$') { [int]$_ } else { $_ } }
 }
 
 # === Log run context to transcript ===
@@ -511,4 +513,7 @@ finally {
         Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
     }
     Disconnect-PnPOnlineIfLoaded
+    if (Get-Module -Name MicrosoftTeams -ErrorAction SilentlyContinue) {
+        Disconnect-MicrosoftTeams -ErrorAction SilentlyContinue | Out-Null
+    }
 }

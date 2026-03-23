@@ -22,6 +22,13 @@
 
 $ErrorActionPreference = 'Continue'
 
+# ScubaGear installs into the Windows PowerShell 5.1 module path.
+# Inject it into PSModulePath so Get-Module -ListAvailable and Find-Module can reach it.
+$_ps51ModulePath = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\Modules'
+if ((Test-Path $_ps51ModulePath) -and ($env:PSModulePath -notlike "*$_ps51ModulePath*")) {
+    $env:PSModulePath += ";$_ps51ModulePath"
+}
+
 $_modules = @(
     # Microsoft Graph — core
     'Microsoft.Graph.Authentication'
@@ -44,6 +51,12 @@ $_modules = @(
 
     # SharePoint audit
     'PnP.PowerShell'
+
+    # Teams audit
+    'MicrosoftTeams'
+
+    # ScubaGear audit (Windows PowerShell 5.1 — installed to Documents\WindowsPowerShell\Modules)
+    'ScubaGear'
 )
 
 Write-Host ""
@@ -120,6 +133,43 @@ foreach ($row in $results) {
 }
 
 Write-Host ""
+
+# ── Known incompatibility warnings ─────────────────────────────────────────────
+
+$_knownIssues = @()
+
+# EXO 3.8.0 ships an msalruntime.dll that conflicts with Microsoft.Graph.Authentication.
+# The dll is placed in a subdirectory that EXO's assembly resolver doesn't add to the load
+# path, so MSAL fails to initialise when Graph and EXO are both loaded in the same session.
+# Safe known-good pairing: Graph SDK 2.35.x + ExchangeOnlineManagement 3.7.1.
+$_exoInstalled = Get-Module -ListAvailable -Name ExchangeOnlineManagement |
+    Sort-Object Version -Descending | Select-Object -First 1
+if ($_exoInstalled -and $_exoInstalled.Version -ge [version]'3.8.0') {
+    $_knownIssues += "ExchangeOnlineManagement $($_exoInstalled.Version) has known MSAL conflicts with Microsoft.Graph.Authentication. " +
+        "Downgrade to 3.7.1: Uninstall-Module ExchangeOnlineManagement -AllVersions -Force; Install-Module ExchangeOnlineManagement -RequiredVersion 3.7.1 -Scope CurrentUser"
+
+    # Check whether msalruntime.dll is also missing from the flat netCore folder
+    $_exoBase    = Split-Path $_exoInstalled.ModuleBase
+    $_msalTarget = Join-Path $_exoBase "$($_exoInstalled.Version)\netCore\msalruntime.dll"
+    $_msalSource = Join-Path $_exoBase "$($_exoInstalled.Version)\netCore\runtimes\win-x64\native\msalruntime.dll"
+    if (-not (Test-Path $_msalTarget) -and (Test-Path $_msalSource)) {
+        $_knownIssues += "msalruntime.dll is missing from EXO module load path. Fix: " +
+            "Copy-Item '$_msalSource' '$_msalTarget'"
+    }
+}
+
+if ($_knownIssues.Count -gt 0) {
+    Write-Host "+----------------------------------------------------------+" -ForegroundColor Yellow
+    Write-Host "  Module Issue" -ForegroundColor Yellow
+    Write-Host "+----------------------------------------------------------+" -ForegroundColor Yellow
+    foreach ($issue in $_knownIssues) {
+        Write-Host "  ! $issue" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "  Known compatible combo: Graph SDK 2.35.x + EXO 3.7.1" -ForegroundColor DarkGray
+    Write-Host "  Also: Always connect Graph BEFORE EXO in the same session." -ForegroundColor DarkGray
+    Write-Host ""
+}
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 

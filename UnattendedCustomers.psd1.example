@@ -14,14 +14,16 @@
 #                   3 = SharePoint Online  — Sites, permissions, storage, OneDrive
 #                   4 = Mail Security      — DKIM, DMARC, SPF, anti-spam/phish policies
 #                   5 = Intune / Endpoint  — Devices, compliance, configuration, apps
-#                   9 = Run All            — Modules 1, 2, 3, 4, 5 + summary
+#                   6 = Teams              — Federation, client config, meeting/app policies
+#                   7 = ScubaGear          — CISA CIS M365 Foundations Benchmark (requires WinPS 5.1)
+#                   A = Run All            — Modules 1–7 + summary
 
 @{
     Customers = @(
         @{
             HuduCompanySlug = 'a1b2c3d4e5f6'
             HuduCompanyName = 'Contoso Ltd'
-            Modules         = @(9)
+            Modules         = @('A')
         }
         @{
             HuduCompanySlug = 'f6e5d4c3b2a1'

@@ -38,7 +38,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.15.0
+    Version     : 1.17.2
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -56,7 +56,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.15.0"
+$ScriptVersion = "1.17.2"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -534,7 +534,7 @@ catch {
 Write-Host "`nStarting Entra Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 14
+$totalSteps = 19
 $activity   = "Entra Audit — $($context.OrgName)"
 
 
@@ -587,6 +587,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving sign-in logs..." -CurrentOperation "Saved: Entra_SignIns.csv ($($signInMap.Count) users)" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgAuditLogSignIn' -Description ($_.Exception.Message ?? "$_") -Action 'Check AuditLog.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Failed to retrieve sign-in logs: $_"
 }
 
@@ -625,6 +626,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events..." -CurrentOperation "Saved: Entra_AccountCreations.csv ($($acctCreations.Count) events)" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgAuditLogDirectoryAudit' -Description ($_.Exception.Message ?? "$_") -Action 'Check AuditLog.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Failed to retrieve account creation events: $_"
 }
 
@@ -645,6 +647,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events..." -CurrentOperation "Saved: Entra_AccountDeletions.csv ($($acctDeletions.Count) events)" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgAuditLogDirectoryAudit' -Description ($_.Exception.Message ?? "$_") -Action 'Check AuditLog.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Failed to retrieve account deletion events: $_"
 }
 
@@ -686,6 +689,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Retrieving directory audit events..." -CurrentOperation "Saved: Entra_AuditEvents.csv ($($auditEvents.Count) events)" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgAuditLogDirectoryAudit' -Description ($_.Exception.Message ?? "$_") -Action 'Check AuditLog.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Failed to retrieve directory audit events: $_"
 }
 
@@ -737,6 +741,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting SSPR configuration..." -CurrentOperation "Saved: Entra_SSPR.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgPolicyAuthenticationMethodPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Unable to retrieve SSPR configuration: $_"
 }
 
@@ -1011,6 +1016,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Conditional Access policies..." -CurrentOperation "Saved: Entra_CA_Policies.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgIdentityConditionalAccessPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Unable to retrieve Conditional Access policies: $_"
 }
 
@@ -1048,6 +1054,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting named locations..." -CurrentOperation "Saved: Entra_TrustedLocations.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgIdentityConditionalAccessNamedLocation' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Unable to retrieve named locations: $_"
 }
 
@@ -1119,6 +1126,7 @@ try {
     }
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check SecurityEvents.Read.All permissions or re-run Setup-365AuditApp.ps1'
     if ($_.Exception.Message -match '403|Forbidden|valid permissions|valid roles') {
         Write-Warning "Secure Score: permission denied (SecurityEvents.Read.All not yet granted). Re-run Setup-365AuditApp.ps1 to add the missing permission."
     }
@@ -1144,6 +1152,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Security Defaults configuration..." -CurrentOperation "Saved: Entra_SecurityDefaults.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgPolicyIdentitySecurityDefaultEnforcementPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Unable to retrieve Security Defaults: $_"
 }
 
@@ -1169,25 +1178,73 @@ try {
             $_.AppOwnerOrganizationId -notin $msTenantIds
         }
 
-    $appData = foreach ($app in $thirdPartyApps) {
-        $roleAssignments = @(Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $app.Id -ErrorAction SilentlyContinue)
-        [PSCustomObject]@{
-            DisplayName    = $app.DisplayName
-            AppId          = $app.AppId
-            PublisherName  = $app.PublisherName
-            PublisherDomain = $app.VerifiedPublisher.DisplayName ?? $app.AppOwnerOrganizationId
-            Enabled        = $app.AccountEnabled
-            AdminConsented = $roleAssignments.Count -gt 0
-            ConsentedRoles = $roleAssignments.Count
+    # Cache service principal details (AppRoles + Scopes) to resolve permission names without repeated API calls.
+    # Do NOT use -Property/$select — Graph API may return an empty appRoles collection when $select is present.
+    $_spPermCache = @{}
+    function Get-CachedSP {
+        param([string]$SpId)
+        if (-not $_spPermCache.ContainsKey($SpId)) {
+            try {
+                $_spPermCache[$SpId] = Get-MgServicePrincipal -ServicePrincipalId $SpId -ErrorAction SilentlyContinue
+            } catch { $_spPermCache[$SpId] = $null }
         }
+        return $_spPermCache[$SpId]
     }
 
-    if ($appData) {
+    $appData     = [System.Collections.Generic.List[object]]::new()
+    $appPermData = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($app in $thirdPartyApps) {
+        $roleAssignments = @(Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $app.Id -ErrorAction SilentlyContinue)
+        $appData.Add([PSCustomObject]@{
+            DisplayName     = $app.DisplayName
+            AppId           = $app.AppId
+            PublisherName   = $app.PublisherName
+            PublisherDomain = $app.VerifiedPublisher.DisplayName ?? $app.AppOwnerOrganizationId
+            Enabled         = $app.AccountEnabled
+            AdminConsented  = $roleAssignments.Count -gt 0
+            ConsentedRoles  = $roleAssignments.Count
+        })
+
+        # Application permissions (app role assignments)
+        foreach ($ra in $roleAssignments) {
+            $_resSP   = Get-CachedSP -SpId $ra.ResourceId
+            $_roleName = ($_resSP?.AppRoles | Where-Object { "$($_.Id)" -eq "$($ra.AppRoleId)" } | Select-Object -First 1)?.Value ?? "$($ra.AppRoleId)"
+            $appPermData.Add([PSCustomObject]@{
+                AppDisplayName  = $app.DisplayName
+                PermissionType  = 'Application'
+                ResourceApp     = $_resSP?.DisplayName ?? $ra.ResourceDisplayName ?? $ra.ResourceId
+                PermissionName  = $_roleName
+            })
+        }
+
+        # Delegated permissions (OAuth2 grants)
+        try {
+            $grants = @(Get-MgServicePrincipalOauth2PermissionGrant -ServicePrincipalId $app.Id -ErrorAction SilentlyContinue)
+            foreach ($grant in $grants) {
+                foreach ($scope in ($grant.Scope -split ' ' | Where-Object { $_ })) {
+                    $_resSP2 = Get-CachedSP -SpId $grant.ResourceId
+                    $appPermData.Add([PSCustomObject]@{
+                        AppDisplayName  = $app.DisplayName
+                        PermissionType  = 'Delegated'
+                        ResourceApp     = $_resSP2?.DisplayName ?? $grant.ResourceId
+                        PermissionName  = $scope
+                    })
+                }
+            }
+        } catch {}
+    }
+
+    if ($appData.Count -gt 0) {
         $appData | Export-Csv "$outputDir\Entra_EnterpriseApps.csv" -NoTypeInformation -Encoding UTF8
-        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting enterprise app consent grants..." -CurrentOperation "Saved: Entra_EnterpriseApps.csv ($(@($appData).Count) third-party apps)" -PercentComplete ([int]($step / $totalSteps * 100))
+        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting enterprise app consent grants..." -CurrentOperation "Saved: Entra_EnterpriseApps.csv ($($appData.Count) third-party apps)" -PercentComplete ([int]($step / $totalSteps * 100))
+    }
+    if ($appPermData.Count -gt 0) {
+        $appPermData | Export-Csv "$outputDir\Entra_EnterpriseAppPermissions.csv" -NoTypeInformation -Encoding UTF8
     }
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Get-MgServicePrincipal' -Description ($_.Exception.Message ?? "$_") -Action 'Check Application.Read.All permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "Unable to retrieve enterprise applications: $_"
 }
 
@@ -1233,6 +1290,7 @@ else {
         }
     }
     catch {
+        Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check IdentityRiskEvent.Read.All permissions or re-run Setup-365AuditApp.ps1'
         Write-Warning "Unable to retrieve risky users: $_"
     }
 
@@ -1261,8 +1319,290 @@ else {
         }
     }
     catch {
+        Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check IdentityRiskEvent.Read.All permissions or re-run Setup-365AuditApp.ps1'
         Write-Warning "Unable to retrieve risky sign-ins: $_"
     }
+}
+
+
+# ================================
+# ===   15. Authentication Methods Policy  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Authentication Methods Policy..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $authMethodsPolicyResp = Invoke-MgGraphRequest -Method GET `
+        -Uri 'https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy' `
+        -OutputType PSObject -ErrorAction Stop
+
+    $_campaignTargets = @($authMethodsPolicyResp.registrationEnforcement.authenticationMethodsRegistrationCampaign.includeTargets | ForEach-Object { $_.targetType })
+
+    $_friendlyNames = @{
+        'microsoftAuthenticator' = 'Microsoft Authenticator'
+        'fido2'                  = 'FIDO2 Security Key'
+        'sms'                    = 'SMS'
+        'voice'                  = 'Voice Call'
+        'email'                  = 'Email OTP'
+        'temporaryAccessPass'    = 'Temporary Access Pass'
+        'softwareOath'           = 'Software OATH Token'
+        'x509Certificate'        = 'Certificate-Based Auth'
+        'windowsHelloForBusiness'= 'Windows Hello for Business'
+        'hardwareOath'           = 'Hardware OATH Token'
+    }
+
+    $authMethodRows = foreach ($method in @($authMethodsPolicyResp.authenticationMethodConfigurations)) {
+        $friendlyName = if ($_friendlyNames.ContainsKey($method.id)) { $_friendlyNames[$method.id] } else { $method.id }
+        [PSCustomObject]@{
+            MethodType             = $friendlyName
+            MethodId               = $method.id
+            State                  = $method.state
+            IsRegistrationRequired = ($method.id -in $_campaignTargets)
+        }
+    }
+    $authMethodRows | Export-Csv "$outputDir\Entra_AuthMethodsPolicy.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Authentication Methods Policy..." -CurrentOperation "Saved: Entra_AuthMethodsPolicy.csv ($($authMethodRows.Count) methods)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve Authentication Methods Policy: $_"
+}
+
+
+# ================================
+# ===   16. External Collaboration Settings  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting External Collaboration Settings..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $authzPolicy = Invoke-MgGraphRequest -Method GET `
+        -Uri 'https://graph.microsoft.com/v1.0/policies/authorizationPolicy' `
+        -OutputType PSObject -ErrorAction Stop
+
+    $_guestRoleMap = @{
+        '10dae51f-b6af-4016-8d66-8c2a99b929b7' = 'Restricted Guest User (most secure)'
+        '2af84b1e-32c8-42b7-82bc-daa82404023b' = 'Guest User (standard)'
+        'a0b1b346-4d3e-4e8b-98f8-753987be4970' = 'Member (least secure)'
+    }
+    $_guestRoleId   = $authzPolicy.guestUserRoleId
+    $_guestRoleName = if ($_guestRoleMap.ContainsKey($_guestRoleId)) { $_guestRoleMap[$_guestRoleId] } else { $_guestRoleId }
+
+    $_extIdPolicy = $null
+    try {
+        $_extIdPolicy = Invoke-MgGraphRequest -Method GET `
+            -Uri 'https://graph.microsoft.com/v1.0/policies/externalIdentitiesPolicy' `
+            -OutputType PSObject -ErrorAction Stop
+    }
+    catch {
+        Write-Verbose "externalIdentitiesPolicy not available (may not be configured): $_"
+    }
+
+    [PSCustomObject]@{
+        AllowInvitesFrom                          = $authzPolicy.allowInvitesFrom
+        GuestUserRoleId                           = $_guestRoleId
+        GuestUserRoleName                         = $_guestRoleName
+        AllowedToSignUpEmailBasedSubscriptions    = if ($null -ne $_extIdPolicy) { $_extIdPolicy.allowedToSignUpEmailBasedSubscriptions } else { '' }
+        AllowEmailVerifiedUsersToJoinOrganization = if ($null -ne $_extIdPolicy) { $_extIdPolicy.allowEmailVerifiedUsersToJoinOrganization } else { '' }
+    } | Export-Csv "$outputDir\Entra_ExternalCollab.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting External Collaboration Settings..." -CurrentOperation "Saved: Entra_ExternalCollab.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve External Collaboration Settings: $_"
+}
+
+
+# ================================
+# ===   17. App Registrations   ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting App Registrations..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $_appRegs    = [System.Collections.Generic.List[object]]::new()
+    $_appNextUri = 'https://graph.microsoft.com/v1.0/applications?$select=displayName,appId,createdDateTime,passwordCredentials,keyCredentials,requiredResourceAccess&$top=999'
+    while ($_appNextUri) {
+        $_appPage    = Invoke-MgGraphRequest -Method GET -Uri $_appNextUri -OutputType PSObject -ErrorAction Stop
+        $_appNextUri = $_appPage.'@odata.nextLink'
+        foreach ($app in @($_appPage.value)) { $_appRegs.Add($app) }
+    }
+
+    $appRegRows = foreach ($app in $_appRegs) {
+        $creds = @()
+        foreach ($cred in @($app.passwordCredentials)) {
+            if ($null -ne $cred) { $creds += [PSCustomObject]@{ Type = 'Password'; Name = $cred.displayName; Expiry = $cred.endDateTime } }
+        }
+        foreach ($cred in @($app.keyCredentials)) {
+            if ($null -ne $cred) { $creds += [PSCustomObject]@{ Type = 'Certificate'; Name = $cred.displayName; Expiry = $cred.endDateTime } }
+        }
+        if ($creds.Count -eq 0) {
+            [PSCustomObject]@{
+                DisplayName      = $app.displayName
+                AppId            = $app.appId
+                CreatedDateTime  = $app.createdDateTime
+                CredentialType   = 'None'
+                CredentialName   = ''
+                CredentialExpiry = ''
+                DaysUntilExpiry  = ''
+            }
+        }
+        else {
+            foreach ($cred in $creds) {
+                $days = if ($null -ne $cred.Expiry) {
+                    [int]([datetime]$cred.Expiry - [datetime]::UtcNow).TotalDays
+                }
+                else { $null }
+                [PSCustomObject]@{
+                    DisplayName      = $app.displayName
+                    AppId            = $app.appId
+                    CreatedDateTime  = $app.createdDateTime
+                    CredentialType   = $cred.Type
+                    CredentialName   = $cred.Name
+                    CredentialExpiry = if ($null -ne $cred.Expiry) { $cred.Expiry } else { '' }
+                    DaysUntilExpiry  = if ($null -ne $days) { $days } else { '' }
+                }
+            }
+        }
+    }
+    $appRegRows | Export-Csv "$outputDir\Entra_AppRegistrations.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting App Registrations..." -CurrentOperation "Saved: Entra_AppRegistrations.csv ($($_appRegs.Count) registrations)" -PercentComplete ([int]($step / $totalSteps * 100))
+
+    # Collect App Registration permissions (requiredResourceAccess → resolved permission names)
+    # Uses the same $_spPermCache built during enterprise apps if that step ran first; falls back gracefully.
+    if (-not (Get-Variable -Name '_spPermCache' -Scope Script -ErrorAction SilentlyContinue)) {
+        $_spPermCache = @{}
+        function Get-CachedSP {
+            param([string]$SpId)
+            if (-not $_spPermCache.ContainsKey($SpId)) {
+                try {
+                    # ConsistencyLevel eventual required for appId eq filter on /servicePrincipals
+                    # No -Property: $select causes Graph API to silently return empty appRoles
+                    $_spPermCache[$SpId] = Get-MgServicePrincipal -Filter "appId eq '$SpId'" `
+                        -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Select-Object -First 1
+                } catch { $_spPermCache[$SpId] = $null }
+            }
+            return $_spPermCache[$SpId]
+        }
+        $_arSpLookupByAppId = $true
+    } else {
+        $_arSpLookupByAppId = $false
+    }
+
+    $_arPermRows = [System.Collections.Generic.List[object]]::new()
+    foreach ($app in $_appRegs) {
+        foreach ($resource in @($app.requiredResourceAccess)) {
+            if (-not $resource) { continue }
+            $_resAppId = $resource.resourceAppId
+            # Lookup key differs: enterprise apps cache uses SP object ID; app reg cache uses appId
+            if ($_arSpLookupByAppId) {
+                $_resSP = Get-CachedSP -SpId $_resAppId
+            } else {
+                # Enterprise apps cache is keyed by SP object ID; look up by appId into a separate key
+                if (-not $_spPermCache.ContainsKey($_resAppId)) {
+                    try {
+                        $_spPermCache[$_resAppId] = Get-MgServicePrincipal -Filter "appId eq '$_resAppId'" `
+                            -ConsistencyLevel eventual -ErrorAction SilentlyContinue | Select-Object -First 1
+                    } catch { $_spPermCache[$_resAppId] = $null }
+                }
+                $_resSP = $_spPermCache[$_resAppId]
+            }
+            foreach ($access in @($resource.resourceAccess)) {
+                if (-not $access) { continue }
+                $_permName = if ($access.type -eq 'Role') {
+                    ($_resSP?.AppRoles | Where-Object { "$($_.Id)" -eq "$($access.id)" } | Select-Object -First 1)?.Value ?? "$($access.id)"
+                } else {
+                    ($_resSP?.Oauth2PermissionScopes | Where-Object { "$($_.Id)" -eq "$($access.id)" } | Select-Object -First 1)?.Value ?? "$($access.id)"
+                }
+                $_arPermRows.Add([PSCustomObject]@{
+                    AppDisplayName  = $app.displayName
+                    PermissionType  = if ($access.type -eq 'Role') { 'Application' } else { 'Delegated' }
+                    ResourceApp     = $_resSP?.DisplayName ?? $_resAppId
+                    PermissionName  = $_permName
+                })
+            }
+        }
+    }
+    if ($_arPermRows.Count -gt 0) {
+        $_arPermRows | Export-Csv "$outputDir\Entra_AppRegistrationPermissions.csv" -NoTypeInformation -Encoding UTF8
+    }
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check Application.Read.All permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve App Registrations: $_"
+}
+
+
+# ================================
+# ===   18. PIM Role Assignments (P2 required)  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting PIM Role Assignments..." -PercentComplete ([int]($step / $totalSteps * 100))
+if (-not $_hasP2) {
+    Write-Verbose "No Azure AD Premium P2 licence detected — skipping PIM role assignment collection."
+}
+else {
+    try {
+        $_pimRows    = [System.Collections.Generic.List[object]]::new()
+        $_pimNextUri = 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentScheduleInstances?$expand=principal,roleDefinition&$top=999'
+        while ($_pimNextUri) {
+            $_pimPage    = Invoke-MgGraphRequest -Method GET -Uri $_pimNextUri -OutputType PSObject -ErrorAction Stop
+            $_pimNextUri = $_pimPage.'@odata.nextLink'
+            foreach ($inst in @($_pimPage.value)) { $_pimRows.Add($inst) }
+        }
+
+        $_pimRows | ForEach-Object {
+            [PSCustomObject]@{
+                RoleName              = $_.roleDefinition.displayName
+                PrincipalDisplayName  = $_.principal.displayName
+                PrincipalUPN          = if ($_.principal.userPrincipalName) { $_.principal.userPrincipalName } else { '' }
+                AssignmentType        = $_.assignmentType
+                MemberType            = $_.memberType
+                StartDateTime         = if ($_.startDateTime) { $_.startDateTime } else { '' }
+                EndDateTime           = if ($_.endDateTime)   { $_.endDateTime   } else { '' }
+            }
+        } | Export-Csv "$outputDir\Entra_PIMAssignments.csv" -NoTypeInformation -Encoding UTF8
+        Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting PIM Role Assignments..." -CurrentOperation "Saved: Entra_PIMAssignments.csv ($($_pimRows.Count) assignments)" -PercentComplete ([int]($step / $totalSteps * 100))
+    }
+    catch {
+        Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check RoleManagement.Read.All permissions or re-run Setup-365AuditApp.ps1'
+        Write-Warning "Unable to retrieve PIM role assignments: $_"
+    }
+}
+
+
+# ================================
+# ===   19. Org-level User / App Settings ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting organisation-level user and app settings..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    # Authorization policy: user default role permissions + guest invite settings
+    $_orgAuthzPolicy = Invoke-MgGraphRequest -Method GET `
+        -Uri 'https://graph.microsoft.com/v1.0/policies/authorizationPolicy' `
+        -OutputType PSObject -ErrorAction Stop
+
+    $_defaultPerms = $_orgAuthzPolicy.defaultUserRolePermissions
+
+    # Admin consent request workflow
+    $_adminConsentPolicy = $null
+    try {
+        $_adminConsentPolicy = Invoke-MgGraphRequest -Method GET `
+            -Uri 'https://graph.microsoft.com/v1.0/policies/adminConsentRequestPolicy' `
+            -OutputType PSObject -ErrorAction Stop
+    }
+    catch { Write-Verbose "Admin consent request policy not available: $_" }
+
+    [PSCustomObject]@{
+        AllowedToCreateApps             = $null -ne $_defaultPerms.allowedToCreateApps ? "$($_defaultPerms.allowedToCreateApps)" : ''
+        AllowedToCreateTenants          = $null -ne $_defaultPerms.allowedToCreateTenants ? "$($_defaultPerms.allowedToCreateTenants)" : ''
+        AllowedToCreateSecurityGroups   = $null -ne $_defaultPerms.allowedToCreateSecurityGroups ? "$($_defaultPerms.allowedToCreateSecurityGroups)" : ''
+        AllowedToReadBitlockerKeys      = $null -ne $_defaultPerms.allowedToReadBitlockerKeysForOwnedDevice ? "$($_defaultPerms.allowedToReadBitlockerKeysForOwnedDevice)" : ''
+        DefaultUserRolePermissionsJson  = ($null -ne $_defaultPerms) ? ($_defaultPerms | ConvertTo-Json -Compress -Depth 3) : ''
+        AdminConsentWorkflowEnabled     = if ($_adminConsentPolicy) { "$($_adminConsentPolicy.isEnabled)" } else { '' }
+    } | Export-Csv "$outputDir\Entra_OrgSettings.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting organisation-level user and app settings..." -CurrentOperation "Saved: Entra_OrgSettings.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Entra' -Collector 'Invoke-MgGraphRequest' -Description ($_.Exception.Message ?? "$_") -Action 'Check Policy.Read.All permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve organisation settings: $_"
 }
 
 

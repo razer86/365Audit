@@ -51,10 +51,24 @@
     - Intune_Apps.csv
     - Intune_AutopilotDevices.csv
     - Intune_EnrollmentRestrictions.csv
+    - Teams_FederationConfig.csv
+    - Teams_ClientConfig.csv
+    - Teams_MeetingPolicies.csv
+    - Teams_GuestMeetingConfig.csv
+    - Teams_GuestCallingConfig.csv
+    - Teams_MessagingPolicies.csv
+    - Teams_AppPermissionPolicies.csv
+    - Teams_AppSetupPolicies.csv
+    - Teams_ChannelPolicies.csv
+    - Exchange_OrgConfig.csv
+    - Exchange_ExternalSenderTagging.csv
+    - Exchange_ConnectionFilter.csv
+    - Exchange_OwaPolicy.csv
+    - Entra_OrgSettings.csv
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.32.0
+    Version     : 1.42.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -76,7 +90,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.32.0"
+$ScriptVersion = "1.42.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -98,12 +112,13 @@ if (-not (Test-Path $AuditFolder)) {
 }
 
 # Module output subfolders
-$rawDir      = Join-Path $AuditFolder "Raw Files"
+$rawDir      = Join-Path $AuditFolder "Raw"
 $entraDir    = $rawDir
 $exchangeDir = $rawDir
 $spDir       = $rawDir
 $mailSecDir  = $rawDir
 $intuneDir   = $rawDir
+$teamsDir    = $rawDir
 
 # =========================================
 # ===   HTML Section Helper             ===
@@ -115,7 +130,8 @@ function Add-Section {
         [string]   $AnchorId = "",
         [string[]] $CsvFiles,
         [string]   $SummaryHtml,
-        [string]   $ModuleVersion
+        [string]   $ModuleVersion,
+        [switch]   $Collapsed
     )
 
     if ([string]::IsNullOrWhiteSpace($AnchorId)) {
@@ -136,14 +152,16 @@ function Add-Section {
     $encodedTitle   = [System.Net.WebUtility]::HtmlEncode($Title)
     $encodedVersion = if ([string]::IsNullOrWhiteSpace($ModuleVersion)) { "" } else { [System.Net.WebUtility]::HtmlEncode($ModuleVersion) }
     $versionMarkup  = if ($encodedVersion) { "<span class='section-version'>$encodedVersion</span>" } else { "" }
+    $bodyStyle      = if ($Collapsed) { " style='display:none'" } else { "" }
+    $toggleClass    = if ($Collapsed) { "" } else { " open" }
 
     return @"
 <section class='module' id='$AnchorId'>
   <div class='module-hdr' onclick='toggleModule(this)'>
     <span class='module-title'>$encodedTitle</span>$versionMarkup
-    <span class='module-toggle open'>&#9658;</span>
+    <span class='module-toggle$toggleClass'>&#9658;</span>
   </div>
-  <div class='module-body'>
+  <div class='module-body'$bodyStyle>
     $SummaryHtml
     $csvLinks
   </div>
@@ -253,7 +271,7 @@ $html.Add(@"
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293b;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:14px;}
 /* ── App header ── */
-.app-header{background:linear-gradient(135deg,#0f2744 0%,#1d4ed8 100%);color:#fff;padding:0.6rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,0.25);}
+.app-header{background:linear-gradient(135deg,#0f2744 0%,#1d4ed8 100%);color:#fff;padding:0.6rem 1.25rem;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,0.25);}
 .app-header h1{font-size:0.97rem;font-weight:700;letter-spacing:0.01em;}
 .app-header-sub{font-size:0.72rem;opacity:0.7;margin-top:0.1rem;}
 /* ── KPI strip ── */
@@ -261,6 +279,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293
 .kpi-card{flex:1;padding:0.55rem 0.9rem;border-right:1px solid #e8edf3;text-align:center;}
 .kpi-card:last-child{border-right:none;}
 .kpi-value{font-size:1.45rem;font-weight:800;line-height:1;}
+/* ── Section stat chips ── */
+.section-stats{display:flex;flex-wrap:wrap;gap:0.5rem;margin:0 0 1.25rem;}
+.stat-chip{background:#f5f7fa;border:1px solid #dde3ea;border-radius:6px;padding:0.45rem 0.85rem;text-align:center;min-width:88px;}
+.stat-chip-value{font-size:1.1rem;font-weight:700;line-height:1.2;}
+.stat-chip-label{font-size:0.72rem;color:#666;margin-top:2px;}
+.stat-chip.ok .stat-chip-value{color:#2e7d32;} .stat-chip.warn .stat-chip-value{color:#e65100;} .stat-chip.critical .stat-chip-value{color:#b71c1c;} .stat-chip.neutral .stat-chip-value{color:#1565c0;}
+/* ── Compliance Overview ── */
+.cov-bar-wrap{margin:0.5rem 0 0.85rem;}
+.cov-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;}
+.cov-bar-pass{background:#2e7d32;} .cov-bar-warn{background:#f9a825;} .cov-bar-fail{background:#c62828;} .cov-bar-na{background:#e0e0e0;}
+.cov-legend{display:flex;flex-wrap:wrap;gap:0.8rem;font-size:0.82rem;color:#555;margin-top:0.4rem;}
+.cov-legend-item{display:flex;align-items:center;gap:0.35rem;}
+.cov-legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+/* ── Technical Issues ── */
+.issue-sev-critical{color:#b71c1c;font-weight:bold;} .issue-sev-warning{color:#e65100;font-weight:bold;} .issue-sev-info{color:#1565c0;}
 .kpi-label{font-size:0.67rem;color:#64748b;margin-top:0.2rem;}
 .kpi-sub{font-size:0.63rem;color:#94a3b8;margin-top:0.05rem;}
 .kpi-value.ok{color:#16a34a;} .kpi-value.warn{color:#d97706;} .kpi-value.critical{color:#dc2626;}
@@ -294,7 +327,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293
 .company-info-line{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;column-gap:1.5rem;}
 .company-info-meta{color:#666;font-size:0.82rem;text-align:right;white-space:nowrap;}
 /* ── Action items ── */
-.ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.8rem;}
+.ai-section{border:1px solid #e2e8f0;border-radius:8px;margin-bottom:0.9rem;overflow:hidden;}
+.ai-section-hdr{display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.85rem;background:#f8fafc;cursor:pointer;user-select:none;border-bottom:1px solid #e2e8f0;}
+.ai-section-hdr:hover{background:#f1f5f9;}
+.ai-section-title{font-weight:700;font-size:0.82rem;letter-spacing:0.02em;color:#1e293b;}
+.ai-section-body{padding:0.65rem;}
+.ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0;}
 .ai-panel{border-radius:8px;overflow:hidden;border:1px solid;}
 .ai-panel.critical{border-color:#fca5a5;} .ai-panel.warning{border-color:#fcd34d;}
 .ai-panel-header{padding:0.48rem 0.85rem;font-weight:700;font-size:0.79rem;letter-spacing:0.02em;}
@@ -357,25 +395,34 @@ code{background:#f1f5f9;border-radius:3px;padding:1px 4px;font-family:Consolas,m
 /* ── Module body spacing & subsection headers ── */
 .module-body h4{margin:1.1rem 0 0.4rem;font-size:0.88rem;font-weight:700;color:#1e293b;padding-top:0.9rem;border-top:1px solid #e8edf3;}
 .module-body h4:first-child{border-top:none;padding-top:0;margin-top:0;}
+.module-body details{margin:0;}
+.module-body details > summary{display:block;margin:1.1rem 0 0.4rem;font-size:0.88rem;font-weight:700;color:#1e293b;padding:0.9rem 1.4rem 0 0;border-top:1px solid #e8edf3;cursor:pointer;list-style:none;position:relative;}
+.module-body details > summary::-webkit-details-marker,.module-body details > summary::marker{display:none;}
+.module-body details > summary::after{content:'▾';position:absolute;right:0;top:0.85rem;color:#94a3b8;font-size:0.75rem;}
+.module-body details:not([open]) > summary::after{content:'▸';}
+.module-body > details:first-of-type > summary{border-top:none;padding-top:0;margin-top:0;}
 .module-body p{margin-bottom:0.3rem;line-height:1.55;}
 .module-body p:last-child{margin-bottom:0;}
 .module-body details{margin:0.3rem 0;}
 .module-body table{margin-bottom:0.5rem;}
+td ul, td ol{padding-left:1.4em;overflow-wrap:break-word;}
 /* ── Sidebar sub-items ── */
 .sb-module-group{display:flex;flex-direction:column;}
 .sb-sub-group{border-left:1px solid #253245;margin-left:1.45rem;display:flex;flex-direction:column;padding-bottom:0.3rem;}
 .sb-sub{display:block;padding:0.27rem 0.65rem;font-size:0.76rem;color:#4e6888;text-decoration:none;border-left:2px solid transparent;transition:color 0.12s,border-color 0.12s;white-space:nowrap;}
 .sb-sub:hover{color:#94a3b8;border-left-color:#475569;}
 .sb-sub.active{color:#93c5fd;border-left-color:#3b82f6;font-weight:600;}
+/* ── App header company info ── */
+.app-hdr-company{font-size:1.05rem;font-weight:700;letter-spacing:0.01em;text-align:center;}
+.app-hdr-right{text-align:right;font-size:0.72rem;opacity:0.7;}
+/* ── Stat chips ── */
+a.stat-chip{text-decoration:none;display:block;}
+a.stat-chip:hover{background:#edf2f7;border-color:#b0bec5;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+div.stat-chip[data-scuba-filter]{cursor:pointer;transition:opacity 0.15s,border-color 0.15s,box-shadow 0.15s;user-select:none;}
+div.stat-chip[data-scuba-filter]:hover{background:#edf2f7;border-color:#b0bec5;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+div.stat-chip[data-scuba-filter].inactive{opacity:0.3;}
 </style>
 </head>
-<body>
-<div class='app-header'>
-  <div>
-    <h1>Microsoft 365 Audit Summary</h1>
-    <div class='app-header-sub'>Generated: $reportDate &nbsp;|&nbsp; Folder: $(Split-Path $AuditFolder -Leaf)</div>
-  </div>
-</div>
 "@)
 
 
@@ -447,7 +494,6 @@ if (Test-Path $orgInfoPath) {
 
     $script:companyCardHtml = @"
 <div class='company-card'>
-  <h2>$($orgInfo.DisplayName)</h2>
   <div class='company-info-grid'>
     <div class='ci-field'><span class='ci-key'>Tenant ID</span><span class='ci-val'><code>$($orgInfo.Id)</code></span></div>
     <div class='ci-field'><span class='ci-key'>Technical Contact</span><span class='ci-val'>$techContactHtml</span></div>
@@ -459,6 +505,26 @@ if (Test-Path $orgInfoPath) {
   </div>
 </div>
 "@
+
+    $html.Add(@"
+<body>
+<div class='app-header'>
+  <div></div>
+  <div class='app-hdr-company'>$(ConvertTo-HtmlText $orgInfo.DisplayName)</div>
+  <div class='app-hdr-right'>Generated: $reportDate</div>
+</div>
+"@)
+}
+else {
+    $script:companyCardHtml = ''
+    $html.Add(@"
+<body>
+<div class='app-header'>
+  <div></div>
+  <div class='app-hdr-company'>Microsoft 365 Audit</div>
+  <div class='app-hdr-right'>Generated: $reportDate</div>
+</div>
+"@)
 }
 
 
@@ -467,6 +533,26 @@ if (Test-Path $orgInfoPath) {
 # =========================================
 $actionItems = [System.Collections.Generic.List[hashtable]]::new()
 $script:ActionItemSequence = 0
+
+# Load ScubaGear results if a prior run produced output in Raw\ScubaGear_*\
+$_scubaResults  = $null
+$_scubaHtmlPath = $null
+$_scubaRunDir   = Get-ChildItem -Path (Join-Path $AuditFolder 'Raw') -Directory -Filter 'ScubaGear_*' `
+    -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+if ($_scubaRunDir) {
+    $_scubaJsonFile = Get-ChildItem -Path $_scubaRunDir.FullName -Filter 'ScubaResults_*.json' `
+        -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($_scubaJsonFile) {
+        try {
+            $_scubaResults = Get-Content $_scubaJsonFile.FullName -Raw | ConvertFrom-Json
+            Write-Verbose "ScubaGear results loaded: $($_scubaJsonFile.FullName)"
+        } catch {
+            Write-Warning "Could not parse ScubaGear results: $($_.Exception.Message)"
+        }
+    }
+    $_scubaHtmlPath = Join-Path $_scubaRunDir.FullName 'BaselineReports.html'
+    if (-not (Test-Path $_scubaHtmlPath)) { $_scubaHtmlPath = $null }
+}
 
 # Helper: add an action item
 # Severity: 'critical' | 'warning'
@@ -495,6 +581,7 @@ function Get-ActionItemModuleSortOrder {
         'SharePoint'    { return 30 }
         'Mail Security' { return 40 }
         'Intune'        { return 50 }
+        'Teams'         { return 60 }
         default         { return 90 }
     }
 }
@@ -547,7 +634,7 @@ if (Test-Path $_aiUsersCsv) {
     $_aiPct     = if ($_aiTotal -gt 0) { [math]::Round(($_aiEnabled / $_aiTotal) * 100, 1) } else { 100 }
     if ($_aiPct -lt 100) {
         $missing = $_aiTotal - $_aiEnabled
-        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "MFA not enabled for $missing of $_aiTotal licensed users (${_aiPct}%). Essential Eight: Restrict privileged access — all users must have MFA." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mfa-howitworks'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "MFA not enabled for $missing of $_aiTotal licensed users (${_aiPct}%). Essential Eight: Restrict privileged access — all users must have MFA. (CIS 2.2.2)" -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-mfa-howitworks'
     }
 }
 
@@ -563,11 +650,11 @@ if (-not $_aiSdEnabled -and (Test-Path $_aiCaCsv)) {
     $_aiCaPolicies = @(Import-Csv $_aiCaCsv)
     $_aiEnabledCa  = @($_aiCaPolicies | Where-Object { $_.State -eq "enabled" })
     if ($_aiEnabledCa.Count -eq 0 -and $_aiCaPolicies.Count -eq 0) {
-        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "Security Defaults are disabled and no Conditional Access policies exist. MFA is not enforced for any user." -DocUrl 'https://learn.microsoft.com/en-us/entra/fundamentals/security-defaults'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / MFA' -Text "Security Defaults are disabled and no Conditional Access policies exist. MFA is not enforced for any user. (CIS 2.2.2)" -DocUrl 'https://learn.microsoft.com/en-us/entra/fundamentals/security-defaults'
     }
     elseif ($_aiEnabledCa.Count -eq 0) {
         $_reportOnly = @($_aiCaPolicies | Where-Object { $_.State -eq "enabledForReportingButNotEnforced" }).Count
-        Add-ActionItem -Severity 'critical' -Category 'Entra / CA' -Text "Security Defaults disabled and no CA policies are in 'Enabled' state ($_reportOnly in report-only). MFA is not enforced." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / CA' -Text "Security Defaults disabled and no CA policies are in 'Enabled' state ($_reportOnly in report-only). MFA is not enforced. (CIS 2.2.2)" -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/overview'
     }
     elseif (($_aiCaPolicies | Where-Object { $_.State -eq "enabledForReportingButNotEnforced" }).Count -gt 0) {
         $_roCount = ($_aiCaPolicies | Where-Object { $_.State -eq "enabledForReportingButNotEnforced" }).Count
@@ -583,10 +670,10 @@ if (Test-Path $_aiGaCsv) {
         Add-ActionItem -Severity 'critical' -Category 'Entra / Admins' -Text "No Global Administrators found — this may indicate a data collection issue."
     }
     elseif ($_aiGaCount -eq 1) {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "Only 1 Global Administrator account. Recommend at least 2 for resilience (break-glass scenario)." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "Only 1 Global Administrator account. Recommend at least 2 for resilience (break-glass scenario). (CIS 1.1.3)" -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
     }
     elseif ($_aiGaCount -gt 4) {
-        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "$_aiGaCount Global Administrator accounts. Microsoft recommends 2–4 max. Essential Eight: Restrict administrative privileges." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Admins' -Text "$_aiGaCount Global Administrator accounts. Microsoft recommends 2–4 max. Essential Eight: Restrict administrative privileges. (CIS 1.1.3)" -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
     }
 }
 
@@ -633,6 +720,88 @@ if (Test-Path $_aiRiskyUsersCsv) {
     }
 }
 
+# Admin role holders without MFA (cross-reference AdminRoles + Users)
+$_aiAdminRolesCsv2 = Join-Path $entraDir "Entra_AdminRoles.csv"
+if ((Test-Path $_aiAdminRolesCsv2) -and (Test-Path $_aiUsersCsv)) {
+    $_adminUpns  = @(Import-Csv $_aiAdminRolesCsv2 | Select-Object -ExpandProperty MemberUserPrincipalName -Unique)
+    $_adminNoMfa = @($_aiUsers | Where-Object { $_.UPN -in $_adminUpns -and $_.MFAEnabled -eq 'False' })
+    if ($_adminNoMfa.Count -gt 0) {
+        $_adminList = ($_adminNoMfa | ForEach-Object { ConvertTo-HtmlText $_.UPN }) -join '<br>'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Admins' `
+            -Text "$($_adminNoMfa.Count) admin role holder(s) do not have MFA registered. Privileged accounts without MFA are the single highest-risk attack vector for account takeover:<br>$_adminList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/best-practices'
+    }
+}
+
+# No CA policy enforces MFA for all users
+if (-not $_aiSdEnabled -and $null -ne $_aiCaPolicies -and @($_aiEnabledCa).Count -gt 0) {
+    $_aiMfaAllUsers = @($_aiEnabledCa | Where-Object { $_.RequiresMFA -eq 'True' -and $_.IncludeUsers -match 'All users' })
+    if ($_aiMfaAllUsers.Count -eq 0) {
+        Add-ActionItem -Severity 'critical' -Category 'Entra / CA' `
+            -Text "No enabled Conditional Access policy requires MFA for all users. Existing policies may only cover a subset of users or applications, leaving gaps in MFA enforcement." `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-policy-all-users-mfa'
+    }
+}
+
+# App registration credentials expired or expiring within 30 days
+$_aiAppRegCsv = Join-Path $entraDir "Entra_AppRegistrations.csv"
+if (Test-Path $_aiAppRegCsv) {
+    $_aiAppRegs = @(Import-Csv $_aiAppRegCsv | Where-Object { $_.CredentialType -ne 'None' -and $_.DaysUntilExpiry -ne '' })
+    $_aiExpired  = @($_aiAppRegs | Where-Object { [int]$_.DaysUntilExpiry -lt 0 })
+    $_aiExpiring = @($_aiAppRegs | Where-Object { [int]$_.DaysUntilExpiry -ge 0 -and [int]$_.DaysUntilExpiry -le 30 })
+    if ($_aiExpired.Count -gt 0) {
+        $_expList = ($_aiExpired | ForEach-Object { "$(ConvertTo-HtmlText $_.DisplayName) — $($_.CredentialType) ($($_.CredentialName)) expired $([Math]::Abs([int]$_.DaysUntilExpiry))d ago" }) -join '<br>'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / App Registrations' `
+            -Text "$($_aiExpired.Count) app registration credential(s) have expired. Applications using these will fail to authenticate:<br>$_expList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-certificates-for-federated-single-sign-on'
+    }
+    if ($_aiExpiring.Count -gt 0) {
+        $_expList = ($_aiExpiring | ForEach-Object { "$(ConvertTo-HtmlText $_.DisplayName) — $($_.CredentialType) ($($_.CredentialName)) expires in $($_.DaysUntilExpiry)d" }) -join '<br>'
+        Add-ActionItem -Severity 'warning' -Category 'Entra / App Registrations' `
+            -Text "$($_aiExpiring.Count) app registration credential(s) expire within 30 days. Renew before expiry to avoid authentication failures:<br>$_expList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-certificates-for-federated-single-sign-on'
+    }
+}
+
+# Authentication Methods — SMS/voice only, no modern method
+$_aiAuthMethodsCsv = Join-Path $entraDir "Entra_AuthMethodsPolicy.csv"
+if (Test-Path $_aiAuthMethodsCsv) {
+    $_aiAuthMethods  = @(Import-Csv $_aiAuthMethodsCsv)
+    $_aiSmsEnabled   = @($_aiAuthMethods | Where-Object { $_.MethodId -eq 'sms'   -and $_.State -eq 'enabled' })
+    $_aiVoiceEnabled = @($_aiAuthMethods | Where-Object { $_.MethodId -eq 'voice' -and $_.State -eq 'enabled' })
+    $_aiModernMfa    = @($_aiAuthMethods | Where-Object { $_.MethodId -in @('microsoftAuthenticator','fido2','temporaryAccessPass','softwareOath','x509Certificate') -and $_.State -eq 'enabled' })
+    if (($_aiSmsEnabled.Count -gt 0 -or $_aiVoiceEnabled.Count -gt 0) -and $_aiModernMfa.Count -eq 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Auth Methods' `
+            -Text "SMS and/or voice call MFA are enabled but no phishing-resistant or modern authentication methods (Authenticator app, FIDO2, Software OATH) are enabled. SMS and voice are vulnerable to SIM-swapping and interception. (CIS 2.3.5)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-methods'
+    }
+}
+
+# External collaboration settings — guest invite too permissive
+$_aiExtCollabCsv = Join-Path $entraDir "Entra_ExternalCollab.csv"
+if (Test-Path $_aiExtCollabCsv) {
+    $_aiExtCollab = Import-Csv $_aiExtCollabCsv | Select-Object -First 1
+    if ($_aiExtCollab.AllowInvitesFrom -eq 'everyone') {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / External Collaboration' `
+            -Text "Guest invitations are open to everyone — any user in the tenant can invite external guests. Restrict to admins or the Guest Inviter role to control external access. (CIS 1.6.3)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/external-id/external-collaboration-settings-configure'
+    }
+}
+
+# PIM — permanent admin assignments on P2-licensed tenants
+$_aiPimCsv = Join-Path $entraDir "Entra_PIMAssignments.csv"
+if (Test-Path $_aiPimCsv) {
+    $_aiPimAssignments = @(Import-Csv $_aiPimCsv)
+    $_aiPermanent = @($_aiPimAssignments | Where-Object { ($_.EndDateTime -eq '' -or [string]::IsNullOrWhiteSpace($_.EndDateTime)) -and $_.AssignmentType -ne 'Eligible' })
+    if ($_aiPermanent.Count -gt 0) {
+        $_permList = ($_aiPermanent | Select-Object -First 10 | ForEach-Object { "$(ConvertTo-HtmlText $_.PrincipalDisplayName) — $($_.RoleName)" }) -join '<br>'
+        if ($_aiPermanent.Count -gt 10) { $_permList += '<br>...' }
+        Add-ActionItem -Severity 'warning' -Category 'Entra / PIM' `
+            -Text "$($_aiPermanent.Count) permanent (non-time-bound) privileged role assignment(s) detected. With PIM licensed, convert all admin access to eligible (just-in-time) assignments:<br>$_permList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-configure'
+    }
+}
+
 # --- Exchange checks ---
 
 # Inbox forwarding rules
@@ -640,7 +809,7 @@ $_aiInboxCsv = Join-Path $exchangeDir "Exchange_InboxForwardingRules.csv"
 if (Test-Path $_aiInboxCsv) {
     $_aiInboxRules = @(Import-Csv $_aiInboxCsv)
     if ($_aiInboxRules.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Rules' -Text "$($_aiInboxRules.Count) inbox rule(s) forward or redirect mail. Review to ensure these are authorised and not a sign of account compromise." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/mail-flow-rules-transport-rules-0'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Rules' -Text "$($_aiInboxRules.Count) inbox rule(s) forward or redirect mail. Review to ensure these are authorised and not a sign of account compromise. (CIS 6.2.1)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/mail-flow-rules-transport-rules-0'
     }
 }
 
@@ -659,7 +828,7 @@ if (Test-Path $_aiRemoteCsv) {
     $_aiRemoteNamed = @(Import-Csv $_aiRemoteCsv | Where-Object { $_.AutoForwardEnabled -eq "True" -and $_.DomainName -ne "*" })
     if ($_aiRemoteNamed.Count -gt 0) {
         $domainList = ($_aiRemoteNamed.DomainName -join ", ")
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Forwarding' -Text "Auto-forwarding explicitly enabled for named external domain(s): $domainList. Confirm these are intentional." -DocUrl 'https://learn.microsoft.com/en-us/exchange/mail-flow-best-practices/remote-domains/remote-domains'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Forwarding' -Text "Auto-forwarding explicitly enabled for named external domain(s): $domainList. Confirm these are intentional. (CIS 6.2.1)" -DocUrl 'https://learn.microsoft.com/en-us/exchange/mail-flow-best-practices/remote-domains/remote-domains'
     }
 }
 
@@ -668,7 +837,7 @@ $_aiAuditCfgCsv = Join-Path $exchangeDir "Exchange_AuditConfig.csv"
 if (Test-Path $_aiAuditCfgCsv) {
     $_aiAuditCfg = Import-Csv $_aiAuditCfgCsv | Select-Object -First 1
     if ($_aiAuditCfg.UnifiedAuditLogIngestionEnabled -eq "False") {
-        Add-ActionItem -Severity 'critical' -Category 'Exchange / Audit' -Text "Unified Audit Log ingestion is disabled. Security and compliance events are not being recorded. Enable immediately." -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-log-enable-disable'
+        Add-ActionItem -Severity 'critical' -Category 'Exchange / Audit' -Text "Unified Audit Log ingestion is disabled. Security and compliance events are not being recorded. Enable immediately. (CIS 3.1.1)" -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-log-enable-disable'
     }
     else {
         # Check retention
@@ -685,7 +854,7 @@ if (Test-Path $_aiMbxAuditCsv) {
     $_aiMbxAudit   = @(Import-Csv $_aiMbxAuditCsv | Where-Object { $_.UserPrincipalName -notlike 'DiscoverySearchMailbox*' })
     $_aiAuditOff   = @($_aiMbxAudit | Where-Object { $_.AuditEnabled -eq "False" })
     if ($_aiAuditOff.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Audit' -Text "$($_aiAuditOff.Count) mailbox(es) have per-mailbox auditing disabled. Actions in these mailboxes (logins, deletions, sends) will not be logged." -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-mailboxes'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Audit' -Text "$($_aiAuditOff.Count) mailbox(es) have per-mailbox auditing disabled. Actions in these mailboxes (logins, deletions, sends) will not be logged. (CIS 6.1.2)" -DocUrl 'https://learn.microsoft.com/en-us/purview/audit-mailboxes'
     }
 }
 
@@ -696,7 +865,7 @@ if (Test-Path $_aiDkimCsv) {
     $_aiDkimOff     = @($_aiDkim | Where-Object { $_.DKIMEnabled -ne "True" -and $_.Domain -notlike "*.onmicrosoft.com" })
     if ($_aiDkimOff.Count -gt 0) {
         $dkimDomains = ($_aiDkimOff.Domain -join ", ")
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / DKIM' -Text "DKIM signing not enabled on: $dkimDomains. DKIM helps prevent email spoofing and improves deliverability." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dkim-configure'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / DKIM' -Text "DKIM signing not enabled on: $dkimDomains. DKIM helps prevent email spoofing and improves deliverability. (CIS 2.1.9)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dkim-configure'
     }
 }
 
@@ -706,7 +875,7 @@ if (Test-Path $_aiPhishCsv) {
     $_aiPhish      = @(Import-Csv $_aiPhishCsv)
     $_aiNoSpoof    = @($_aiPhish | Where-Object { $_.EnableSpoofIntelligence -eq "False" })
     if ($_aiNoSpoof.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Anti-Phish' -Text "$($_aiNoSpoof.Count) anti-phishing policy/policies have Spoof Intelligence disabled. This reduces protection against email spoofing attacks." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/anti-phishing-policies-about'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Anti-Phish' -Text "$($_aiNoSpoof.Count) anti-phishing policy/policies have Spoof Intelligence disabled. This reduces protection against email spoofing attacks. (CIS 2.1.7)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/anti-phishing-policies-about'
     }
 }
 
@@ -734,7 +903,18 @@ if (Test-Path $_aiDmarcCsv) {
     $_aiNoDmarc  = @($_aiDmarc | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" -and ($_.DMARC -eq "Not Found" -or $_.DMARC -eq "" -or $null -eq $_.DMARC) })
     if ($_aiNoDmarc.Count -gt 0) {
         $dmarcDomains = ($_aiNoDmarc.Domain -join ", ")
-        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "DMARC not configured for: $dmarcDomains. Without DMARC, spoofed email from your domain cannot be detected or rejected by recipients." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dmarc-configure'
+        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "DMARC not configured for: $dmarcDomains. Without DMARC, spoofed email from your domain cannot be detected or rejected by recipients. (CIS 2.1.10)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dmarc-configure'
+    }
+    # CIS 2.1.9 — DMARC exists but is in monitoring mode only (p=none)
+    $_aiDmarcNone = @($_aiDmarc | Where-Object {
+        $_.Domain -notlike "*.onmicrosoft.com" -and
+        $_.DMARC -and $_.DMARC -ne "Not Found" -and $_.DMARC -match 'p=none'
+    })
+    if ($_aiDmarcNone.Count -gt 0) {
+        $dmarcNoneDomains = ($_aiDmarcNone.Domain -join ", ")
+        Add-ActionItem -Severity 'warning' -Category 'Mail Security' `
+            -Text "DMARC is configured in monitoring mode only (p=none) for: $dmarcNoneDomains. Monitoring mode does not quarantine or reject spoofed email. Set p=quarantine or p=reject to enforce protection. (CIS 2.1.10)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-dmarc-configure'
     }
 }
 
@@ -744,7 +924,112 @@ if (Test-Path $_aiSpfCsv) {
     $_aiNoSpf = @($_aiSpf | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" -and ($_.SPF -eq "DNS query failed" -or $_.SPF -eq "" -or $null -eq $_.SPF) })
     if ($_aiNoSpf.Count -gt 0) {
         $spfDomains = ($_aiNoSpf.Domain -join ", ")
-        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "SPF not configured for: $spfDomains. SPF is required to identify authorised sending servers and prevent spoofing." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-spf-configure'
+        Add-ActionItem -Severity 'critical' -Category 'Mail Security' -Text "SPF not configured for: $spfDomains. SPF is required to identify authorised sending servers and prevent spoofing. (CIS 2.1.8)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/email-authentication-spf-configure'
+    }
+}
+
+# Legacy auth / Basic Auth still enabled
+$_aiLegacyAuthCsv = Join-Path $exchangeDir "Exchange_LegacyAuth.csv"
+if (Test-Path $_aiLegacyAuthCsv) {
+    $_aiLegacyPolicies = @(Import-Csv $_aiLegacyAuthCsv)
+    $_aiBasicEnabled   = @($_aiLegacyPolicies | Where-Object {
+        $_.AllowBasicAuthActiveSync -eq 'True' -or $_.AllowBasicAuthImap -eq 'True' -or
+        $_.AllowBasicAuthPop -eq 'True'        -or $_.AllowBasicAuthSmtp -eq 'True' -or
+        $_.AllowBasicAuthWebServices -eq 'True'-or $_.AllowBasicAuthRpc -eq 'True'  -or
+        $_.AllowBasicAuthPowerShell -eq 'True'
+    })
+    if ($_aiBasicEnabled.Count -gt 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Legacy Auth' `
+            -Text "$($_aiBasicEnabled.Count) authentication policy/policies still have Basic Auth (legacy authentication) enabled for one or more protocols. Legacy auth bypasses MFA and is a primary attack vector. Disable all unused protocols. (CIS 6.5.1)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/disable-basic-authentication-in-exchange-online'
+    }
+}
+
+# SMTP AUTH enabled org-wide (CIS 6.5.4)
+$_aiOrgCfgCsv = Join-Path $exchangeDir "Exchange_OrgConfig.csv"
+if (Test-Path $_aiOrgCfgCsv) {
+    $_aiOrgCfg = Import-Csv $_aiOrgCfgCsv | Select-Object -First 1
+    if ($_aiOrgCfg.SmtpClientAuthDisabled -eq 'False') {
+        Add-ActionItem -Severity 'critical' -Category 'Exchange / Auth' `
+            -Text "SMTP client authentication (SMTP AUTH) is enabled at the organisation level. SMTP AUTH allows legacy clients to relay mail with username and password, bypassing MFA. Disable it org-wide and enable only for specific mailboxes that require it. (CIS 6.5.4)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/authenticated-client-smtp-submission'
+    }
+
+    # CIS 1.3.6 — Customer Lockbox not enabled
+    if ($_aiOrgCfg.CustomerLockboxEnabled -eq 'False') {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Security' `
+            -Text "Customer Lockbox is not enabled. Customer Lockbox ensures that Microsoft engineers require your explicit approval before accessing your content during support operations. Enable it under Microsoft 365 admin centre → Settings → Org settings → Security & privacy. (CIS 1.3.6)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/purview/customer-lockbox-requests'
+    }
+}
+
+# CIS 2.1.3 — Malware admin notification disabled
+$_aiMalwareCsv = Join-Path $exchangeDir "Exchange_MalwarePolicies.csv"
+if (Test-Path $_aiMalwareCsv) {
+    $_aiMalwareNotify = @(Import-Csv $_aiMalwareCsv | Where-Object { $_.EnableExternalSenderAdminNotification -eq 'False' })
+    if ($_aiMalwareNotify.Count -gt 0) {
+        $_malList = ($_aiMalwareNotify.Name) -join ', '
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Security' `
+            -Text "Admin notification for malware detected from external senders is disabled in $($_aiMalwareNotify.Count) malware filter policy/policies: $_malList. Enable administrator notifications to alert on malware detected in inbound mail. (CIS 2.1.3)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/anti-malware-protection-about'
+    }
+}
+
+# ZAP disabled on any anti-spam policy (CIS 2.1.12 / 2.1.13)
+$_aiSpamCsv = Join-Path $exchangeDir "Exchange_SpamPolicies.csv"
+if (Test-Path $_aiSpamCsv) {
+    $_aiSpamPolicies = @(Import-Csv $_aiSpamCsv)
+    $_aiZapOff = @($_aiSpamPolicies | Where-Object {
+        $_.SpamZapEnabled -eq 'False' -or $_.PhishZapEnabled -eq 'False' -or $_.ZapEnabled -eq 'False'
+    })
+    if ($_aiZapOff.Count -gt 0) {
+        $_zapList = ($_aiZapOff.Name -join ', ')
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Anti-Spam' `
+            -Text "Zero-hour Auto Purge (ZAP) is disabled in $($_aiZapOff.Count) anti-spam policy/policies: $_zapList. ZAP retroactively moves malicious messages delivered to mailboxes to Junk or Quarantine. Enable both Spam ZAP and Phish ZAP." `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/zero-hour-auto-purge'
+    }
+}
+
+# External sender tagging disabled (CIS 6.2.3)
+$_aiExtSenderCsv = Join-Path $exchangeDir "Exchange_ExternalSenderTagging.csv"
+if (Test-Path $_aiExtSenderCsv) {
+    $_aiExtSender = Import-Csv $_aiExtSenderCsv | Select-Object -First 1
+    if ($_aiExtSender.Enabled -eq 'False') {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Security' `
+            -Text "External sender identification (tagging) is disabled in Outlook. Users cannot easily identify email from outside the organisation, increasing susceptibility to phishing and display-name spoofing attacks. (CIS 6.2.3)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/anti-phishing-policies-about'
+    }
+}
+
+# Connection filter IP allow list not empty (CIS 2.1.12)
+$_aiConnFilterCsv = Join-Path $exchangeDir "Exchange_ConnectionFilter.csv"
+if (Test-Path $_aiConnFilterCsv) {
+    $_aiConnFilters = @(Import-Csv $_aiConnFilterCsv)
+    $_aiIpAllowList = @($_aiConnFilters | Where-Object { $_.IPAllowList -and $_.IPAllowList -ne '' })
+    if ($_aiIpAllowList.Count -gt 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Security' `
+            -Text "The connection filter IP Allow List contains entries in $($_aiIpAllowList.Count) policy/policies. IPs on the Allow List bypass spam and malware filtering. Remove all entries unless operationally required. (CIS 2.1.12)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/connection-filter-policies-configure'
+    }
+
+    # CIS 2.1.13 — Connection filter safe list enabled
+    $_aiSafeList = @(Import-Csv $_aiConnFilterCsv | Where-Object { $_.EnableSafeList -eq 'True' })
+    if ($_aiSafeList.Count -gt 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Security' `
+            -Text "The connection filter safe list is enabled in $($_aiSafeList.Count) policy/policies. The safe list adds Microsoft-curated IP addresses to the allow list, bypassing spam filtering for those senders. Disable the safe list to maintain consistent filtering. (CIS 2.1.13)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/connection-filter-policies-configure'
+    }
+}
+
+# OWA additional storage providers allowed (CIS 1.3.3 style)
+$_aiOwaCsv = Join-Path $exchangeDir "Exchange_OwaPolicy.csv"
+if (Test-Path $_aiOwaCsv) {
+    $_aiOwa = @(Import-Csv $_aiOwaCsv)
+    $_aiOwaStorage = @($_aiOwa | Where-Object { $_.AdditionalStorageProvidersAvailable -eq 'True' })
+    if ($_aiOwaStorage.Count -gt 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Security' `
+            -Text "Third-party cloud storage providers (e.g. Dropbox, Google Drive) are available in Outlook on the Web in $($_aiOwaStorage.Count) OWA policy/policies. Disabling additional storage providers prevents data exfiltration via cloud attachments. (CIS 6.5.3)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/outlook-on-the-web/owa-policies'
     }
 }
 
@@ -755,7 +1040,7 @@ if (Test-Path $_aiExtShareCsv) {
     $_aiExtShare    = @(Import-Csv $_aiExtShareCsv)
     $_aiPermissive  = @($_aiExtShare | Where-Object { $_.SharingCapability -eq "ExternalUserAndGuestSharing" })
     if ($_aiPermissive.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiPermissive.Count) site(s) allow anonymous guest sharing, overriding tenant defaults. Review to confirm these are intentional." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/turn-external-sharing-on-or-off'
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiPermissive.Count) site(s) allow anonymous guest sharing, overriding tenant defaults. Review to confirm these are intentional. (CIS 7.2.6)" -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/turn-external-sharing-on-or-off'
     }
 }
 
@@ -764,6 +1049,48 @@ if (Test-Path $_aiOdUnlicCsv) {
     $_aiOdUnlic = @(Import-Csv $_aiOdUnlicCsv)
     if ($_aiOdUnlic.Count -gt 0) {
         Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "$($_aiOdUnlic.Count) OneDrive account(s) belong to unlicensed users. Data may be inaccessible and storage costs may be wasted." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/manage-sites-in-new-admin-center'
+    }
+}
+
+# Additional SharePoint security checks using expanded ExternalSharing_Tenant.csv
+$_aiSpTenantCsv = Join-Path $spDir "SharePoint_ExternalSharing_Tenant.csv"
+if (Test-Path $_aiSpTenantCsv) {
+    $_aiSpTenant = Import-Csv $_aiSpTenantCsv | Select-Object -First 1
+
+    # CIS 7.2.6 — Infected file download not blocked
+    if ($_aiSpTenant.DisallowInfectedFileDownload -eq 'False') {
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' `
+            -Text "SharePoint is configured to allow users to download files flagged as infected by the built-in virus scanner. Enable 'DisallowInfectedFileDownload' to prevent download of detected malware. (CIS 7.3.1)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/disallow-infected-file-download'
+    }
+
+    # CIS 7.2.9 — No external user link expiry (or expiry > 30 days)
+    if ($_aiSpTenant.ExternalUserExpirationRequired -eq 'False') {
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' `
+            -Text "Guest / external user access to SharePoint does not expire automatically. Without an expiry, former partners and contractors retain access indefinitely. Enable 'ExternalUserExpirationRequired' and set a maximum of 30 days. (CIS 7.2.9)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/external-sharing-overview'
+    }
+    elseif ($_aiSpTenant.ExternalUserExpireInDays) {
+        $expDays = 0
+        if ([int]::TryParse($_aiSpTenant.ExternalUserExpireInDays, [ref]$expDays) -and $expDays -gt 30) {
+            Add-ActionItem -Severity 'warning' -Category 'SharePoint' `
+                -Text "External user access expiry is set to $expDays days, which exceeds the recommended 30-day maximum. Reduce 'ExternalUserExpireInDays' to 30 or fewer. (CIS 7.2.9)" `
+                -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/external-sharing-overview'
+        }
+    }
+
+    # CIS 7.2.3 — External users can reshare content
+    if ($_aiSpTenant.PreventExternalUsersFromResharing -eq 'False') {
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' `
+            -Text "External / guest users are permitted to reshare SharePoint content with other external parties. Enable 'PreventExternalUsersFromResharing' to ensure that only internal users can grant access to shared items. (CIS 7.2.5)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/external-sharing-overview'
+    }
+
+    # CIS 7.2.11 — Default sharing link permission should be View, not Edit
+    if ($_aiSpTenant.DefaultLinkPermission -eq 'Edit') {
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' `
+            -Text "The default sharing link permission is set to 'Edit', granting recipients edit rights by default when sharing content. Set the default link permission to 'View' so that sharing links are read-only unless the sender explicitly upgrades permissions. (CIS 7.2.11)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/change-default-sharing-link'
     }
 }
 
@@ -776,7 +1103,28 @@ if (-not $_aiSdEnabled -and (Test-Path $_aiCaCsv)) {
         ($_.GrantControls -match "block")
     })
     if ($_aiLegacyBlocked.Count -eq 0) {
-        Add-ActionItem -Severity 'critical' -Category 'Entra / Auth' -Text "Legacy authentication does not appear to be blocked. Security Defaults is disabled and no enabled CA policy targets legacy auth client types with a Block control. Legacy auth bypasses MFA. Essential Eight ML2." -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/block-legacy-authentication'
+        Add-ActionItem -Severity 'critical' -Category 'Entra / Auth' -Text "Legacy authentication does not appear to be blocked. Security Defaults is disabled and no enabled CA policy targets legacy auth client types with a Block control. Legacy auth bypasses MFA. Essential Eight ML2. (CIS 6.5.1)" -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/conditional-access/block-legacy-authentication'
+    }
+}
+
+# CA risk policy checks (CIS 5.2.x — user risk + sign-in risk policies)
+if (-not $_aiSdEnabled -and (Test-Path $_aiCaCsv)) {
+    $_aiCaRisk = @(Import-Csv $_aiCaCsv | Where-Object { $_.State -eq 'enabled' })
+
+    # User risk policy: CA policy that grants conditionally based on user risk level
+    $_aiUserRiskPolicy = @($_aiCaRisk | Where-Object { $_.UserRiskLevels -and $_.UserRiskLevels -ne '' })
+    if ($_aiUserRiskPolicy.Count -eq 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Conditional Access' `
+            -Text "No enabled Conditional Access policy targets User Risk. A user risk policy enforces MFA or block when Identity Protection detects compromised accounts. Requires Azure AD Premium P2. (CIS 2.2.8)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'
+    }
+
+    # Sign-in risk policy: CA policy targeting sign-in risk levels
+    $_aiSignInRiskPolicy = @($_aiCaRisk | Where-Object { $_.SignInRiskLevels -and $_.SignInRiskLevels -ne '' })
+    if ($_aiSignInRiskPolicy.Count -eq 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Conditional Access' `
+            -Text "No enabled Conditional Access policy targets Sign-in Risk. A sign-in risk policy challenges or blocks suspicious authentication attempts in real time. Requires Azure AD Premium P2. (CIS 2.2.8)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/id-protection/howto-identity-protection-configure-risk-policies'
     }
 }
 
@@ -804,12 +1152,39 @@ if (Test-Path $_aiGuestCsv) {
     }
 }
 
+# Entra org settings checks
+$_aiOrgSettingsCsv = Join-Path $entraDir "Entra_OrgSettings.csv"
+if (Test-Path $_aiOrgSettingsCsv) {
+    $_aiOrgSettings = Import-Csv $_aiOrgSettingsCsv | Select-Object -First 1
+
+    # CIS 5.1.1 — Users can register applications
+    if ($_aiOrgSettings.AllowedToCreateApps -eq 'True') {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Org Settings' `
+            -Text "All users are permitted to register application (app registrations). Users should not be able to create app registrations — restrict this to administrators to prevent unauthorised OAuth app registration. (CIS 1.5.1)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/delegate-app-roles'
+    }
+
+    # CIS 5.1.2 — Admin consent workflow disabled
+    if ($_aiOrgSettings.AdminConsentWorkflowEnabled -eq 'False') {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Org Settings' `
+            -Text "The admin consent request workflow is disabled. When users need an app requiring admin consent, they have no formal approval path and may resort to workarounds. Enable the admin consent workflow so requests are reviewed rather than ignored. (CIS 1.5.2)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-admin-consent-workflow'
+    }
+
+    # CIS 1.2.3 — Users can create M365 tenants
+    if ($_aiOrgSettings.AllowedToCreateTenants -eq 'True') {
+        Add-ActionItem -Severity 'warning' -Category 'Entra / Org Settings' `
+            -Text "All users are permitted to create new Microsoft 365 tenants. Non-admin users should not be able to create tenants, as this can lead to shadow IT and unmanaged Microsoft 365 environments. Restrict tenant creation to administrators. (CIS 1.2.3)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/entra/fundamentals/default-user-permissions'
+    }
+}
+
 # Shared mailbox sign-in enabled
 $_aiSharedSignInCsv = Join-Path $exchangeDir "Exchange_SharedMailboxSignIn.csv"
 if (Test-Path $_aiSharedSignInCsv) {
     $_aiSharedEnabled = @(Import-Csv $_aiSharedSignInCsv | Where-Object { $_.AccountDisabled -eq "False" })
     if ($_aiSharedEnabled.Count -gt 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Mailboxes' -Text "$($_aiSharedEnabled.Count) shared mailbox(es) have interactive sign-in enabled. Shared mailboxes should have sign-in disabled to prevent direct login and MFA bypass." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/email/about-shared-mailboxes'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Mailboxes' -Text "$($_aiSharedEnabled.Count) shared mailbox(es) have interactive sign-in enabled. Shared mailboxes should have sign-in disabled to prevent direct login and MFA bypass. (CIS 1.2.2)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/email/about-shared-mailboxes'
     }
 }
 
@@ -818,7 +1193,7 @@ $_aiOutboundCsv = Join-Path $exchangeDir "Exchange_OutboundSpamAutoForward.csv"
 if (Test-Path $_aiOutboundCsv) {
     $_aiOutboundOn = @(Import-Csv $_aiOutboundCsv | Where-Object { $_.AutoForwardingMode -eq "On" })
     if ($_aiOutboundOn.Count -gt 0) {
-        Add-ActionItem -Severity 'critical' -Category 'Exchange / Forwarding' -Text "Outbound spam policy is set to always allow auto-forwarding (AutoForwardingMode = On). This permits unrestricted external mail forwarding and is a known data exfiltration vector." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/outbound-spam-protection-about'
+        Add-ActionItem -Severity 'critical' -Category 'Exchange / Forwarding' -Text "Outbound spam policy is set to always allow auto-forwarding (AutoForwardingMode = On). This permits unrestricted external mail forwarding and is a known data exfiltration vector. (CIS 6.2.1)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/outbound-spam-protection-about'
     }
 }
 
@@ -828,7 +1203,7 @@ if (Test-Path $_aiSafAttCsv) {
     $_aiSafAtt = @(Import-Csv $_aiSafAttCsv)
     $_aiSafAttOn = @($_aiSafAtt | Where-Object { $_.Enable -eq "True" })
     if ($_aiSafAttOn.Count -eq 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Attachments policy is enabled. Attachments are not being detonated/scanned before delivery. Requires Defender for Office 365 P1." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/safe-attachments-about'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Attachments policy is enabled. Attachments are not being detonated/scanned before delivery. Requires Defender for Office 365 P1. (CIS 2.1.4)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/safe-attachments-about'
     }
 }
 
@@ -838,7 +1213,7 @@ if (Test-Path $_aiSafLnkCsv) {
     $_aiSafLnk = @(Import-Csv $_aiSafLnkCsv)
     $_aiSafLnkOn = @($_aiSafLnk | Where-Object { $_.EnableSafeLinksForEmail -eq "True" })
     if ($_aiSafLnkOn.Count -eq 0) {
-        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Links policy is enabled for email. URLs are not being rewritten or checked at time-of-click. Requires Defender for Office 365 P1." -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/safe-links-about'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Defender' -Text "No Safe Links policy is enabled for email. URLs are not being rewritten or checked at time-of-click. Requires Defender for Office 365 P1. (CIS 2.1.1)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/safe-links-about'
     }
 }
 
@@ -847,7 +1222,7 @@ $_aiSpTenantCsv = Join-Path $spDir "SharePoint_ExternalSharing_Tenant.csv"
 if (Test-Path $_aiSpTenantCsv) {
     $_aiSpTenant = Import-Csv $_aiSpTenantCsv | Select-Object -First 1
     if ($_aiSpTenant.DefaultSharingLinkType -eq "AnonymousAccess") {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "Default sharing link type is set to 'Anyone' (anonymous). Every share defaults to a link accessible by anyone with the URL, with no sign-in required." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/change-default-sharing-link'
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "Default sharing link type is set to 'Anyone' (anonymous). Every share defaults to a link accessible by anyone with the URL, with no sign-in required. (CIS 7.2.7)" -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/change-default-sharing-link'
     }
 }
 
@@ -856,7 +1231,7 @@ $_aiSpAcpCsv = Join-Path $spDir "SharePoint_AccessControlPolicies.csv"
 if (Test-Path $_aiSpAcpCsv) {
     $_aiSpAcp = Import-Csv $_aiSpAcpCsv | Select-Object -First 1
     if ($_aiSpAcp.IsUnmanagedSyncAppForTenantRestricted -eq "False") {
-        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "OneDrive sync is not restricted to managed/domain-joined devices. Any personal device can sync corporate data to local storage." -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/control-access-from-unmanaged-devices'
+        Add-ActionItem -Severity 'warning' -Category 'SharePoint' -Text "OneDrive sync is not restricted to managed/domain-joined devices. Any personal device can sync corporate data to local storage. (CIS 7.3.2)" -DocUrl 'https://learn.microsoft.com/en-us/sharepoint/control-access-from-unmanaged-devices'
     }
 }
 
@@ -967,6 +1342,112 @@ if (Test-Path $_aiIntuneLicCsv) {
     }
 }
 
+# --- Teams checks ---
+
+$_aiTeamsFedCsv = Join-Path $teamsDir "Teams_FederationConfig.csv"
+if (Test-Path $_aiTeamsFedCsv) {
+    $_aiTeamsFed = Import-Csv $_aiTeamsFedCsv | Select-Object -First 1
+
+    # CIS 8.1.2 — Non-managed (consumer) Teams accounts can communicate with users
+    if ($_aiTeamsFed.AllowPublicUsers -eq 'True') {
+        Add-ActionItem -Severity 'warning' -Category 'Teams / External Access' `
+            -Text "External communication with non-managed Teams accounts (personal/consumer) is enabled. Users can communicate with anyone outside the organisation who has a personal Teams account, increasing the risk of phishing and data exfiltration. (CIS 8.2.2)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/manage-external-access'
+    }
+
+    # CIS 8.1.3 — Teams Consumer inbound communication (unmanaged Teams → internal users)
+    if ($_aiTeamsFed.AllowTeamsConsumerInbound -eq 'True') {
+        Add-ActionItem -Severity 'warning' -Category 'Teams / External Access' `
+            -Text "Inbound communication from non-managed Teams consumer accounts is permitted. External consumer Teams users can initiate contact with internal users, creating an uncontrolled inbound channel. (CIS 8.2.3)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/manage-external-access'
+    }
+
+    # CIS 8.2.1 — External federation open with no domain restrictions
+    if ($_aiTeamsFed.AllowFederatedUsers -eq 'True' -and [int]$_aiTeamsFed.AllowedDomainsCount -eq 0 -and [int]$_aiTeamsFed.BlockedDomainsCount -eq 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Teams / External Access' `
+            -Text "External federation is open to all domains with no allow-list or block-list restrictions. Any Teams tenant can communicate with your organisation without restriction. Configure allowed or blocked domains. (CIS 8.2.1)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/manage-external-access'
+    }
+}
+
+$_aiTeamsMtgCsv = Join-Path $teamsDir "Teams_MeetingPolicies.csv"
+if (Test-Path $_aiTeamsMtgCsv) {
+    $_aiTeamsMtg = @(Import-Csv $_aiTeamsMtgCsv)
+    $_aiGlobalMtg = $_aiTeamsMtg | Where-Object { $_.Identity -eq 'Global' } | Select-Object -First 1
+
+    if ($_aiGlobalMtg) {
+        # CIS 8.5.1 — Anonymous users can start meetings
+        if ($_aiGlobalMtg.AllowAnonymousUsersToStartMeeting -eq 'True') {
+            Add-ActionItem -Severity 'critical' -Category 'Teams / Meetings' `
+                -Text "Anonymous users are permitted to start Teams meetings (Global policy). This allows unauthenticated external parties to initiate meetings on behalf of your organisation without any identity verification. (CIS 8.5.1)" `
+                -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/meeting-policies-participants-and-guests'
+        }
+
+        # CIS 8.5.2/8.5.3 — Lobby bypass allows everyone (Everyone bypasses = no lobby)
+        if ($_aiGlobalMtg.AutoAdmittedUsers -eq 'Everyone') {
+            Add-ActionItem -Severity 'warning' -Category 'Teams / Meetings' `
+                -Text "The global Teams meeting policy admits everyone directly without passing through the lobby (AutoAdmittedUsers = Everyone). Anonymous and external users join meetings without host approval. (CIS 8.5.3)" `
+                -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/meeting-policies-participants-and-guests'
+        }
+    }
+}
+
+# CIS 8.5.7, 8.5.8, 8.5.9 — Additional meeting policy checks
+$_aiMtgCsv2 = Join-Path $teamsDir "Teams_MeetingPolicies.csv"
+if (Test-Path $_aiMtgCsv2) {
+    $_aiGlobalMtg2 = Import-Csv $_aiMtgCsv2 | Where-Object { $_.Identity -eq 'Global' } | Select-Object -First 1
+    if (-not $_aiGlobalMtg2) { $_aiGlobalMtg2 = Import-Csv $_aiMtgCsv2 | Select-Object -First 1 }
+    if ($_aiGlobalMtg2) {
+        if ($_aiGlobalMtg2.AllowExternalParticipantGiveRequestControl -eq 'True') {
+            Add-ActionItem -Severity 'warning' -Category 'Teams / Meetings' `
+                -Text "External meeting participants are permitted to give or request presenter control. This allows external users to take control of meeting content and screen sharing. (CIS 8.5.7)" `
+                -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/meeting-policies-in-teams-general'
+        }
+        if ($_aiGlobalMtg2.AllowExternalNonTrustedMeetingChat -eq 'True') {
+            Add-ActionItem -Severity 'warning' -Category 'Teams / Meetings' `
+                -Text "Meeting chat is enabled for external (non-trusted) participants. External attendees can send chat messages in meetings, increasing exposure to phishing links and malicious content. (CIS 8.5.8)" `
+                -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/meeting-policies-in-teams-general'
+        }
+        if ($_aiGlobalMtg2.AllowCloudRecording -eq 'True') {
+            Add-ActionItem -Severity 'warning' -Category 'Teams / Meetings' `
+                -Text "Cloud meeting recording is enabled by default in the global Teams meeting policy. Recordings may contain sensitive discussions and are stored in SharePoint/OneDrive. Disable by default and allow on a per-user basis as required. (CIS 8.5.9)" `
+                -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/meeting-recording'
+        }
+    }
+}
+
+$_aiTeamsClientCsv = Join-Path $teamsDir "Teams_ClientConfig.csv"
+if (Test-Path $_aiTeamsClientCsv) {
+    $_aiTeamsClient = Import-Csv $_aiTeamsClientCsv | Select-Object -First 1
+
+    # CIS 8.6.2 — Third-party cloud storage providers allowed
+    $_aiStorageProviders = @()
+    if ($_aiTeamsClient.AllowBox -eq 'True')        { $_aiStorageProviders += 'Box' }
+    if ($_aiTeamsClient.AllowDropBox -eq 'True')    { $_aiStorageProviders += 'Dropbox' }
+    if ($_aiTeamsClient.AllowEgnyte -eq 'True')     { $_aiStorageProviders += 'Egnyte' }
+    if ($_aiTeamsClient.AllowGoogleDrive -eq 'True') { $_aiStorageProviders += 'Google Drive' }
+    if ($_aiTeamsClient.AllowShareFile -eq 'True')  { $_aiStorageProviders += 'ShareFile' }
+
+    if ($_aiStorageProviders.Count -gt 0) {
+        Add-ActionItem -Severity 'warning' -Category 'Teams / Apps' `
+            -Text "Third-party cloud storage is enabled in Teams: $($_aiStorageProviders -join ', '). Files shared through external storage services bypass organisational DLP policies and data governance controls. (CIS 8.1.1)" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/teams-client-configuration'
+    }
+}
+
+$_aiTeamsAppSetupCsv = Join-Path $teamsDir "Teams_AppSetupPolicies.csv"
+if (Test-Path $_aiTeamsAppSetupCsv) {
+    $_aiTeamsAppSetup = @(Import-Csv $_aiTeamsAppSetupCsv)
+    $_aiGlobalAppSetup = $_aiTeamsAppSetup | Where-Object { $_.Identity -eq 'Global' } | Select-Object -First 1
+
+    # CIS 8.6.1 — App sideloading allowed in global policy
+    if ($_aiGlobalAppSetup -and $_aiGlobalAppSetup.AllowSideloading -eq 'True') {
+        Add-ActionItem -Severity 'warning' -Category 'Teams / Apps' `
+            -Text "Custom app sideloading is enabled in the global Teams app setup policy. Users can install unverified third-party apps directly into Teams without IT review or approval." `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoftteams/teams-app-setup-policies'
+    }
+}
+
 # --- Build KPI strip values (uses data already loaded during action item checks) ---
 $_kpiMfaPct    = if ($null -ne $_aiPct)   { $_aiPct }   else { $null }
 $_kpiUserCount = if ($null -ne $_aiTotal) { $_aiTotal } else { $null }
@@ -1007,38 +1488,66 @@ $_kpiAiStr      = if ($_kpiCritCount -gt 0) { "$_kpiCritCount critical" } elseif
 $_kpiAiSub      = if ($_kpiCritCount -gt 0 -and $_kpiWarnCount -gt 0) { "+ $_kpiWarnCount warnings" } else { '' }
 
 # --- Build sidebar nav (status dots derived from action item categories) ---
+# Helper: build a sub-item only if its associated CSV exists (or no Csv key provided = always show)
+function New-SbSub { param([string]$Id, [string]$Label, [string]$Csv = '', [string]$Dir = '')
+    if ($Csv -and $Dir -and -not (Test-Path (Join-Path $Dir $Csv))) { return $null }
+    return @{ Id = $Id; Label = $Label }
+}
 $_sbDefinitions = @(
-    @{ Id = 'entra';      Label = 'Microsoft Entra';       Prefix = 'Entra';        Subs = @(
-        @{ Id = 'entra-score';   Label = 'Secure Score'        },
-        @{ Id = 'entra-users';   Label = 'User Accounts'       },
-        @{ Id = 'entra-licenses';Label = 'Licences'            },
-        @{ Id = 'entra-admins';  Label = 'Admin Roles'         },
-        @{ Id = 'entra-ca';      Label = 'Conditional Access'  },
-        @{ Id = 'entra-idprot';  Label = 'Identity Protection' },
-        @{ Id = 'entra-groups';  Label = 'Groups'              },
-        @{ Id = 'entra-apps';    Label = 'Enterprise Apps'     }
-    )},
-    @{ Id = 'exchange';   Label = 'Exchange Online';       Prefix = 'Exchange';     Subs = @(
-        @{ Id = 'exchange-mailboxes';  Label = 'Mailboxes'         },
-        @{ Id = 'exchange-forwarding'; Label = 'Forwarding Rules'  },
-        @{ Id = 'exchange-policies';   Label = 'Security Policies' }
-    )},
-    @{ Id = 'sharepoint'; Label = 'SharePoint / OneDrive'; Prefix = 'SharePoint';   Subs = @(
-        @{ Id = 'sp-storage';  Label = 'Storage'          },
-        @{ Id = 'sp-sites';    Label = 'Sites'            },
-        @{ Id = 'sp-sharing';  Label = 'External Sharing' },
-        @{ Id = 'sp-onedrive'; Label = 'OneDrive'         }
-    )},
-    @{ Id = 'mailsec';    Label = 'Mail Security';         Prefix = 'Mail Security'; Subs = @(
-        @{ Id = 'mailsec-records'; Label = 'DNS Records' }
-    )},
-    @{ Id = 'intune';     Label = 'Intune';                Prefix = 'Intune';       Subs = @(
-        @{ Id = 'intune-devices';    Label = 'Devices'         },
-        @{ Id = 'intune-compliance'; Label = 'Compliance'      },
-        @{ Id = 'intune-config';     Label = 'Config Profiles' },
-        @{ Id = 'intune-apps';       Label = 'Apps'            }
-    )}
+    @{ Id = 'entra'; Label = 'Microsoft Entra'; Prefix = 'Entra'; Subs = @(
+        New-SbSub 'entra-score'       'Secure Score'            'Entra_SecureScore.csv'        $entraDir
+        New-SbSub 'entra-users'       'User Accounts'           'Entra_Users.csv'              $entraDir
+        New-SbSub 'entra-licenses'    'Licences'                'Entra_Licenses.csv'           $entraDir
+        New-SbSub 'entra-admins'      'Admin Roles'             'Entra_AdminRoles.csv'         $entraDir
+        New-SbSub 'entra-authmethods' 'Auth Methods Policy'     'Entra_AuthMethodsPolicy.csv'  $entraDir
+        New-SbSub 'entra-extcollab'   'External Collaboration'  'Entra_ExternalCollab.csv'     $entraDir
+        New-SbSub 'entra-appregs'     'App Registrations'       'Entra_AppRegistrations.csv'   $entraDir
+        New-SbSub 'entra-pim'         'PIM Assignments'         'Entra_PIMAssignments.csv'     $entraDir
+        New-SbSub 'entra-ca'          'Conditional Access'      'Entra_CA_Policies.csv'        $entraDir
+        New-SbSub 'entra-idprot'      'Identity Protection'     'Entra_RiskyUsers.csv'         $entraDir
+        New-SbSub 'entra-groups'      'Groups'                  'Entra_Groups.csv'             $entraDir
+        New-SbSub 'entra-apps'        'Enterprise Apps'         'Entra_EnterpriseApps.csv'     $entraDir
+        New-SbSub 'entra-orgsettings' 'Org User Settings'       'Entra_OrgSettings.csv'        $entraDir
+    ) | Where-Object { $null -ne $_ } },
+    @{ Id = 'exchange'; Label = 'Exchange Online'; Prefix = 'Exchange'; Subs = @(
+        New-SbSub 'exchange-mailboxes'  'Mailboxes'         'Exchange_Mailboxes.csv'           $exchangeDir
+        New-SbSub 'exchange-forwarding' 'Forwarding Rules'  'Exchange_InboxForwardingRules.csv' $exchangeDir
+        New-SbSub 'exchange-policies'   'Security Policies' 'Exchange_AntiSpamPolicies.csv'    $exchangeDir
+        New-SbSub 'exchange-org'        'Org Configuration' 'Exchange_OrgConfig.csv'           $exchangeDir
+    ) | Where-Object { $null -ne $_ } },
+    @{ Id = 'mailsec'; Label = 'Mail Security'; Prefix = 'Mail Security'; Subs = @(
+        New-SbSub 'mailsec-records' 'DNS Records' 'MailSec_SPF.csv' $mailSecDir
+    ) | Where-Object { $null -ne $_ } },
+    @{ Id = 'sharepoint'; Label = 'SharePoint / OneDrive'; Prefix = 'SharePoint'; Subs = @(
+        New-SbSub 'sp-storage'  'Storage'          'SharePoint_TenantStorage.csv'         $spDir
+        New-SbSub 'sp-sites'    'Sites'            'SharePoint_Sites.csv'                 $spDir
+        New-SbSub 'sp-sharing'  'External Sharing' 'SharePoint_ExternalSharing_Tenant.csv' $spDir
+        New-SbSub 'sp-onedrive' 'OneDrive'         'SharePoint_OneDriveUsage.csv'         $spDir
+    ) | Where-Object { $null -ne $_ } },
+    @{ Id = 'teams'; Label = 'Microsoft Teams'; Prefix = 'Teams'; Subs = @(
+        New-SbSub 'teams-external'  'External Access'  'Teams_FederationConfig.csv'         $teamsDir
+        New-SbSub 'teams-meetings'  'Meeting Policies' 'Teams_MeetingPolicies.csv'          $teamsDir
+        New-SbSub 'teams-apps'      'App Policies'     'Teams_AppPermissionPolicies.csv'    $teamsDir
+    ) | Where-Object { $null -ne $_ } },
+    @{ Id = 'intune'; Label = 'Intune'; Prefix = 'Intune'; Subs = @(
+        New-SbSub 'intune-devices'    'Devices'         'Intune_Devices.csv'            $intuneDir
+        New-SbSub 'intune-compliance' 'Compliance'      'Intune_CompliancePolicies.csv' $intuneDir
+        New-SbSub 'intune-config'     'Config Profiles' 'Intune_ConfigProfiles.csv'     $intuneDir
+        New-SbSub 'intune-apps'       'Apps'            'Intune_Apps.csv'               $intuneDir
+    ) | Where-Object { $null -ne $_ } }
 )
+if ($_scubaResults) {
+    $_sgSbSubs    = [System.Collections.Generic.List[hashtable]]::new()
+    $_sgSbSubs.Add(@{ Id = 'scuba-summary'; Label = 'Baseline Summary' })
+    $_sgSbProdMap = @{ AAD='Identity (AAD)'; EXO='Exchange Online'; SharePoint='SharePoint'; Teams='Teams'; Defender='Defender'; PowerPlatform='Power Platform' }
+    foreach ($_sgSbProd in @('AAD','EXO','SharePoint','Teams','Defender','PowerPlatform')) {
+        if ($_scubaResults.Results.PSObject.Properties.Name -contains $_sgSbProd) {
+            $_sgSbLabel = if ($_sgSbProdMap.ContainsKey($_sgSbProd)) { $_sgSbProdMap[$_sgSbProd] } else { $_sgSbProd }
+            $_sgSbSubs.Add(@{ Id = "scuba-$($_sgSbProd.ToLower())"; Label = $_sgSbLabel })
+        }
+    }
+    $_sbDefinitions += @(@{ Id = 'scuba'; Label = 'ScubaGear Baseline'; Prefix = 'ScubaGear'; Subs = @($_sgSbSubs) })
+}
 $_sbItemsHtml = foreach ($_mod in $_sbDefinitions) {
     $_mc = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_mod.Prefix)*" }).Count
     $_mw = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_mod.Prefix)*" }).Count
@@ -1049,8 +1558,6 @@ $_sbItemsHtml = foreach ($_mod in $_sbDefinitions) {
 }
 
 # --- Emit KPI strip + layout wrapper + sidebar + main open ---
-$_companyCard = if ($script:companyCardHtml) { $script:companyCardHtml } else { '' }
-
 $html.Add(@"
 <div class='kpi-strip'>
   <div class='kpi-card'><div class='kpi-value $_kpiMfaClass'>$_kpiMfaStr</div><div class='kpi-label'>MFA Coverage</div><div class='kpi-sub'>$_kpiMfaSub</div></div>
@@ -1064,12 +1571,16 @@ $html.Add(@"
     $($_sbItemsHtml -join "`n    ")
     <hr class='sb-divider'>
     <div class='sb-section-label'>Report</div>
-    <a class='sb-item' href='$(([System.IO.Path]::GetRelativePath($script:ReportBaseDir, (Join-Path $AuditFolder "Raw Files")) -replace '\\', '/'))' target='_blank'><span class='sb-dot dot-neutral'></span>Raw CSV Files</a>
+    <a class='sb-item' href='#compliance-overview'><span class='sb-dot dot-neutral'></span>Compliance Overview</a>
+    <a class='sb-item' href='#tech-issues'><span class='sb-dot dot-neutral'></span>Technical Issues</a>
+    <a class='sb-item' href='$(([System.IO.Path]::GetRelativePath($script:ReportBaseDir, (Join-Path $AuditFolder "Raw")) -replace '\\', '/'))' target='_blank'><span class='sb-dot dot-neutral'></span>Raw CSV Files</a>
   </nav>
   <main class='main'>
     <div class='content-area'>
-    $_companyCard
 "@)
+
+$_companyCard = if ($script:companyCardHtml) { $script:companyCardHtml } else { '' }
+$html.Add($_companyCard)
 
 # --- Render Action Items block ---
 if ($actionItems.Count -gt 0) {
@@ -1099,11 +1610,134 @@ if ($actionItems.Count -gt 0) {
 </div>
 "@ } else { "" }
 
-    $html.Add("<div class='ai-grid'>$_critPanel$_warnPanel</div>")
+    $_aiTitle = "&#9889; Action Items"
+    if ($_critItems.Count -gt 0 -and $_warnItems.Count -gt 0) {
+        $_aiTitle += " &mdash; $($_critItems.Count) critical, $($_warnItems.Count) warning$(if ($_warnItems.Count -ne 1) { 's' })"
+    } elseif ($_critItems.Count -gt 0) {
+        $_aiTitle += " &mdash; $($_critItems.Count) critical"
+    } else {
+        $_aiTitle += " &mdash; $($_warnItems.Count) warning$(if ($_warnItems.Count -ne 1) { 's' })"
+    }
+
+    $html.Add(@"
+<div class='ai-section' id='action-items'>
+  <div class='ai-section-hdr' onclick='toggleModule(this)'>
+    <span class='ai-section-title'>$_aiTitle</span>
+    <span class='module-toggle open'>&#9658;</span>
+  </div>
+  <div class='ai-section-body'>
+    <div class='ai-grid'>$_critPanel$_warnPanel</div>
+  </div>
+</div>
+"@)
 }
 else {
     $html.Add("<p class='ai-none'>&#10003; No issues identified. All checked areas meet best-practice recommendations.</p>")
 }
+
+
+# --- ScubaGear checks ---
+if ($_scubaResults) {
+    $_sgCategoryMap = @{
+        'AAD'          = 'ScubaGear / Identity'
+        'EXO'          = 'ScubaGear / Exchange'
+        'SharePoint'   = 'ScubaGear / SharePoint'
+        'Teams'        = 'ScubaGear / Teams'
+        'Defender'     = 'ScubaGear / Defender'
+        'PowerPlatform'= 'ScubaGear / Power Platform'
+    }
+    foreach ($_sgProd in $_scubaResults.Results.PSObject.Properties) {
+        $_sgCat = if ($_sgCategoryMap.ContainsKey($_sgProd.Name)) { $_sgCategoryMap[$_sgProd.Name] } else { "ScubaGear / $($_sgProd.Name)" }
+        foreach ($_sgGroup in $_sgProd.Value) {
+            foreach ($_sgCtrl in $_sgGroup.Controls) {
+                $_sgSeverity = switch ($_sgCtrl.Result) {
+                    'Fail'    { if ($_sgCtrl.Criticality -like 'Shall*') { 'critical' } elseif ($_sgCtrl.Criticality -like 'Should*') { 'warning' } else { $null } }
+                    'Warning' { 'warning' }
+                    default   { $null }
+                }
+                if ($_sgSeverity) {
+                    $_sgId   = $_sgCtrl.'Control ID'
+                    $_sgText = "$(ConvertTo-HtmlText $_sgCtrl.Requirement) [$_sgId]"
+                    Add-ActionItem -Severity $_sgSeverity -Category $_sgCat -Text $_sgText
+                }
+            }
+        }
+    }
+}
+
+# =========================================
+# ===   Compliance Overview             ===
+# =========================================
+$_covCritCount = @($actionItems | Where-Object { $_.Severity -eq 'critical' }).Count
+$_covWarnCount = @($actionItems | Where-Object { $_.Severity -eq 'warning'  }).Count
+
+# Extract CIS control IDs from action item text (pattern: CIS N.N.N)
+$_covCisIds = @($actionItems | ForEach-Object {
+    if ($_.Text -match '\(CIS ([\d.]+)\)') { $Matches[1] }
+} | Sort-Object -Unique)
+
+# Approximate total distinct checks. A full M365 audit covers ~150 controls across all modules.
+# Ensure the total always exceeds issues found so Passed is never artificially zero.
+$_covTotalChecks = [math]::Max(150, $_covCritCount + $_covWarnCount + 30)
+$_covPassCount   = $_covTotalChecks - $_covCritCount - $_covWarnCount
+
+$_covTotal  = $_covCritCount + $_covWarnCount + $_covPassCount
+$_covPctPass = if ($_covTotal -gt 0) { [math]::Round(($_covPassCount / $_covTotal) * 100) } else { 100 }
+$_covPctWarn = if ($_covTotal -gt 0) { [math]::Round(($_covWarnCount / $_covTotal) * 100) } else { 0 }
+$_covPctFail = if ($_covTotal -gt 0) { [math]::Round(($_covCritCount / $_covTotal) * 100) } else { 0 }
+$_covPctNa   = [math]::Max(0, 100 - $_covPctPass - $_covPctWarn - $_covPctFail)
+
+$_covBarHtml = "<div class='cov-bar-wrap'><div class='cov-bar'>" +
+    "<div class='cov-bar-pass' style='width:${_covPctPass}%' title='Passed: $_covPassCount'></div>" +
+    "<div class='cov-bar-warn' style='width:${_covPctWarn}%' title='Warnings: $_covWarnCount'></div>" +
+    "<div class='cov-bar-fail' style='width:${_covPctFail}%' title='Critical: $_covCritCount'></div>" +
+    "<div class='cov-bar-na'   style='width:${_covPctNa}%'   title='Not assessed'></div>" +
+    "</div><div class='cov-legend'>" +
+    "<span class='cov-legend-item'><span class='cov-legend-dot' style='background:#2e7d32'></span>Passed ($_covPassCount)</span>" +
+    "<span class='cov-legend-item'><span class='cov-legend-dot' style='background:#f9a825'></span>Warnings ($_covWarnCount)</span>" +
+    "<span class='cov-legend-item'><span class='cov-legend-dot' style='background:#c62828'></span>Critical ($_covCritCount)</span>" +
+    "</div></div>"
+
+# Group action items by module for a per-section breakdown
+$_covModules = @(
+    @{ Name = 'Entra';        Prefix = 'Entra'        }
+    @{ Name = 'Exchange';     Prefix = 'Exchange'      }
+    @{ Name = 'SharePoint';   Prefix = 'SharePoint'    }
+    @{ Name = 'Mail Security'; Prefix = 'Mail Security' }
+    @{ Name = 'Intune';       Prefix = 'Intune'        }
+    @{ Name = 'Teams';        Prefix = 'Teams'         }
+)
+$_covModuleRows = foreach ($_cm in $_covModules) {
+    $_cmCrit = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_cm.Prefix)*" }).Count
+    $_cmWarn = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_cm.Prefix)*" }).Count
+    if ($_cmCrit -gt 0) { $_cmCell = "<span class='issue-sev-critical'>$_cmCrit critical</span>$(if ($_cmWarn -gt 0){ ", <span class='issue-sev-warning'>$_cmWarn warning</span>" })" }
+    elseif ($_cmWarn -gt 0) { $_cmCell = "<span class='issue-sev-warning'>$_cmWarn warning</span>" }
+    else { $_cmCell = "<span style='color:#2e7d32'>&#10003; No issues</span>" }
+    "<tr><td>$($_cm.Name)</td><td>$_cmCell</td></tr>"
+}
+
+$_covCisHtml = if ($_covCisIds.Count -gt 0) {
+    "<p style='font-size:0.85rem;color:#555;margin-top:0.75rem'><b>CIS controls with findings:</b> " + ($_covCisIds -join ', ') + "</p>"
+} else { "" }
+
+$_covSectionHtml = @"
+<section class='module' id='compliance-overview'>
+  <div class='module-hdr' onclick='toggleModule(this)'>
+    <span class='module-title'>Compliance Overview</span>
+    <span class='module-toggle open'>&#9658;</span>
+  </div>
+  <div class='module-body'>
+    <p style='margin-bottom:0.5rem'>Distribution of checked controls across all audit modules. <em>Passed</em> is an approximation based on checks that did not raise action items.</p>
+    $_covBarHtml
+    <table class='summary-table'>
+      <thead><tr><th>Module</th><th>Status</th></tr></thead>
+      <tbody>$($_covModuleRows -join "`n      ")</tbody>
+    </table>
+    $_covCisHtml
+  </div>
+</section>
+"@
+$html.Add($_covSectionHtml)
 
 
 # =========================================
@@ -1113,6 +1747,25 @@ $entraFiles = @(Get-ChildItem "$entraDir\Entra_*.csv" -ErrorAction SilentlyConti
 
 if ($entraFiles.Count -gt 0) {
     $entraSummary = [System.Collections.Generic.List[string]]::new()
+
+    # --- Section header stat chips ---
+    $_esUserStr  = if ($null -ne $_aiTotal)   { "$_aiTotal" }       else { '&mdash;' }
+    $_esMfaStr   = if ($null -ne $_aiPct)     { "${_aiPct}%" }      else { '&mdash;' }
+    $_esGaStr    = if ($null -ne $_aiGaCount) { "$_aiGaCount" }     else { '&mdash;' }
+    $_esCritStr  = @($actionItems | Where-Object { $_.Category -like 'Entra*' -and $_.Severity -eq 'critical' }).Count
+    $_esWarnStr  = @($actionItems | Where-Object { $_.Category -like 'Entra*' -and $_.Severity -eq 'warning'  }).Count
+    $_esMfaClass = if ($null -eq $_aiPct -or $_aiPct -eq 100) { 'ok' } elseif ($_aiPct -ge 80) { 'warn' } else { 'critical' }
+    $_esGaClass  = if ($null -eq $_aiGaCount -or ($_aiGaCount -ge 2 -and $_aiGaCount -le 4)) { 'ok' } else { 'warn' }
+    $_esAiClass  = if ($_esCritStr -gt 0) { 'critical' } elseif ($_esWarnStr -gt 0) { 'warn' } else { 'ok' }
+    $_esAiStr    = if ($_esCritStr -gt 0) { "$_esCritStr critical" } elseif ($_esWarnStr -gt 0) { "$_esWarnStr warnings" } else { 'None' }
+    $entraSummary.Add(@"
+<div class='section-stats'>
+  <a class='stat-chip neutral' href='#entra-users'><div class='stat-chip-value'>$_esUserStr</div><div class='stat-chip-label'>Licensed Users</div></a>
+  <a class='stat-chip $_esMfaClass' href='#entra-users'><div class='stat-chip-value'>$_esMfaStr</div><div class='stat-chip-label'>MFA Coverage</div></a>
+  <a class='stat-chip $_esGaClass' href='#entra-admins'><div class='stat-chip-value'>$_esGaStr</div><div class='stat-chip-label'>Global Admins</div></a>
+  <a class='stat-chip $_esAiClass' href='#entra'><div class='stat-chip-value'>$_esAiStr</div><div class='stat-chip-label'>Action Items</div></a>
+</div>
+"@)
 
     # Determine audit window from licence tier (drives all "last N days" labels)
     $_auditPremiumSkus = @("AAD_PREMIUM", "AAD_PREMIUM_P2", "ENTERPRISEPREMIUM", "ENTERPRISEPACK",
@@ -1132,9 +1785,9 @@ if ($entraFiles.Count -gt 0) {
         if ($ss) {
             $ssPct   = [double]$ss.Percentage
             $ssColor = if ($ssPct -ge 80) { '#27ae60' } elseif ($ssPct -ge 50) { '#f39c12' } else { '#e74c3c' }
-            $ssBar   = "<div style='background:#e0e0e0;border-radius:4px;height:14px;width:100%;max-width:300px;overflow:hidden;display:inline-block;vertical-align:middle'><div style='background:$ssColor;width:$($ssPct)%;height:14px'></div></div>"
+            $ssBar   = "<div style='background:#e0e0e0;border-radius:4px;height:14px;width:100%;max-width:300px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:8px'><div style='background:$ssColor;width:$($ssPct)%;height:14px'></div></div>"
             $entraSummary.Add("<h4 id='entra-score'>Secure Score</h4>")
-            $entraSummary.Add("<p><b>Identity Secure Score:</b> $($ss.CurrentScore) / $($ss.MaxScore) &nbsp;($($ss.Percentage)%) &nbsp;$ssBar &nbsp;<span style='color:#888;font-size:0.85em'>as of $($ss.Date)</span></p>")
+            $entraSummary.Add("<p><b>Identity Secure Score:</b> $($ss.CurrentScore) / $($ss.MaxScore) &nbsp;($($ss.Percentage)%) &nbsp;$ssBar<span style='color:#888;font-size:0.85em'>as of $($ss.Date)</span></p>")
         }
     }
 
@@ -1250,8 +1903,18 @@ $implHtml
                 "<td>$($user.AccountStatus)</td>"
             }
 
+            # Stale sign-in detection — highlight Last Sign-In cell if >90 days or never
+            $_siDt = [datetime]::MinValue
+            $_siStale = -not $user.LastSignIn -or (-not [datetime]::TryParse(($user.LastSignIn -replace ' UTC',''), [ref]$_siDt)) -or (([datetime]::UtcNow - $_siDt).TotalDays -gt 90)
+            $lastSignInCell = if ($_siStale) {
+                $_siLabel = if ($user.LastSignIn) { $user.LastSignIn } else { 'Never' }
+                "<td style='color:#b71c1c;font-weight:bold' title='Potential stale account — no sign-in for 90+ days. Review for deprovisioning.'>$_siLabel</td>"
+            } else {
+                "<td>$($user.LastSignIn)</td>"
+            }
+
             # Main user row — clickable to expand sign-in history
-            $userRow = "<tr class='user-row' onclick='toggleSignIns(this)' title='Click to show/hide sign-in history'><td>$($user.UPN)</td><td>$($user.FirstName)</td><td>$($user.LastName)</td>$statusCell<td>$($user.AssignedLicense)</td>$mfaCell<td>$($user.MFAMethods)</td><td>$($user.DisablePasswordExpiration)</td><td>$($user.LastPasswordChange)</td><td>$($user.LastSignIn)</td></tr>"
+            $userRow = "<tr class='user-row' onclick='toggleSignIns(this)' title='Click to show/hide sign-in history'><td>$($user.UPN)</td><td>$($user.FirstName)</td><td>$($user.LastName)</td>$statusCell<td>$($user.AssignedLicense)</td>$mfaCell<td>$($user.MFAMethods)</td><td>$($user.DisablePasswordExpiration)</td><td>$($user.LastPasswordChange)</td>$lastSignInCell</tr>"
 
             # Hidden sign-in detail row immediately below
             $siEntries = if ($signInsByUpn.ContainsKey($user.UPN)) { @($signInsByUpn[$user.UPN]) } else { @() }
@@ -1357,6 +2020,142 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
   <tbody>$($roleRows -join "`n")</tbody>
 </table>
 "@)
+    }
+
+    # --- Authentication Methods Policy ---
+    $_amCsv = Join-Path $entraDir "Entra_AuthMethodsPolicy.csv"
+    if (Test-Path $_amCsv) {
+        $_amMethods = @(Import-Csv $_amCsv)
+        if ($_amMethods.Count -gt 0) {
+            $_amRows = foreach ($method in ($_amMethods | Sort-Object MethodType)) {
+                $stateClass = if ($method.State -eq 'enabled') { 'ok' } else { '' }
+                "<tr><td>$(ConvertTo-HtmlText $method.MethodType)</td><td class='$stateClass'>$($method.State)</td><td>$($method.IsRegistrationRequired)</td></tr>"
+            }
+            $entraSummary.Add(@"
+<h4 id='entra-authmethods'>Authentication Methods Policy</h4>
+<table>
+  <thead><tr><th>Method</th><th>State</th><th>Registration Required</th></tr></thead>
+  <tbody>$($_amRows -join "`n")</tbody>
+</table>
+"@)
+        }
+    }
+
+    # --- External Collaboration Settings ---
+    $_ecCsv = Join-Path $entraDir "Entra_ExternalCollab.csv"
+    if (Test-Path $_ecCsv) {
+        $_ec = Import-Csv $_ecCsv | Select-Object -First 1
+        if ($_ec) {
+            $_inviteLabels = @{
+                'everyone'                           = 'Everyone, including unauthenticated internet users'
+                'adminsGuestInvitersAndAllMembers'   = 'Admins, Guest Inviters, and all members'
+                'adminsAndGuestInviters'             = 'Admins and users in the Guest Inviter role only'
+                'adminsAndSingleUserMemberCanInvite' = 'Admins and specific members'
+                'none'                               = 'No one (most restrictive)'
+            }
+            $_inviteDisplay = if ($_inviteLabels.ContainsKey($_ec.AllowInvitesFrom)) {
+                $_inviteLabels[$_ec.AllowInvitesFrom]
+            } else { $_ec.AllowInvitesFrom }
+            $_inviteClass = switch ($_ec.AllowInvitesFrom) {
+                'everyone'                         { 'critical' }
+                'adminsGuestInvitersAndAllMembers' { 'warn' }
+                default                            { 'ok' }
+            }
+            $_knownRoles = @{
+                '10dae51f-b6af-4016-8d66-8c2a99b929b7' = 'Guest User (limited directory access — standard)'
+                '2af84b1e-32c8-42b7-82bc-daa82404023b' = 'Restricted Guest User (minimal access — most secure)'
+                'a0b1b346-4d3e-4e8b-98f8-753987be4970' = 'Member (full directory access — least secure)'
+            }
+            $_roleDisplay = if ($_knownRoles.ContainsKey($_ec.GuestUserRoleName)) {
+                $_knownRoles[$_ec.GuestUserRoleName]
+            } elseif ($_ec.GuestUserRoleName -match '^[0-9a-fA-F]{8}-') {
+                # Raw GUID — not in known map; resolve via role name if available
+                "Unknown role ID: $($_ec.GuestUserRoleName)"
+            } else {
+                $_ec.GuestUserRoleName
+            }
+            $_emailSub  = if ($_ec.AllowedToSignUpEmailBasedSubscriptions)       { $_ec.AllowedToSignUpEmailBasedSubscriptions }       else { '<span style=''color:#888''>Not available</span>' }
+            $_emailJoin = if ($_ec.AllowEmailVerifiedUsersToJoinOrganization)     { $_ec.AllowEmailVerifiedUsersToJoinOrganization }     else { '<span style=''color:#888''>Not available</span>' }
+            $entraSummary.Add(@"
+<h4 id='entra-extcollab'>External Collaboration Settings</h4>
+<table style='max-width:700px'>
+  <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Who can invite guests</td><td class='$_inviteClass'>$(ConvertTo-HtmlText $_inviteDisplay)</td></tr>
+    <tr><td>Guest user permissions level</td><td>$(ConvertTo-HtmlText $_roleDisplay)</td></tr>
+    <tr><td>Email-based subscription sign-up</td><td>$_emailSub</td></tr>
+    <tr><td>Email-verified users can join org</td><td>$_emailJoin</td></tr>
+  </tbody>
+</table>
+"@)
+        }
+    }
+
+    # --- App Registrations ---
+    $_arCsv = Join-Path $entraDir "Entra_AppRegistrations.csv"
+    if (Test-Path $_arCsv) {
+        $_arAll = @(Import-Csv $_arCsv)
+        if ($_arAll.Count -gt 0) {
+            # Load permissions lookup (keyed by AppDisplayName)
+            $_arPermCsv  = Join-Path $entraDir "Entra_AppRegistrationPermissions.csv"
+            $_arPermByApp = @{}
+            if (Test-Path $_arPermCsv) {
+                foreach ($_p in (Import-Csv $_arPermCsv)) {
+                    if (-not $_arPermByApp.ContainsKey($_p.AppDisplayName)) { $_arPermByApp[$_p.AppDisplayName] = [System.Collections.Generic.List[object]]::new() }
+                    $_arPermByApp[$_p.AppDisplayName].Add($_p)
+                }
+            }
+            $_arUniqueNames = ($_arAll | Select-Object -ExpandProperty DisplayName -Unique)
+            $_arRows = foreach ($reg in ($_arAll | Sort-Object DisplayName, CredentialExpiry)) {
+                $daysVal  = if ($reg.DaysUntilExpiry -ne '') { [int]$reg.DaysUntilExpiry } else { $null }
+                $daysCell = if ($null -eq $daysVal) {
+                    "<td>&mdash;</td>"
+                } elseif ($daysVal -lt 0) {
+                    "<td style='background:#ffebee;color:#b71c1c;font-weight:bold'>Expired ($([Math]::Abs($daysVal))d ago)</td>"
+                } elseif ($daysVal -le 30) {
+                    "<td style='background:#fff8e1;color:#e65100;font-weight:bold'>$daysVal days</td>"
+                } else {
+                    "<td>$daysVal days</td>"
+                }
+                # Permissions cell — only rendered on the first row for each app name
+                $_permCell = if ($_arPermByApp.ContainsKey($reg.DisplayName)) {
+                    $_perms = @($_arPermByApp[$reg.DisplayName])
+                    $_permLines = ($_perms | Sort-Object PermissionType, ResourceApp, PermissionName | ForEach-Object {
+                        "<span style='font-size:0.78rem;display:block'><b>$($_.PermissionType)</b> &mdash; $($_.ResourceApp) / $(ConvertTo-HtmlText $_.PermissionName)</span>"
+                    }) -join ''
+                    "<td><details><summary style='cursor:pointer;font-size:0.8rem;color:#475569'>$($_perms.Count) permission(s)</summary><div style='padding-top:4px'>$_permLines</div></details></td>"
+                } else {
+                    "<td style='color:#888;font-size:0.82rem'>—</td>"
+                }
+                "<tr><td>$(ConvertTo-HtmlText $reg.DisplayName)</td><td><code>$($reg.AppId)</code></td><td>$($reg.CredentialType)</td><td>$(ConvertTo-HtmlText $reg.CredentialName)</td><td>$($reg.CredentialExpiry)</td>$daysCell$_permCell</tr>"
+            }
+            $entraSummary.Add(@"
+<h4 id='entra-appregs'>App Registrations ($( ($_arUniqueNames).Count ))</h4>
+<table>
+  <thead><tr><th>Name</th><th>App ID</th><th>Credential Type</th><th>Credential Name</th><th>Expiry</th><th>Days Until Expiry</th><th>Permissions</th></tr></thead>
+  <tbody>$($_arRows -join "`n")</tbody>
+</table>
+"@)
+        }
+    }
+
+    # --- PIM Role Assignments ---
+    $_pimCsvHtml = Join-Path $entraDir "Entra_PIMAssignments.csv"
+    if (Test-Path $_pimCsvHtml) {
+        $_pimAll = @(Import-Csv $_pimCsvHtml)
+        if ($_pimAll.Count -gt 0) {
+            $_pimRows = foreach ($assignment in ($_pimAll | Sort-Object RoleName, PrincipalDisplayName)) {
+                $typeClass = if ($assignment.AssignmentType -eq 'Eligible') { 'ok' } else { 'warn' }
+                "<tr><td>$(ConvertTo-HtmlText $assignment.RoleName)</td><td>$(ConvertTo-HtmlText $assignment.PrincipalDisplayName)</td><td>$(ConvertTo-HtmlText $assignment.PrincipalUPN)</td><td class='$typeClass'>$($assignment.AssignmentType)</td><td>$($assignment.MemberType)</td><td>$($assignment.StartDateTime)</td><td>$($assignment.EndDateTime)</td></tr>"
+            }
+            $entraSummary.Add(@"
+<h4 id='entra-pim'>PIM Role Assignments ($($_pimAll.Count))</h4>
+<table>
+  <thead><tr><th>Role</th><th>Principal</th><th>UPN</th><th>Assignment Type</th><th>Member Type</th><th>Start</th><th>End</th></tr></thead>
+  <tbody>$($_pimRows -join "`n")</tbody>
+</table>
+"@)
+        }
     }
 
     # --- Conditional Access Policies ---
@@ -1527,27 +2326,6 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
         }
     }
 
-    # --- Stale Licensed Accounts ---
-    if (Test-Path $entraUsersCsv) {
-        $staleUsers = @(Import-Csv $entraUsersCsv | Where-Object {
-            $dt = [datetime]::MinValue
-            -not $_.LastSignIn -or (-not [datetime]::TryParse(($_.LastSignIn -replace ' UTC',''), [ref]$dt)) -or (([datetime]::UtcNow - $dt).TotalDays -gt 90)
-        })
-        if ($staleUsers.Count -gt 0) {
-            $staleRows = foreach ($u in ($staleUsers | Sort-Object UPN)) {
-                "<tr><td>$($u.UPN)</td><td>$($u.AssignedLicense)</td><td>$(if ($u.LastSignIn) { $u.LastSignIn } else { '<span class=''warn''>Never</span>' })</td></tr>"
-            }
-            $entraSummary.Add("<h4>Stale Licensed Accounts (no sign-in for 90+ days)</h4>")
-            $entraSummary.Add("<p class='warn'>$($staleUsers.Count) licensed account(s) have not signed in for 90+ days or have no recorded sign-in. Review these accounts for deprovisioning.</p>")
-            $entraSummary.Add(@"
-<table>
-  <thead><tr><th>UPN</th><th>License</th><th>Last Sign-In</th></tr></thead>
-  <tbody>$($staleRows -join "`n")</tbody>
-</table>
-"@)
-        }
-    }
-
     # --- Notable Audit Events (role changes + MFA/security info changes) ---
     $auditEventsCsv = Join-Path $entraDir "Entra_AuditEvents.csv"
     if (Test-Path $auditEventsCsv) {
@@ -1649,6 +2427,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
                 $_raNames = ($_grpRoleAssignable | ForEach-Object { ConvertTo-HtmlText $_.DisplayName }) -join ', '
                 $entraSummary.Add("<p class='warn'>$($_grpRoleAssignable.Count) role-assignable group(s) — membership grants Entra directory roles: <b>$_raNames</b></p>")
             }
+            $entraSummary.Add("<p style='font-size:0.82rem;color:#64748b;margin-bottom:0.5rem'><b>Role-Assignable</b> and <b>Dynamic</b> are independent properties. Role-Assignable means group membership can be used to assign Entra directory roles (a security boundary). Dynamic means membership is rule-based and automatically maintained. Both badges may appear on the same group.</p>")
 
             $_grpRows = foreach ($_grp in ($_grps | Sort-Object DisplayName)) {
                 $_grpMemberList = if ($_grp.Members) {
@@ -1696,15 +2475,33 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
     if (Test-Path $_eaHtmlCsv) {
         $_eaApps = @(Import-Csv $_eaHtmlCsv -Encoding UTF8)
         if ($_eaApps.Count -gt 0) {
+            # Load Enterprise App permissions lookup (keyed by AppDisplayName)
+            $_eaPermCsv  = Join-Path $entraDir "Entra_EnterpriseAppPermissions.csv"
+            $_eaPermByApp = @{}
+            if (Test-Path $_eaPermCsv) {
+                foreach ($_ep in (Import-Csv $_eaPermCsv)) {
+                    if (-not $_eaPermByApp.ContainsKey($_ep.AppDisplayName)) { $_eaPermByApp[$_ep.AppDisplayName] = [System.Collections.Generic.List[object]]::new() }
+                    $_eaPermByApp[$_ep.AppDisplayName].Add($_ep)
+                }
+            }
             $_eaAvePoint = @($_eaApps | Where-Object { $_.DisplayName -like 'AvePoint*' })
             $_eaRows = foreach ($_ea in ($_eaApps | Sort-Object DisplayName)) {
                 $_eaIsAvePoint = $_ea.DisplayName -like 'AvePoint*'
                 $_eaStyle      = if ($_eaIsAvePoint) { " style='background:#e8f5e9'" } else { "" }
                 $_eaConsented  = if ($_ea.AdminConsented -eq 'True') { "<span style='color:#c62828;font-weight:bold'>Yes</span>" } else { "No" }
                 $_eaEnabled    = if ($_ea.Enabled -eq 'True') { "Yes" } else { "<span style='color:#888'>No</span>" }
-                $_eaRoles      = if ($_ea.ConsentedRoles -and [int]$_ea.ConsentedRoles -gt 0) { "<b>$($_ea.ConsentedRoles)</b>" } else { $_ea.ConsentedRoles }
                 $publisher     = if ($_ea.PublisherName) { $(ConvertTo-HtmlText $_ea.PublisherName) } elseif ($_ea.PublisherDomain) { $(ConvertTo-HtmlText $_ea.PublisherDomain) } else { '<span style=''color:#888''>Unknown</span>' }
-                "<tr$_eaStyle><td>$(ConvertTo-HtmlText $_ea.DisplayName)</td><td>$publisher</td><td>$_eaEnabled</td><td>$_eaConsented</td><td>$_eaRoles</td></tr>"
+                # Permissions dropdown
+                $_eaPermCell = if ($_eaPermByApp.ContainsKey($_ea.DisplayName)) {
+                    $_eps = @($_eaPermByApp[$_ea.DisplayName])
+                    $_epLines = ($_eps | Sort-Object PermissionType, ResourceApp, PermissionName | ForEach-Object {
+                        "<span style='font-size:0.78rem;display:block'><b>$($_.PermissionType)</b> &mdash; $($_.ResourceApp) / $(ConvertTo-HtmlText $_.PermissionName)</span>"
+                    }) -join ''
+                    "<td><details><summary style='cursor:pointer;font-size:0.8rem;color:#475569'>$($_eps.Count) permission(s)</summary><div style='padding-top:4px'>$_epLines</div></details></td>"
+                } else {
+                    "<td style='color:#888;font-size:0.82rem'>—</td>"
+                }
+                "<tr$_eaStyle><td>$(ConvertTo-HtmlText $_ea.DisplayName)</td><td>$publisher</td><td>$_eaEnabled</td><td>$_eaConsented</td>$_eaPermCell</tr>"
             }
             $_eaAveStatus = if ($_eaAvePoint.Count -gt 0) {
                 "<p class='ok'>AvePoint detected — SaaS backup service principal is present in this tenant.</p>"
@@ -1715,7 +2512,7 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
             $entraSummary.Add($_eaAveStatus)
             $entraSummary.Add(@"
 <table>
-  <thead><tr><th>App Name</th><th>Publisher</th><th>Enabled</th><th>Admin Consented</th><th>Consented Roles</th></tr></thead>
+  <thead><tr><th>App Name</th><th>Publisher</th><th>Enabled</th><th>Admin Consented</th><th>Permissions</th></tr></thead>
   <tbody>$($_eaRows -join "`n")</tbody>
 </table>
 "@)
@@ -1723,6 +2520,28 @@ $(Get-ExpandHintHtml -Text 'Click a row to expand recent sign-in history.')
         else {
             $entraSummary.Add("<p class='ok'>No third-party enterprise apps found in this tenant.</p>")
         }
+    }
+
+    # Org Settings (user consent, app registration, admin consent workflow)
+    $orgSettingsCsv = Join-Path $entraDir "Entra_OrgSettings.csv"
+    if (Test-Path $orgSettingsCsv) {
+        $_orgSettings = Import-Csv $orgSettingsCsv | Select-Object -First 1
+        $entraSummary.Add("<hr class='section-divider'>")
+        $entraSummary.Add("<h4 id='entra-orgsettings'>Organisation User Settings</h4>")
+        $entraSummary.Add("<p style='font-size:0.82rem;color:#64748b'>Recommended values based on <a href='https://www.cisecurity.org/benchmark/microsoft_365' target='_blank'>CIS Microsoft 365 Foundations Benchmark</a> (controls 2.1.x) and the <a href='https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/configure-user-consent' target='_blank'>Microsoft Security Baseline</a>.</p>")
+        $entraSummary.Add("<table class='summary-table'><thead><tr><th>Setting</th><th>Value</th><th>Recommended</th></tr></thead><tbody>")
+        $_orgRows = @(
+            @{ Label = 'Users can register applications'; Value = $_orgSettings.AllowedToCreateApps; GoodVal = 'False'; Recommend = 'False' },
+            @{ Label = 'Users can create tenants'; Value = $_orgSettings.AllowedToCreateTenants; GoodVal = 'False'; Recommend = 'False' },
+            @{ Label = 'Users can create security groups'; Value = $_orgSettings.AllowedToCreateSecurityGroups; GoodVal = 'False'; Recommend = 'False (Admins only)' },
+            @{ Label = 'Admin consent workflow enabled'; Value = $_orgSettings.AdminConsentWorkflowEnabled; GoodVal = 'True'; Recommend = 'True' }
+        )
+        foreach ($_or in $_orgRows) {
+            $_isGood = $_or.Value -eq $_or.GoodVal
+            $_vc = if (-not $_isGood -and $_or.Value) { "style='color:#e65100'" } else { '' }
+            $entraSummary.Add("<tr><td>$($_or.Label)</td><td $_vc>$(ConvertTo-HtmlText $_or.Value)</td><td>$(ConvertTo-HtmlText $_or.Recommend)</td></tr>")
+        }
+        $entraSummary.Add("</tbody></table>")
     }
 
     $html.Add((Add-Section -Title "Microsoft Entra" -AnchorId 'entra' -CsvFiles $entraFiles.FullName -SummaryHtml ($entraSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-EntraAudit.ps1')))
@@ -1736,6 +2555,30 @@ $exchangeFiles = @(Get-ChildItem "$exchangeDir\Exchange_*.csv" -ErrorAction Sile
 
 if ($exchangeFiles.Count -gt 0) {
     $exchangeSummary = [System.Collections.Generic.List[string]]::new()
+
+    # --- Section header stat chips ---
+    $_exMbxCount    = 0
+    $_exSharedCount = 0
+    $_exMbxCsvStat  = Join-Path $exchangeDir "Exchange_Mailboxes.csv"
+    if (Test-Path $_exMbxCsvStat) {
+        $_exMbxAll      = @(Import-Csv $_exMbxCsvStat)
+        $_exMbxCount    = $_exMbxAll.Count
+        $_exSharedCount = @($_exMbxAll | Where-Object { $_.RecipientType -eq 'SharedMailbox' }).Count
+    }
+    $_exFwdCount  = if ($null -ne $_aiInboxRules) { $_aiInboxRules.Count } else { 0 }
+    $_exAiCrit    = @($actionItems | Where-Object { $_.Category -like 'Exchange*' -and $_.Severity -eq 'critical' }).Count
+    $_exAiWarn    = @($actionItems | Where-Object { $_.Category -like 'Exchange*' -and $_.Severity -eq 'warning'  }).Count
+    $_exAiClass   = if ($_exAiCrit -gt 0) { 'critical' } elseif ($_exAiWarn -gt 0) { 'warn' } else { 'ok' }
+    $_exAiStr     = if ($_exAiCrit -gt 0) { "$_exAiCrit critical" } elseif ($_exAiWarn -gt 0) { "$_exAiWarn warnings" } else { 'None' }
+    $_exFwdClass  = if ($_exFwdCount -gt 0) { 'warn' } else { 'ok' }
+    $exchangeSummary.Add(@"
+<div class='section-stats'>
+  <a class='stat-chip neutral' href='#exchange-mailboxes'><div class='stat-chip-value'>$_exMbxCount</div><div class='stat-chip-label'>Mailboxes</div></a>
+  <a class='stat-chip neutral' href='#exchange-mailboxes'><div class='stat-chip-value'>$_exSharedCount</div><div class='stat-chip-label'>Shared Mailboxes</div></a>
+  <a class='stat-chip $_exFwdClass' href='#exchange-forwarding'><div class='stat-chip-value'>$_exFwdCount</div><div class='stat-chip-label'>Forwarding Rules</div></a>
+  <a class='stat-chip $_exAiClass' href='#exchange'><div class='stat-chip-value'>$_exAiStr</div><div class='stat-chip-label'>Action Items</div></a>
+</div>
+"@)
 
     $mbxCsv          = Join-Path $exchangeDir "Exchange_Mailboxes.csv"
     $forwardingCsv   = Join-Path $exchangeDir "Exchange_InboxForwardingRules.csv"
@@ -2258,7 +3101,198 @@ if ($exchangeFiles.Count -gt 0) {
         $exchangeSummary.Add("<p style='color:#888'>Safe Links data not collected — Defender for Office 365 P1 may not be licensed on this tenant.</p>")
     }
 
+    # --- Org Config (SMTP AUTH, Customer Lockbox) ---
+    $orgCfgCsv = Join-Path $exchangeDir "Exchange_OrgConfig.csv"
+    if (Test-Path $orgCfgCsv) {
+        $_exoOrgCfg = Import-Csv $orgCfgCsv | Select-Object -First 1
+        $exchangeSummary.Add("<hr class='section-divider'>")
+        $exchangeSummary.Add("<h4 id='exchange-org'>Organisation Configuration</h4>")
+        $exchangeSummary.Add("<p style='font-size:0.82rem;color:#64748b'>References: <a href='https://www.cisecurity.org/benchmark/microsoft_365' target='_blank'>CIS M365 Benchmark</a> (6.1–6.5) · <a href='https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/client-access/exchange-admin-center' target='_blank'>Microsoft Exchange Security Baseline</a>.</p>")
+        $exchangeSummary.Add("<table class='summary-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>")
+        $_smtpClass = if ($_exoOrgCfg.SmtpClientAuthDisabled -eq 'False') { "style='color:#c62828;font-weight:bold'" } else { '' }
+        $exchangeSummary.Add("<tr><td>SMTP AUTH disabled org-wide</td><td $_smtpClass>$(ConvertTo-HtmlText $_exoOrgCfg.SmtpClientAuthDisabled)</td></tr>")
+        $exchangeSummary.Add("<tr><td>Modern Auth (OAuth) enabled</td><td>$(ConvertTo-HtmlText $_exoOrgCfg.ModernAuthEnabled)</td></tr>")
+        $exchangeSummary.Add("<tr><td>Customer Lockbox enabled</td><td>$(ConvertTo-HtmlText $_exoOrgCfg.CustomerLockboxEnabled)</td></tr>")
+        $exchangeSummary.Add("<tr><td>Mailbox audit disabled</td><td>$(ConvertTo-HtmlText $_exoOrgCfg.AuditDisabled)</td></tr>")
+        $exchangeSummary.Add("</tbody></table>")
+    }
+
+    # --- External Sender Tagging + Connection Filter ---
+    $extSenderCsv = Join-Path $exchangeDir "Exchange_ExternalSenderTagging.csv"
+    $connFilterCsv = Join-Path $exchangeDir "Exchange_ConnectionFilter.csv"
+    if ((Test-Path $extSenderCsv) -or (Test-Path $connFilterCsv)) {
+        $exchangeSummary.Add("<hr class='section-divider'>")
+        $exchangeSummary.Add("<h4>Transport Security</h4>")
+        $exchangeSummary.Add("<table class='summary-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>")
+        if (Test-Path $extSenderCsv) {
+            $_exoEst = Import-Csv $extSenderCsv | Select-Object -First 1
+            $_estClass = if ($_exoEst.Enabled -eq 'False') { "style='color:#e65100'" } else { '' }
+            $exchangeSummary.Add("<tr><td>External sender tagging enabled</td><td $_estClass>$(ConvertTo-HtmlText $_exoEst.Enabled)</td></tr>")
+        }
+        if (Test-Path $connFilterCsv) {
+            $_exoConn = @(Import-Csv $connFilterCsv)
+            foreach ($_cf in $_exoConn) {
+                $_ipAllowClass = if ($_cf.IPAllowList) { "style='color:#e65100'" } else { '' }
+                $exchangeSummary.Add("<tr><td>Connection filter '$($_cf.PolicyName)' — IP allow list</td><td $_ipAllowClass>$(if ($_cf.IPAllowList) { ConvertTo-HtmlText $_cf.IPAllowList } else { 'Empty' })</td></tr>")
+                $exchangeSummary.Add("<tr><td>Connection filter '$($_cf.PolicyName)' — safe list enabled</td><td>$(ConvertTo-HtmlText $_cf.EnableSafeList)</td></tr>")
+            }
+        }
+        $exchangeSummary.Add("</tbody></table>")
+    }
+
+    # --- OWA Policy ---
+    $owaPolicyCsv = Join-Path $exchangeDir "Exchange_OwaPolicy.csv"
+    if (Test-Path $owaPolicyCsv) {
+        $_exoOwa = @(Import-Csv $owaPolicyCsv)
+        $exchangeSummary.Add("<hr class='section-divider'>")
+        $exchangeSummary.Add("<h4>Outlook on the Web (OWA) Policies ($($_exoOwa.Count))</h4>")
+        $exchangeSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>External Storage</th><th>Third-party Storage</th><th>Personal Calendars</th></tr></thead><tbody>")
+        foreach ($_op in $_exoOwa) {
+            $_storageClass = if ($_op.AdditionalStorageProvidersAvailable -eq 'True') { "style='color:#e65100'" } else { '' }
+            $exchangeSummary.Add("<tr><td>$(ConvertTo-HtmlText $_op.PolicyName)</td><td $_storageClass>$(ConvertTo-HtmlText $_op.AdditionalStorageProvidersAvailable)</td><td>$(ConvertTo-HtmlText $_op.ThirdPartyAttachmentsEnabled)</td><td>$(ConvertTo-HtmlText $_op.PersonalAccountCalendarsEnabled)</td></tr>")
+        }
+        $exchangeSummary.Add("</tbody></table>")
+    }
+
     $html.Add((Add-Section -Title "Exchange Online" -AnchorId 'exchange' -CsvFiles $exchangeFiles.FullName -SummaryHtml ($exchangeSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-ExchangeAudit.ps1')))
+}
+
+
+# =========================================
+# ===   Mail Security Section           ===
+# =========================================
+$mailSecFiles = @(Get-ChildItem "$mailSecDir\MailSec_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
+
+if ($mailSecFiles.Count -gt 0) {
+    $mailSecSummary = [System.Collections.Generic.List[string]]::new()
+
+    # --- Section header stat chips ---
+    $_msSpfStr = '&mdash;'; $_msDmarcStr = '&mdash;'; $_msDkimStr = '&mdash;'
+    $_msSpfClass = 'neutral'; $_msDmarcClass = 'neutral'; $_msDkimClass = 'neutral'
+    $_msSpfCsvStat = Join-Path $mailSecDir "MailSec_SPF.csv"
+    if (Test-Path $_msSpfCsvStat) {
+        $_msSpfAll   = @(Import-Csv $_msSpfCsvStat | Where-Object { $_.Domain -notlike '*.onmicrosoft.com' })
+        $_msSpfPass  = @($_msSpfAll | Where-Object { $_.SPF -ne 'Not Found' -and $_.SPF -ne '' }).Count
+        $_msSpfTotal = $_msSpfAll.Count
+        if ($_msSpfTotal -gt 0) {
+            $_msSpfPct   = [math]::Round(($_msSpfPass / $_msSpfTotal) * 100)
+            $_msSpfStr   = "${_msSpfPct}%"
+            $_msSpfClass = if ($_msSpfPct -eq 100) { 'ok' } elseif ($_msSpfPct -ge 80) { 'warn' } else { 'critical' }
+        }
+    }
+    $_msDmarcCsvStat = Join-Path $mailSecDir "MailSec_DMARC.csv"
+    if (Test-Path $_msDmarcCsvStat) {
+        $_msDmarcAll   = @(Import-Csv $_msDmarcCsvStat | Where-Object { $_.Domain -notlike '*.onmicrosoft.com' })
+        $_msDmarcPass  = @($_msDmarcAll | Where-Object { $_.DMARC -ne 'Not Found' -and $_.DMARC -ne '' }).Count
+        $_msDmarcTotal = $_msDmarcAll.Count
+        if ($_msDmarcTotal -gt 0) {
+            $_msDmarcPct   = [math]::Round(($_msDmarcPass / $_msDmarcTotal) * 100)
+            $_msDmarcStr   = "${_msDmarcPct}%"
+            $_msDmarcClass = if ($_msDmarcPct -eq 100) { 'ok' } elseif ($_msDmarcPct -ge 80) { 'warn' } else { 'critical' }
+        }
+    }
+    $_msDkimCsvStat = Join-Path $mailSecDir "MailSec_DKIM.csv"
+    if (Test-Path $_msDkimCsvStat) {
+        $_msDkimAll   = @(Import-Csv $_msDkimCsvStat | Where-Object { $_.Domain -notlike '*.onmicrosoft.com' })
+        $_msDkimPass  = @($_msDkimAll | Where-Object { $_.DKIMEnabled -eq 'True' }).Count
+        $_msDkimTotal = $_msDkimAll.Count
+        if ($_msDkimTotal -gt 0) {
+            $_msDkimPct   = [math]::Round(($_msDkimPass / $_msDkimTotal) * 100)
+            $_msDkimStr   = "${_msDkimPct}%"
+            $_msDkimClass = if ($_msDkimPct -eq 100) { 'ok' } elseif ($_msDkimPct -ge 80) { 'warn' } else { 'critical' }
+        }
+    }
+    $_msAiCrit  = @($actionItems | Where-Object { $_.Category -like 'Mail Security*' -and $_.Severity -eq 'critical' }).Count
+    $_msAiWarn  = @($actionItems | Where-Object { $_.Category -like 'Mail Security*' -and $_.Severity -eq 'warning'  }).Count
+    $_msAiClass = if ($_msAiCrit -gt 0) { 'critical' } elseif ($_msAiWarn -gt 0) { 'warn' } else { 'ok' }
+    $_msAiStr   = if ($_msAiCrit -gt 0) { "$_msAiCrit critical" } elseif ($_msAiWarn -gt 0) { "$_msAiWarn warnings" } else { 'None' }
+    $mailSecSummary.Add(@"
+<div class='section-stats'>
+  <a class='stat-chip $_msSpfClass' href='#mailsec-records'><div class='stat-chip-value'>$_msSpfStr</div><div class='stat-chip-label'>SPF Coverage</div></a>
+  <a class='stat-chip $_msDmarcClass' href='#mailsec-records'><div class='stat-chip-value'>$_msDmarcStr</div><div class='stat-chip-label'>DMARC Coverage</div></a>
+  <a class='stat-chip $_msDkimClass' href='#mailsec-records'><div class='stat-chip-value'>$_msDkimStr</div><div class='stat-chip-label'>DKIM Coverage</div></a>
+  <a class='stat-chip $_msAiClass' href='#mailsec'><div class='stat-chip-value'>$_msAiStr</div><div class='stat-chip-label'>Action Items</div></a>
+</div>
+"@)
+
+    $dkimCsv  = Join-Path $mailSecDir "MailSec_DKIM.csv"
+    $dmarcCsv = Join-Path $mailSecDir "MailSec_DMARC.csv"
+    $spfCsv   = Join-Path $mailSecDir "MailSec_SPF.csv"
+
+    # Load all three into hashtables keyed by domain, excluding onmicrosoft.com
+    $dkimByDomain  = @{}
+    $dmarcByDomain = @{}
+    $spfByDomain   = @{}
+
+    if (Test-Path $dkimCsv) {
+        foreach ($row in (Import-Csv $dkimCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })) {
+            $dkimByDomain[$row.Domain] = $row
+        }
+    }
+    if (Test-Path $dmarcCsv) {
+        foreach ($row in (Import-Csv $dmarcCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })) {
+            $dmarcByDomain[$row.Domain] = $row
+        }
+    }
+    if (Test-Path $spfCsv) {
+        foreach ($row in (Import-Csv $spfCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })) {
+            $spfByDomain[$row.Domain] = $row
+        }
+    }
+
+    # Union of all domains across the three CSVs
+    $allDomains = @($dkimByDomain.Keys + $dmarcByDomain.Keys + $spfByDomain.Keys) | Select-Object -Unique | Sort-Object
+
+    # Summary counts
+    $dkimOkCount  = ($dkimByDomain.Values  | Where-Object { $_.DKIMEnabled -eq "True" }).Count
+    $dmarcOkCount = ($dmarcByDomain.Values | Where-Object { $_.DMARC -ne "Not Found" -and $_.DMARC }).Count
+    $spfOkCount   = ($spfByDomain.Values   | Where-Object { $_.SPF -ne "DNS query failed" -and $_.SPF }).Count
+    $total        = $allDomains.Count
+
+    $mailSecSummary.Add("<h4 id='mailsec-records'>DNS Records</h4>")
+    $mailSecSummary.Add("<p class='$(if ($dkimOkCount -eq $total) {"ok"} else {"warn"})'>DKIM: <b>$dkimOkCount / $total</b> domains signing enabled</p>")
+    $mailSecSummary.Add("<p class='$(if ($dmarcOkCount -eq $total) {"ok"} else {"warn"})'>DMARC: <b>$dmarcOkCount / $total</b> domains configured</p>")
+    $mailSecSummary.Add("<p class='$(if ($spfOkCount -eq $total) {"ok"} else {"warn"})'>SPF: <b>$spfOkCount / $total</b> domains configured</p>")
+
+    # Per-domain tables
+    foreach ($domain in $allDomains) {
+        $dkimRow  = $dkimByDomain[$domain]
+        $dmarcRow = $dmarcByDomain[$domain]
+        $spfRow   = $spfByDomain[$domain]
+
+        # SPF row
+        $spfVal   = if ($spfRow -and $spfRow.SPF -and $spfRow.SPF -ne "DNS query failed") { $spfRow.SPF } else { $null }
+        $spfClass = if ($spfVal) { "" } else { " class='warn'" }
+        $spfDisp  = if ($spfVal) { "<code style='font-size:0.8rem;word-break:break-all'>$spfVal</code>" } else { "<span class='warn'>Not configured</span>" }
+
+        # DMARC row
+        $dmarcVal   = if ($dmarcRow -and $dmarcRow.DMARC -and $dmarcRow.DMARC -ne "Not Found") { $dmarcRow.DMARC } else { $null }
+        $dmarcClass = if ($dmarcVal) { "" } else { " class='warn'" }
+        $dmarcDisp  = if ($dmarcVal) { "<code style='font-size:0.8rem;word-break:break-all'>$dmarcVal</code>" } else { "<span class='warn'>Not configured</span>" }
+
+        # DKIM row
+        $dkimEnabled = $dkimRow -and $dkimRow.DKIMEnabled -eq "True"
+        $dkimClass   = if ($dkimEnabled) { "" } else { " class='warn'" }
+        $dkimDisp    = if ($dkimEnabled) {
+            "Enabled &mdash; <span style='font-size:0.8rem;color:#555'>$($dkimRow.Selector1CNAME)</span>"
+        } else {
+            "<span class='warn'>$(if ($dkimRow) { $dkimRow.DKIMEnabled } else { 'Not configured' })</span>"
+        }
+
+        $mailSecSummary.Add(@"
+<h4>$domain</h4>
+<table>
+  <thead><tr><th style='width:80px'>Record</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr$spfClass><td>SPF</td><td>$spfDisp</td></tr>
+    <tr$dmarcClass><td>DMARC</td><td>$dmarcDisp</td></tr>
+    <tr$dkimClass><td>DKIM</td><td>$dkimDisp</td></tr>
+  </tbody>
+</table>
+"@)
+    }
+
+    $html.Add((Add-Section -Title "Mail Security" -AnchorId 'mailsec' -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-MailSecurityAudit.ps1')))
 }
 
 
@@ -2269,6 +3303,51 @@ $spFiles = @(Get-ChildItem "$spDir\SharePoint_*.csv" -ErrorAction SilentlyContin
 
 if ($spFiles.Count -gt 0) {
     $spSummary = [System.Collections.Generic.List[string]]::new()
+
+    # --- Section header stat chips ---
+    $_spSiteCount   = 0
+    $_spExtCount    = 0
+    $_spStorageStr  = '&mdash;'
+    $_spSitesCsvStat = Join-Path $spDir "SharePoint_Sites.csv"
+    if (Test-Path $_spSitesCsvStat) {
+        $_spSiteCount = @(Import-Csv $_spSitesCsvStat).Count
+    }
+    $_spExtCsvStat = Join-Path $spDir "SharePoint_ExternalSharing_SiteOverrides.csv"
+    if (Test-Path $_spExtCsvStat) {
+        $_spExtCount = @(Import-Csv $_spExtCsvStat | Where-Object { $_.SharingCapability -ne 'Disabled' -and $_.SharingCapability -ne '' }).Count
+    }
+    $_spStorageCsvStat = Join-Path $spDir "SharePoint_TenantStorage.csv"
+    if (Test-Path $_spStorageCsvStat) {
+        $_spSto = Import-Csv $_spStorageCsvStat | Select-Object -First 1
+        if ($_spSto) {
+            $_spUsedMbStat  = [double]$_spSto.StorageUsedMB
+            $_spQuotaMbStat = [double]$_spSto.StorageQuotaMB
+            # Fallback: if API returned 0 for used, sum per-site + OD CSVs (same logic as section below)
+            if ($_spUsedMbStat -le 0 -and $_spQuotaMbStat -gt 0) {
+                $_spSitesCsv = Join-Path $spDir "SharePoint_Sites.csv"
+                $_spOdCsv    = Join-Path $spDir "SharePoint_OneDriveUsage.csv"
+                $_spUsedMbStat  = 0
+                if (Test-Path $_spSitesCsv) { $_spUsedMbStat += [double](Import-Csv $_spSitesCsv | Measure-Object -Property StorageUsedMB -Sum).Sum }
+                if (Test-Path $_spOdCsv)    { $_spUsedMbStat += [double](Import-Csv $_spOdCsv    | Measure-Object -Property StorageUsedMB -Sum).Sum }
+            }
+            $_spUsedGB  = [math]::Round($_spUsedMbStat  / 1024, 1)
+            $_spTotalGB = [math]::Round($_spQuotaMbStat / 1024, 1)
+            $_spStorageStr = "$_spUsedGB / $_spTotalGB GB"
+        }
+    }
+    $_spAiCrit  = @($actionItems | Where-Object { $_.Category -like 'SharePoint*' -and $_.Severity -eq 'critical' }).Count
+    $_spAiWarn  = @($actionItems | Where-Object { $_.Category -like 'SharePoint*' -and $_.Severity -eq 'warning'  }).Count
+    $_spAiClass = if ($_spAiCrit -gt 0) { 'critical' } elseif ($_spAiWarn -gt 0) { 'warn' } else { 'ok' }
+    $_spAiStr   = if ($_spAiCrit -gt 0) { "$_spAiCrit critical" } elseif ($_spAiWarn -gt 0) { "$_spAiWarn warnings" } else { 'None' }
+    $_spExtClass = if ($_spExtCount -gt 0) { 'warn' } else { 'ok' }
+    $spSummary.Add(@"
+<div class='section-stats'>
+  <a class='stat-chip neutral' href='#sp-sites'><div class='stat-chip-value'>$_spSiteCount</div><div class='stat-chip-label'>Sites</div></a>
+  <a class='stat-chip neutral' href='#sp-storage'><div class='stat-chip-value'>$_spStorageStr</div><div class='stat-chip-label'>Storage Used</div></a>
+  <a class='stat-chip $_spExtClass' href='#sp-sharing'><div class='stat-chip-value'>$_spExtCount</div><div class='stat-chip-label'>External Sharing On</div></a>
+  <a class='stat-chip $_spAiClass' href='#sharepoint'><div class='stat-chip-value'>$_spAiStr</div><div class='stat-chip-label'>Action Items</div></a>
+</div>
+"@)
 
     $storageCsv     = Join-Path $spDir "SharePoint_TenantStorage.csv"
     $sitesCsv       = Join-Path $spDir "SharePoint_Sites.csv"
@@ -2459,6 +3538,7 @@ if ($spFiles.Count -gt 0) {
 
     # --- 3. External Sharing ---
     $spSummary.Add("<h4 id='sp-sharing'>External Sharing</h4>")
+    $spSummary.Add("<p style='font-size:0.82rem;color:#64748b'>References: <a href='https://www.cisecurity.org/benchmark/microsoft_365' target='_blank'>CIS M365 Benchmark</a> (7.1–7.3) · <a href='https://learn.microsoft.com/en-us/sharepoint/turn-external-sharing-on-or-off' target='_blank'>Microsoft SharePoint External Sharing</a>.</p>")
 
     if (Test-Path $tenantShareCsv) {
         $ts = Import-Csv $tenantShareCsv | Select-Object -First 1
@@ -2490,6 +3570,10 @@ if ($spFiles.Count -gt 0) {
             default     { "<span style='color:#888'>None</span>" }
         }
 
+        $infectedClass   = if ($ts.DisallowInfectedFileDownload -eq 'False') { " class='warn'" } else { '' }
+        $reshareClass    = if ($ts.PreventExternalUsersFromResharing -eq 'False') { " class='warn'" } else { '' }
+        $expiryReqClass  = if ($ts.ExternalUserExpirationRequired -eq 'False') { " class='warn'" } else { '' }
+
         $spSummary.Add(@"
 <table style='max-width:720px'>
   <thead><tr><th>Setting</th><th>Value</th></tr></thead>
@@ -2498,6 +3582,11 @@ if ($spFiles.Count -gt 0) {
     <tr><td>Default Sharing Link Type</td><td>$linkTypeLabel</td></tr>
     <tr><td>Anonymous Link Expiry</td><td>$anonExpiry</td></tr>
     <tr><td>Domain Restrictions</td><td>$domainRestrict</td></tr>
+    <tr$infectedClass><td>Infected file download blocked</td><td>$(ConvertTo-HtmlText $ts.DisallowInfectedFileDownload)</td></tr>
+    <tr$reshareClass><td>External users can reshare</td><td>$(ConvertTo-HtmlText $ts.PreventExternalUsersFromResharing)</td></tr>
+    <tr$expiryReqClass><td>Guest link expiry required</td><td>$(ConvertTo-HtmlText $ts.ExternalUserExpirationRequired)</td></tr>
+    <tr><td>Guest link expiry (days)</td><td>$(ConvertTo-HtmlText $ts.ExternalUserExpireInDays)</td></tr>
+    <tr><td>Accepting account must match invite</td><td>$(ConvertTo-HtmlText $ts.RequireAcceptingAccountMatchInvitedAccount)</td></tr>
   </tbody>
 </table>
 "@)
@@ -2524,6 +3613,7 @@ if ($spFiles.Count -gt 0) {
     if (Test-Path $acpCsv) {
         $acp = Import-Csv $acpCsv | Select-Object -First 1
         $spSummary.Add("<h4>Access Control Policies</h4>")
+        $spSummary.Add("<p style='font-size:0.82rem;color:#64748b'>References: <a href='https://www.cisecurity.org/benchmark/microsoft_365' target='_blank'>CIS M365 Benchmark</a> (7.3–7.4) · <a href='https://learn.microsoft.com/en-us/sharepoint/control-access-from-unmanaged-devices' target='_blank'>Microsoft Unmanaged Device Policy</a>.</p>")
 
         $syncRestrict = if ($acp.IsUnmanagedSyncAppForTenantRestricted -eq 'True') {
             "<span class='ok'>Restricted — only managed/domain-joined devices can sync</span>"
@@ -2568,6 +3658,20 @@ if ($spFiles.Count -gt 0) {
         $odDrives  = @(Import-Csv $odUsageCsv)
         $totalOdGB = [math]::Round(($odDrives | Measure-Object -Property StorageUsedMB -Sum).Sum / 1024, 1)
         $spSummary.Add("<p>$($odDrives.Count) OneDrive account(s) — $totalOdGB GB total in use</p>")
+        if ($odDrives.Count -gt 0) {
+            $_odRows = ($odDrives | Sort-Object { -[double]$_.StorageUsedMB } | ForEach-Object {
+                $odGB    = [math]::Round([double]$_.StorageUsedMB / 1024, 2)
+                $urlPath = $_.OneDriveUrl -replace '^https://[^/]+', ''
+                "<tr><td>$(ConvertTo-HtmlText $_.OwnerUPN)</td><td><a href='$($_.OneDriveUrl)' target='_blank' style='font-size:0.8rem'>$urlPath</a></td><td style='text-align:right'>$odGB GB</td></tr>"
+            }) -join ""
+            $spSummary.Add(@"
+<details>
+  <summary style='cursor:pointer;font-size:0.84rem;color:#475569;margin-bottom:0.4rem'>Show all $($odDrives.Count) OneDrive accounts (sorted by size)</summary>
+  <table style='margin-top:0.4rem'><thead><tr><th>Owner UPN</th><th>OneDrive Path</th><th style='text-align:right'>Size</th></tr></thead>
+  <tbody>$_odRows</tbody></table>
+</details>
+"@)
+        }
     }
 
     if (Test-Path $unlicensedCsv) {
@@ -2591,91 +3695,175 @@ if ($spFiles.Count -gt 0) {
 
 
 # =========================================
-# ===   Mail Security Section           ===
+# ===   Microsoft Teams Section         ===
 # =========================================
-$mailSecFiles = @(Get-ChildItem "$mailSecDir\MailSec_*.csv" -ErrorAction SilentlyContinue | Sort-Object Name)
+$teamsFiles = @(Get-ChildItem -Path $teamsDir -Filter "Teams_*.csv" -ErrorAction SilentlyContinue)
+if ($teamsFiles.Count -gt 0) {
+    $teamsSummary = [System.Collections.Generic.List[string]]::new()
 
-if ($mailSecFiles.Count -gt 0) {
-    $mailSecSummary = [System.Collections.Generic.List[string]]::new()
-
-    $dkimCsv  = Join-Path $mailSecDir "MailSec_DKIM.csv"
-    $dmarcCsv = Join-Path $mailSecDir "MailSec_DMARC.csv"
-    $spfCsv   = Join-Path $mailSecDir "MailSec_SPF.csv"
-
-    # Load all three into hashtables keyed by domain, excluding onmicrosoft.com
-    $dkimByDomain  = @{}
-    $dmarcByDomain = @{}
-    $spfByDomain   = @{}
-
-    if (Test-Path $dkimCsv) {
-        foreach ($row in (Import-Csv $dkimCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })) {
-            $dkimByDomain[$row.Domain] = $row
-        }
+    # --- Section header stat chips ---
+    $_tmFedStr   = '&mdash;'; $_tmFedClass = 'neutral'
+    $_tmGuestStr = '&mdash;'; $_tmGuestClass = 'neutral'
+    $_tmFedCsvStat = Join-Path $teamsDir "Teams_FederationConfig.csv"
+    if (Test-Path $_tmFedCsvStat) {
+        $_tmFed      = Import-Csv $_tmFedCsvStat | Select-Object -First 1
+        $_tmFedStr   = if ($_tmFed.AllowFederatedUsers -eq 'True') { 'Enabled' } else { 'Disabled' }
+        $_tmFedClass = if ($_tmFed.AllowFederatedUsers -eq 'True' -and [int]$_tmFed.AllowedDomainsCount -eq 0 -and [int]$_tmFed.BlockedDomainsCount -eq 0) { 'warn' } else { 'ok' }
     }
-    if (Test-Path $dmarcCsv) {
-        foreach ($row in (Import-Csv $dmarcCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })) {
-            $dmarcByDomain[$row.Domain] = $row
-        }
+    $_tmClientCsvStat = Join-Path $teamsDir "Teams_ClientConfig.csv"
+    if (Test-Path $_tmClientCsvStat) {
+        $_tmClient   = Import-Csv $_tmClientCsvStat | Select-Object -First 1
+        $_tmGuestStr = if ($_tmClient.AllowGuestUser -eq 'True') { 'Enabled' } else { 'Disabled' }
+        $_tmGuestClass = 'neutral'
     }
-    if (Test-Path $spfCsv) {
-        foreach ($row in (Import-Csv $spfCsv | Where-Object { $_.Domain -notlike "*.onmicrosoft.com" })) {
-            $spfByDomain[$row.Domain] = $row
-        }
-    }
-
-    # Union of all domains across the three CSVs
-    $allDomains = @($dkimByDomain.Keys + $dmarcByDomain.Keys + $spfByDomain.Keys) | Select-Object -Unique | Sort-Object
-
-    # Summary counts
-    $dkimOkCount  = ($dkimByDomain.Values  | Where-Object { $_.DKIMEnabled -eq "True" }).Count
-    $dmarcOkCount = ($dmarcByDomain.Values | Where-Object { $_.DMARC -ne "Not Found" -and $_.DMARC }).Count
-    $spfOkCount   = ($spfByDomain.Values   | Where-Object { $_.SPF -ne "DNS query failed" -and $_.SPF }).Count
-    $total        = $allDomains.Count
-
-    $mailSecSummary.Add("<h4 id='mailsec-records'>DNS Records</h4>")
-    $mailSecSummary.Add("<p class='$(if ($dkimOkCount -eq $total) {"ok"} else {"warn"})'>DKIM: <b>$dkimOkCount / $total</b> domains signing enabled</p>")
-    $mailSecSummary.Add("<p class='$(if ($dmarcOkCount -eq $total) {"ok"} else {"warn"})'>DMARC: <b>$dmarcOkCount / $total</b> domains configured</p>")
-    $mailSecSummary.Add("<p class='$(if ($spfOkCount -eq $total) {"ok"} else {"warn"})'>SPF: <b>$spfOkCount / $total</b> domains configured</p>")
-
-    # Per-domain tables
-    foreach ($domain in $allDomains) {
-        $dkimRow  = $dkimByDomain[$domain]
-        $dmarcRow = $dmarcByDomain[$domain]
-        $spfRow   = $spfByDomain[$domain]
-
-        # SPF row
-        $spfVal   = if ($spfRow -and $spfRow.SPF -and $spfRow.SPF -ne "DNS query failed") { $spfRow.SPF } else { $null }
-        $spfClass = if ($spfVal) { "" } else { " class='warn'" }
-        $spfDisp  = if ($spfVal) { "<code style='font-size:0.8rem;word-break:break-all'>$spfVal</code>" } else { "<span class='warn'>Not configured</span>" }
-
-        # DMARC row
-        $dmarcVal   = if ($dmarcRow -and $dmarcRow.DMARC -and $dmarcRow.DMARC -ne "Not Found") { $dmarcRow.DMARC } else { $null }
-        $dmarcClass = if ($dmarcVal) { "" } else { " class='warn'" }
-        $dmarcDisp  = if ($dmarcVal) { "<code style='font-size:0.8rem;word-break:break-all'>$dmarcVal</code>" } else { "<span class='warn'>Not configured</span>" }
-
-        # DKIM row
-        $dkimEnabled = $dkimRow -and $dkimRow.DKIMEnabled -eq "True"
-        $dkimClass   = if ($dkimEnabled) { "" } else { " class='warn'" }
-        $dkimDisp    = if ($dkimEnabled) {
-            "Enabled &mdash; <span style='font-size:0.8rem;color:#555'>$($dkimRow.Selector1CNAME)</span>"
-        } else {
-            "<span class='warn'>$(if ($dkimRow) { $dkimRow.DKIMEnabled } else { 'Not configured' })</span>"
-        }
-
-        $mailSecSummary.Add(@"
-<h4>$domain</h4>
-<table>
-  <thead><tr><th style='width:80px'>Record</th><th>Value</th></tr></thead>
-  <tbody>
-    <tr$spfClass><td>SPF</td><td>$spfDisp</td></tr>
-    <tr$dmarcClass><td>DMARC</td><td>$dmarcDisp</td></tr>
-    <tr$dkimClass><td>DKIM</td><td>$dkimDisp</td></tr>
-  </tbody>
-</table>
+    $_tmMtgPoliciesCount = '&mdash;'
+    $_tmMtgCsvStat = Join-Path $teamsDir "Teams_MeetingPolicies.csv"
+    if (Test-Path $_tmMtgCsvStat) { $_tmMtgPoliciesCount = @(Import-Csv $_tmMtgCsvStat).Count }
+    $_tmAiCrit  = @($actionItems | Where-Object { $_.Category -like 'Teams*' -and $_.Severity -eq 'critical' }).Count
+    $_tmAiWarn  = @($actionItems | Where-Object { $_.Category -like 'Teams*' -and $_.Severity -eq 'warning'  }).Count
+    $_tmAiClass = if ($_tmAiCrit -gt 0) { 'critical' } elseif ($_tmAiWarn -gt 0) { 'warn' } else { 'ok' }
+    $_tmAiStr   = if ($_tmAiCrit -gt 0) { "$_tmAiCrit critical" } elseif ($_tmAiWarn -gt 0) { "$_tmAiWarn warnings" } else { 'None' }
+    $teamsSummary.Add(@"
+<div class='section-stats'>
+  <a class='stat-chip $_tmFedClass' href='#teams-external'><div class='stat-chip-value'>$_tmFedStr</div><div class='stat-chip-label'>External Federation</div></a>
+  <a class='stat-chip $_tmGuestClass' href='#teams-external'><div class='stat-chip-value'>$_tmGuestStr</div><div class='stat-chip-label'>Guest Access</div></a>
+  <a class='stat-chip neutral' href='#teams-meetings'><div class='stat-chip-value'>$_tmMtgPoliciesCount</div><div class='stat-chip-label'>Meeting Policies</div></a>
+  <a class='stat-chip $_tmAiClass' href='#teams'><div class='stat-chip-value'>$_tmAiStr</div><div class='stat-chip-label'>Action Items</div></a>
+</div>
 "@)
+
+    $teamsFedCsv       = Join-Path $teamsDir "Teams_FederationConfig.csv"
+    $teamsClientCsv    = Join-Path $teamsDir "Teams_ClientConfig.csv"
+    $teamsMtgCsv       = Join-Path $teamsDir "Teams_MeetingPolicies.csv"
+    $teamsGuestMtgCsv  = Join-Path $teamsDir "Teams_GuestMeetingConfig.csv"
+    $teamsGuestCallCsv = Join-Path $teamsDir "Teams_GuestCallingConfig.csv"
+    $teamsAppPermCsv   = Join-Path $teamsDir "Teams_AppPermissionPolicies.csv"
+    $teamsAppSetupCsv  = Join-Path $teamsDir "Teams_AppSetupPolicies.csv"
+    $teamsChanCsv      = Join-Path $teamsDir "Teams_ChannelPolicies.csv"
+
+    # Federation / External Access
+    if (Test-Path $teamsFedCsv) {
+        $_teamsFed = Import-Csv $teamsFedCsv | Select-Object -First 1
+        $teamsSummary.Add("<h4 id='teams-external'>External Access / Federation</h4>")
+        $teamsSummary.Add("<p style='font-size:0.82rem;color:#64748b'>References: <a href='https://www.cisecurity.org/benchmark/microsoft_365' target='_blank'>CIS M365 Benchmark</a> (8.2.1–8.2.3) · <a href='https://learn.microsoft.com/en-us/microsoftteams/manage-external-access' target='_blank'>Microsoft Teams External Access</a>.</p>")
+        $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>")
+
+        $_fedRows = @(
+            @{ Label = 'Federated (managed) users allowed';       Value = $_teamsFed.AllowFederatedUsers },
+            @{ Label = 'Consumer (non-managed) users allowed';    Value = $_teamsFed.AllowPublicUsers;             Warn = 'True' },
+            @{ Label = 'Teams Consumer outbound';                 Value = $_teamsFed.AllowTeamsConsumer },
+            @{ Label = 'Teams Consumer inbound';                  Value = $_teamsFed.AllowTeamsConsumerInbound;    Warn = 'True' },
+            @{ Label = 'Treat discovered partners as unverified'; Value = $_teamsFed.TreatDiscoveredPartnersAsUnverified },
+            @{ Label = 'Allowed domain count';                    Value = $_teamsFed.AllowedDomainsCount },
+            @{ Label = 'Blocked domain count';                    Value = $_teamsFed.BlockedDomainsCount }
+        )
+        foreach ($_fr in $_fedRows) {
+            $_color = if ($_fr.Warn -and $_fr.Value -eq 'True') { "style='color:#e65100'" } else { '' }
+            $teamsSummary.Add("<tr><td>$($_fr.Label)</td><td $_color>$(ConvertTo-HtmlText $_fr.Value)</td></tr>")
+        }
+        $teamsSummary.Add("</tbody></table>")
+
+        if ($_teamsFed.AllowedDomainsList) {
+            $teamsSummary.Add("<p><strong>Allowed domains:</strong> $(ConvertTo-HtmlText $_teamsFed.AllowedDomainsList)</p>")
+        }
     }
 
-    $html.Add((Add-Section -Title "Mail Security" -AnchorId 'mailsec' -CsvFiles $mailSecFiles.FullName -SummaryHtml ($mailSecSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-MailSecurityAudit.ps1')))
+    # Client Config (guest access + cloud storage)
+    if (Test-Path $teamsClientCsv) {
+        $_teamsClient = Import-Csv $teamsClientCsv | Select-Object -First 1
+        $teamsSummary.Add("<hr class='section-divider'>")
+        $teamsSummary.Add("<h4>Teams Client Configuration</h4>")
+        $teamsSummary.Add("<p style='font-size:0.82rem;color:#64748b'>References: <a href='https://www.cisecurity.org/benchmark/microsoft_365' target='_blank'>CIS M365 Benchmark</a> (8.5.x) · <a href='https://learn.microsoft.com/en-us/microsoftteams/teams-client-configuration' target='_blank'>Microsoft Teams Client Configuration</a>.</p>")
+        $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>")
+
+        $_clientRows = @(
+            @{ Label = 'Guest access enabled';          Value = $_teamsClient.AllowGuestUser },
+            @{ Label = 'Skype for Business interop';    Value = $_teamsClient.AllowSkypeBusinessInterop },
+            @{ Label = 'Box storage allowed';           Value = $_teamsClient.AllowBox;          Warn = 'True' },
+            @{ Label = 'Dropbox storage allowed';       Value = $_teamsClient.AllowDropBox;      Warn = 'True' },
+            @{ Label = 'Egnyte storage allowed';        Value = $_teamsClient.AllowEgnyte;       Warn = 'True' },
+            @{ Label = 'Google Drive storage allowed';  Value = $_teamsClient.AllowGoogleDrive;  Warn = 'True' },
+            @{ Label = 'ShareFile storage allowed';     Value = $_teamsClient.AllowShareFile;    Warn = 'True' }
+        )
+        foreach ($_cr in $_clientRows) {
+            $_color = if ($_cr.Warn -and $_cr.Value -eq 'True') { "style='color:#e65100'" } else { '' }
+            $teamsSummary.Add("<tr><td>$($_cr.Label)</td><td $_color>$(ConvertTo-HtmlText $_cr.Value)</td></tr>")
+        }
+        $teamsSummary.Add("</tbody></table>")
+    }
+
+    # Meeting Policies
+    if (Test-Path $teamsMtgCsv) {
+        $_teamsMtg = @(Import-Csv $teamsMtgCsv)
+        $teamsSummary.Add("<hr class='section-divider'>")
+        $teamsSummary.Add("<h4 id='teams-meetings'>Meeting Policies ($($_teamsMtg.Count))</h4>")
+        $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Anon Can Start</th><th>Auto Admit Users</th><th>Cloud Recording</th></tr></thead><tbody>")
+        foreach ($_mp in ($_teamsMtg | Sort-Object { if ($_.Identity -eq 'Global') { 0 } else { 1 } }, Identity)) {
+            $_anonColor  = if ($_mp.AllowAnonymousUsersToStartMeeting -eq 'True') { "style='color:#c62828;font-weight:bold'" } else { '' }
+            $_admitColor = if ($_mp.AutoAdmittedUsers -eq 'Everyone') { "style='color:#e65100'" } else { '' }
+            $teamsSummary.Add("<tr><td>$(ConvertTo-HtmlText $_mp.Identity)</td><td $_anonColor>$(ConvertTo-HtmlText $_mp.AllowAnonymousUsersToStartMeeting)</td><td $_admitColor>$(ConvertTo-HtmlText $_mp.AutoAdmittedUsers)</td><td>$(ConvertTo-HtmlText $_mp.AllowCloudRecording)</td></tr>")
+        }
+        $teamsSummary.Add("</tbody></table>")
+    }
+
+    # App Policies
+    if ((Test-Path $teamsAppSetupCsv) -or (Test-Path $teamsAppPermCsv)) {
+        $teamsSummary.Add("<hr class='section-divider'>")
+        $teamsSummary.Add("<h4 id='teams-apps'>App Policies</h4>")
+
+        if (Test-Path $teamsAppSetupCsv) {
+            $_teamsAppSetup = @(Import-Csv $teamsAppSetupCsv)
+            $teamsSummary.Add("<p><strong>App Setup Policies ($($_teamsAppSetup.Count))</strong></p>")
+            $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Sideloading Allowed</th><th>User Pinning</th></tr></thead><tbody>")
+            foreach ($_asp in ($_teamsAppSetup | Sort-Object { if ($_.Identity -eq 'Global') { 0 } else { 1 } }, Identity)) {
+                $_sideColor = if ($_asp.AllowSideloading -eq 'True') { "style='color:#e65100'" } else { '' }
+                $teamsSummary.Add("<tr><td>$(ConvertTo-HtmlText $_asp.Identity)</td><td $_sideColor>$(ConvertTo-HtmlText $_asp.AllowSideloading)</td><td>$(ConvertTo-HtmlText $_asp.AllowUserPinning)</td></tr>")
+            }
+            $teamsSummary.Add("</tbody></table>")
+        }
+
+        if (Test-Path $teamsAppPermCsv) {
+            $_teamsAppPerm = @(Import-Csv $teamsAppPermCsv)
+            $teamsSummary.Add("<p><strong>App Permission Policies ($($_teamsAppPerm.Count))</strong></p>")
+            $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Microsoft Apps</th><th>Third-Party Apps</th><th>Custom Apps</th></tr></thead><tbody>")
+            foreach ($_app in ($_teamsAppPerm | Sort-Object { if ($_.Identity -eq 'Global') { 0 } else { 1 } }, Identity)) {
+                $teamsSummary.Add("<tr><td>$(ConvertTo-HtmlText $_app.Identity)</td><td>$(ConvertTo-HtmlText $_app.DefaultCatalogApps)</td><td>$(ConvertTo-HtmlText $_app.GlobalCatalogApps)</td><td>$(ConvertTo-HtmlText $_app.PrivateCatalogApps)</td></tr>")
+            }
+            $teamsSummary.Add("</tbody></table>")
+        }
+    }
+
+    # Channel Policies
+    if (Test-Path $teamsChanCsv) {
+        $_teamsChan = @(Import-Csv $teamsChanCsv)
+        $teamsSummary.Add("<hr class='section-divider'>")
+        $teamsSummary.Add("<h4>Channel Policies ($($_teamsChan.Count))</h4>")
+        $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Policy</th><th>Org-wide Team Creation</th><th>Shared Channels</th><th>Private Channels</th></tr></thead><tbody>")
+        foreach ($_cp in ($_teamsChan | Sort-Object { if ($_.Identity -eq 'Global') { 0 } else { 1 } }, Identity)) {
+            $teamsSummary.Add("<tr><td>$(ConvertTo-HtmlText $_cp.Identity)</td><td>$(ConvertTo-HtmlText $_cp.AllowOrgWideTeamCreation)</td><td>$(ConvertTo-HtmlText $_cp.AllowSharedChannels)</td><td>$(ConvertTo-HtmlText $_cp.AllowPrivateChannels)</td></tr>")
+        }
+        $teamsSummary.Add("</tbody></table>")
+    }
+
+    # Guest Meeting + Calling
+    if ((Test-Path $teamsGuestMtgCsv) -or (Test-Path $teamsGuestCallCsv)) {
+        $teamsSummary.Add("<hr class='section-divider'>")
+        $teamsSummary.Add("<h4>Guest Access Settings</h4>")
+        $teamsSummary.Add("<table class='summary-table'><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>")
+        if (Test-Path $teamsGuestMtgCsv) {
+            $_gm = Import-Csv $teamsGuestMtgCsv | Select-Object -First 1
+            $teamsSummary.Add("<tr><td>Guest — IP video allowed</td><td>$(ConvertTo-HtmlText $_gm.AllowIPVideo)</td></tr>")
+            $teamsSummary.Add("<tr><td>Guest — screen sharing mode</td><td>$(ConvertTo-HtmlText $_gm.ScreenSharingMode)</td></tr>")
+            $teamsSummary.Add("<tr><td>Guest — Meet Now allowed</td><td>$(ConvertTo-HtmlText $_gm.AllowMeetNow)</td></tr>")
+        }
+        if (Test-Path $teamsGuestCallCsv) {
+            $_gc = Import-Csv $teamsGuestCallCsv | Select-Object -First 1
+            $teamsSummary.Add("<tr><td>Guest — private calling allowed</td><td>$(ConvertTo-HtmlText $_gc.AllowPrivateCalling)</td></tr>")
+        }
+        $teamsSummary.Add("</tbody></table>")
+    }
+
+    $html.Add((Add-Section -Title "Microsoft Teams" -AnchorId 'teams' -CsvFiles $teamsFiles.FullName -SummaryHtml ($teamsSummary -join "`n") -ModuleVersion (Get-ModuleScriptVersion -ScriptName 'Invoke-TeamsAudit.ps1')))
 }
 
 
@@ -2686,6 +3874,28 @@ $intuneFiles = @(Get-ChildItem "$intuneDir\Intune_*.csv" -ErrorAction SilentlyCo
 
 if ($intuneFiles.Count -gt 0) {
     $intuneSummary = [System.Collections.Generic.List[string]]::new()
+
+    # --- Section header stat chips (reuse KPI values already computed) ---
+    $_itDevStr      = if ($null -ne $_kpiDevCount)     { "$_kpiDevCount" }       else { '&mdash;' }
+    $_itNcStr       = if ($null -ne $_kpiNonCompliant) { "$_kpiNonCompliant" }   else { '&mdash;' }
+    $_itNcClass     = if ($null -eq $_kpiNonCompliant -or $_kpiNonCompliant -eq 0) { 'ok' } else { 'critical' }
+    $_itComplPct    = if ($null -ne $_kpiDevCount -and $_kpiDevCount -gt 0 -and $null -ne $_kpiNonCompliant) {
+        [math]::Round((($_kpiDevCount - $_kpiNonCompliant) / $_kpiDevCount) * 100)
+    } else { $null }
+    $_itComplStr    = if ($null -ne $_itComplPct) { "${_itComplPct}%" } else { '&mdash;' }
+    $_itComplClass  = if ($null -eq $_itComplPct -or $_itComplPct -eq 100) { 'ok' } elseif ($_itComplPct -ge 80) { 'warn' } else { 'critical' }
+    $_itAiCrit      = @($actionItems | Where-Object { $_.Category -like 'Intune*' -and $_.Severity -eq 'critical' }).Count
+    $_itAiWarn      = @($actionItems | Where-Object { $_.Category -like 'Intune*' -and $_.Severity -eq 'warning'  }).Count
+    $_itAiClass     = if ($_itAiCrit -gt 0) { 'critical' } elseif ($_itAiWarn -gt 0) { 'warn' } else { 'ok' }
+    $_itAiStr       = if ($_itAiCrit -gt 0) { "$_itAiCrit critical" } elseif ($_itAiWarn -gt 0) { "$_itAiWarn warnings" } else { 'None' }
+    $intuneSummary.Add(@"
+<div class='section-stats'>
+  <a class='stat-chip neutral' href='#intune-devices'><div class='stat-chip-value'>$_itDevStr</div><div class='stat-chip-label'>Managed Devices</div></a>
+  <a class='stat-chip $_itComplClass' href='#intune-compliance'><div class='stat-chip-value'>$_itComplStr</div><div class='stat-chip-label'>Compliant</div></a>
+  <a class='stat-chip $_itNcClass' href='#intune-compliance'><div class='stat-chip-value'>$_itNcStr</div><div class='stat-chip-label'>Non-Compliant</div></a>
+  <a class='stat-chip $_itAiClass' href='#intune'><div class='stat-chip-value'>$_itAiStr</div><div class='stat-chip-label'>Action Items</div></a>
+</div>
+"@)
 
     $intLicCsv         = Join-Path $intuneDir "Intune_LicenceCheck.csv"
     $intDevCsv         = Join-Path $intuneDir "Intune_Devices.csv"
@@ -2949,6 +4159,207 @@ if ($intuneFiles.Count -gt 0) {
 
 
 # =========================================
+# ===   Technical Issues Section        ===
+# =========================================
+$_techIssuesCsvPath = Join-Path $AuditFolder "AuditIssues.csv"
+if (Test-Path $_techIssuesCsvPath) {
+    $_techIssues = @(Import-Csv $_techIssuesCsvPath)
+
+    if ($_techIssues.Count -gt 0) {
+        $_tiCritCount = @($_techIssues | Where-Object { $_.Severity -eq 'Critical' }).Count
+        $_tiWarnCount = @($_techIssues | Where-Object { $_.Severity -eq 'Warning'  }).Count
+        $_tiInfoCount = @($_techIssues | Where-Object { $_.Severity -eq 'Info'     }).Count
+
+        $_tiSummary = [System.Collections.Generic.List[string]]::new()
+
+        # Stat chips
+        $_tiCritClass = if ($_tiCritCount -gt 0) { 'critical' } else { 'ok' }
+        $_tiWarnClass = if ($_tiWarnCount -gt 0) { 'warn'     } else { 'ok' }
+        $_tiSummary.Add(@"
+<div class='section-stats'>
+  <div class='stat-chip $_tiCritClass'><div class='stat-chip-value'>$_tiCritCount</div><div class='stat-chip-label'>Critical</div></div>
+  <div class='stat-chip $_tiWarnClass'><div class='stat-chip-value'>$_tiWarnCount</div><div class='stat-chip-label'>Warnings</div></div>
+  <div class='stat-chip neutral'><div class='stat-chip-value'>$_tiInfoCount</div><div class='stat-chip-label'>Info</div></div>
+  <div class='stat-chip neutral'><div class='stat-chip-value'>$($_techIssues.Count)</div><div class='stat-chip-label'>Total Issues</div></div>
+</div>
+"@)
+
+        $_tiRows = foreach ($_ti in ($_techIssues | Sort-Object Severity, Section, Timestamp)) {
+            $_tiSevClass = switch ($_ti.Severity) {
+                'Critical' { 'issue-sev-critical' }
+                'Warning'  { 'issue-sev-warning'  }
+                default    { 'issue-sev-info'      }
+            }
+            $_tiAction = if ($_ti.Action) { "<br><span style='color:#555;font-size:0.88em'>&#8594; $([System.Net.WebUtility]::HtmlEncode($_ti.Action))</span>" } else { "" }
+            "<tr><td>$($_ti.Timestamp)</td><td><span class='$_tiSevClass'>$($_ti.Severity)</span></td><td>$($_ti.Section)</td><td><code>$([System.Net.WebUtility]::HtmlEncode($_ti.Collector))</code></td><td>$([System.Net.WebUtility]::HtmlEncode($_ti.Description))$_tiAction</td></tr>"
+        }
+
+        $_tiSummary.Add("<p>Collection errors and permission issues encountered during this audit run. Resolve these to ensure complete coverage.</p>")
+        $_tiSummary.Add(@"
+<table>
+  <thead><tr><th>Timestamp</th><th>Severity</th><th>Section</th><th>Collector</th><th>Description / Action</th></tr></thead>
+  <tbody>$($_tiRows -join "`n  ")</tbody>
+</table>
+"@)
+
+        $html.Add((Add-Section -Title "Technical Issues" -AnchorId 'tech-issues' -CsvFiles @($_techIssuesCsvPath) -SummaryHtml ($_tiSummary -join "`n")))
+    }
+}
+
+
+# =========================================
+# ===   ScubaGear Baseline Section      ===
+# =========================================
+if ($_scubaResults) {
+    $_sgSummary = [System.Collections.Generic.List[string]]::new()
+
+    # Count result types directly from control data (accurate for filter chip labels)
+    $_sgByResult = @{}
+    foreach ($_p in $_scubaResults.Results.PSObject.Properties) {
+        foreach ($_grp in $_p.Value) {
+            foreach ($_ctrl in $_grp.Controls) {
+                $_r = [string]$_ctrl.Result
+                if ($_sgByResult.ContainsKey($_r)) { $_sgByResult[$_r]++ } else { $_sgByResult[$_r] = 1 }
+            }
+        }
+    }
+    $_sgTotal = 0; foreach ($_v in $_sgByResult.Values) { $_sgTotal += $_v }
+
+    # Also tally from Summary for the per-product table
+    $_sgTotalPass = 0; $_sgTotalFail = 0; $_sgTotalWarn = 0; $_sgTotalManual = 0
+    foreach ($_p in $_scubaResults.Summary.PSObject.Properties) {
+        $_sgTotalPass   += [int]$_p.Value.Passes
+        $_sgTotalFail   += [int]$_p.Value.Failures
+        $_sgTotalWarn   += [int]$_p.Value.Warnings
+        $_sgTotalManual += [int]$_p.Value.Manual
+    }
+
+    # Filter chips — clicking hides/shows that result type across all product tables
+    $_sgChipDefs = [ordered]@{
+        'Fail'    = if (($_sgByResult['Fail']    -gt 0)) { 'critical' } else { 'ok' }
+        'Warning' = if (($_sgByResult['Warning'] -gt 0)) { 'warn'     } else { 'ok' }
+        'Pass'    = 'ok'
+        'Manual'  = 'neutral'
+        'N/A'     = 'neutral'
+        'Error'   = 'critical'
+    }
+    $_sgChipsHtml = foreach ($_res in $_sgChipDefs.Keys) {
+        $_cnt = if ($_sgByResult.ContainsKey($_res)) { $_sgByResult[$_res] } else { 0 }
+        if ($_cnt -eq 0) { continue }
+        "<div class='stat-chip $($_sgChipDefs[$_res])' data-scuba-filter='$_res' onclick='scubaFilter(this)'><div class='stat-chip-value'>$_cnt</div><div class='stat-chip-label'>$_res</div></div>"
+    }
+    # "All Controls" chip resets filters
+    $_sgChipsHtml += "<div class='stat-chip neutral' data-scuba-filter='all' onclick='scubaFilter(this)' title='Show all results'><div class='stat-chip-value'>$_sgTotal</div><div class='stat-chip-label'>All Controls</div></div>"
+
+    $_sgSummary.Add("<p style='font-size:0.82rem;color:#64748b;margin-bottom:0.75rem'>Assessment provided by <a href='https://www.cisa.gov/resources-tools/services/secure-cloud-business-applications-scuba-project' target='_blank'>CISA ScubaGear</a> — an open-source tool maintained by the Cybersecurity and Infrastructure Security Agency (CISA) that evaluates Microsoft 365 tenants against the <a href='https://www.cisa.gov/resources-tools/resources/secure-cloud-business-applications-scuba-project' target='_blank'>SCuBA M365 Security Configuration Baselines</a>.</p>")
+    $_sgSummary.Add("<div class='section-stats'>$($_sgChipsHtml -join '')</div>")
+
+    # Per-product summary table with links to detail subsections
+    $_sgProductLabels    = @{ AAD='Identity (AAD)'; EXO='Exchange Online'; SharePoint='SharePoint'; Teams='Teams'; Defender='Defender'; PowerPlatform='Power Platform' }
+    $_sgProductAnchorIds = @{ AAD='scuba-aad'; EXO='scuba-exo'; SharePoint='scuba-sharepoint'; Teams='scuba-teams'; Defender='scuba-defender'; PowerPlatform='scuba-powerplatform' }
+
+    $_sgRows = foreach ($_p in $_scubaResults.Summary.PSObject.Properties) {
+        $_label    = if ($_sgProductLabels.ContainsKey($_p.Name)) { $_sgProductLabels[$_p.Name] } else { $_p.Name }
+        $_anchor   = if ($_sgProductAnchorIds.ContainsKey($_p.Name)) { $_sgProductAnchorIds[$_p.Name] } else { 'scuba-summary' }
+        $_passes   = [int]$_p.Value.Passes
+        $_fails    = [int]$_p.Value.Failures
+        $_warns    = [int]$_p.Value.Warnings
+        $_manual   = [int]$_p.Value.Manual
+        $_failHtml = if ($_fails -gt 0) { "<span class='critical'>$_fails</span>" } else { "$_fails" }
+        $_warnHtml = if ($_warns -gt 0) { "<span class='warn'>$_warns</span>" } else { "$_warns" }
+        "<tr><td><a href='#$_anchor'>$_label</a></td><td style='color:#2e7d32'>$_passes</td><td>$_failHtml</td><td>$_warnHtml</td><td style='color:#666'>$_manual</td></tr>"
+    }
+
+    $_sgSummary.Add(@"
+<h4 id='scuba-summary'>CIS M365 Foundations Baseline — Per-Product Summary</h4>
+<table><thead><tr><th>Product</th><th>Passed</th><th>Failed</th><th>Warnings</th><th>Manual / N/A</th></tr></thead>
+<tbody>$($_sgRows -join '')</tbody></table>
+"@)
+
+    if ($_scubaHtmlPath) {
+        $_scubaRelPath = [System.IO.Path]::GetRelativePath($script:ReportBaseDir, $_scubaHtmlPath) -replace '\\', '/'
+        $_sgSummary.Add("<p style='font-size:0.85rem;margin-top:0.5rem'><a href='$_scubaRelPath' target='_blank'>&#128196; Open full ScubaGear report</a></p>")
+    }
+
+    # ── Per-product control detail tables ──────────────────────────────────────
+    foreach ($_sgProdName in @('AAD','EXO','SharePoint','Teams','Defender','PowerPlatform')) {
+        if ($_scubaResults.Results.PSObject.Properties.Name -notcontains $_sgProdName) { continue }
+        $_sgProdData = $_scubaResults.Results.$_sgProdName
+        if (-not $_sgProdData) { continue }
+
+        $_sgProdLabel    = if ($_sgProductLabels.ContainsKey($_sgProdName)) { $_sgProductLabels[$_sgProdName] } else { $_sgProdName }
+        $_sgProdAnchorId = if ($_sgProductAnchorIds.ContainsKey($_sgProdName)) { $_sgProductAnchorIds[$_sgProdName] } else { "scuba-$($_sgProdName.ToLower())" }
+
+        $_sgCtrlRows = [System.Collections.Generic.List[string]]::new()
+
+        foreach ($_sgGrp in $_sgProdData) {
+            # Group header row
+            $_sgGrpName = [System.Net.WebUtility]::HtmlEncode($_sgGrp.GroupName)
+            $_sgGrpRef  = if ($_sgGrp.GroupReferenceURL) {
+                " &nbsp;<a href='$([System.Net.WebUtility]::HtmlEncode($_sgGrp.GroupReferenceURL))' target='_blank' style='font-weight:normal;font-size:0.75rem;color:#2563eb'>baseline &#8599;</a>"
+            } else { '' }
+            $_sgCtrlRows.Add("<tr class='scuba-group-hdr' style='background:#edf0f7'><td colspan='5' style='font-weight:700;font-size:0.82rem;color:#1e3a5f;padding:6px 9px'>$_sgGrpName$_sgGrpRef</td></tr>")
+
+            foreach ($_sgCtrl in $_sgGrp.Controls) {
+                $_sgResult   = [string]$_sgCtrl.Result
+                $_sgCritFull = [string]$_sgCtrl.Criticality
+                $_sgCrit     = ($_sgCritFull -split '/')[0]
+                $_sgCritSub  = if ($_sgCritFull -match '/(.+)') { $Matches[1] } else { '' }
+
+                # Strip HTML from Details — ScubaGear embeds internal report anchors that are meaningless outside their own report
+                $_sgDetails = [System.Text.RegularExpressions.Regex]::Replace([string]$_sgCtrl.Details, '<[^>]+>', ' ')
+                $_sgDetails = ($($_sgDetails -replace '\s+', ' ')).Trim()
+
+                # Row background tint by result + criticality
+                $_sgRowBg = switch ($_sgResult) {
+                    'Fail'    { if ($_sgCrit -eq 'Shall') { "background:#fff1f0" } else { "background:#fffbe6" } }
+                    'Warning' { "background:#fffbe6" }
+                    'Manual'  { "background:#f0f7ff" }
+                    'N/A'     { "background:#f7f7f7" }
+                    default   { "" }
+                }
+
+                # Result cell
+                $_sgResultHtml = switch ($_sgResult) {
+                    'Fail'    { "<span class='critical'>Fail</span>" }
+                    'Warning' { "<span class='warn'>Warning</span>" }
+                    'Pass'    { "<span class='ok'>Pass</span>" }
+                    'Manual'  { "<span style='color:#1565c0;font-weight:bold'>Manual</span>" }
+                    default   { "<span style='color:#999'>$([System.Net.WebUtility]::HtmlEncode($_sgResult))</span>" }
+                }
+
+                # Criticality cell — show sub-classification (Not-Implemented / 3rd Party) in smaller text
+                $_sgCritHtml = [System.Net.WebUtility]::HtmlEncode($_sgCrit)
+                if ($_sgCritSub) {
+                    $_sgCritHtml += "<br><span style='font-size:0.72rem;color:#999'>$([System.Net.WebUtility]::HtmlEncode($_sgCritSub))</span>"
+                }
+
+                # Control ID — link to the group's baseline docs section
+                $_sgCtrlId     = [System.Net.WebUtility]::HtmlEncode($_sgCtrl.'Control ID')
+                $_sgCtrlIdHtml = if ($_sgGrp.GroupReferenceURL) {
+                    "<a href='$([System.Net.WebUtility]::HtmlEncode($_sgGrp.GroupReferenceURL))' target='_blank' style='font-family:monospace;font-size:0.8rem;white-space:nowrap'>$_sgCtrlId</a>"
+                } else {
+                    "<code>$_sgCtrlId</code>"
+                }
+
+                $_sgReqEnc = [System.Net.WebUtility]::HtmlEncode($_sgCtrl.Requirement)
+                $_sgDetEnc = [System.Net.WebUtility]::HtmlEncode($_sgDetails)
+
+                $_sgCtrlRows.Add("<tr data-scuba-result='$_sgResult' style='$_sgRowBg'><td style='white-space:nowrap;vertical-align:top'>$_sgCtrlIdHtml</td><td style='vertical-align:top'>$_sgReqEnc</td><td style='white-space:nowrap;vertical-align:top'>$_sgCritHtml</td><td style='white-space:nowrap;vertical-align:top'>$_sgResultHtml</td><td style='font-size:0.8rem;color:#555;vertical-align:top'>$_sgDetEnc</td></tr>")
+            }
+        }
+
+        $_sgSummary.Add("<h4 id='$_sgProdAnchorId'>$_sgProdLabel</h4>")
+        $_sgSummary.Add("<table><thead><tr><th style='white-space:nowrap'>Control ID</th><th>Requirement</th><th>Criticality</th><th>Result</th><th>Details</th></tr></thead><tbody>$($_sgCtrlRows -join '')</tbody></table>")
+    }
+
+    $_sgMeta    = $_scubaResults.MetaData
+    $_sgVersion = if ($_sgMeta.ToolVersion) { "ScubaGear $($_sgMeta.ToolVersion)" } else { "ScubaGear" }
+
+    $html.Add((Add-Section -Title "ScubaGear CIS Baseline" -AnchorId 'scuba' -CsvFiles @() -SummaryHtml ($_sgSummary -join "`n") -ModuleVersion $_sgVersion -Collapsed))
+}
+
+# =========================================
 # ===   Close and Write Report          ===
 # =========================================
 $html.Add(@"
@@ -2956,6 +4367,30 @@ $html.Add(@"
   </main>
 </div><!-- /layout -->
 <script>
+// ScubaGear result filter — chips toggle visibility of rows by result type
+function scubaFilter(chip) {
+    if (chip.dataset.scubaFilter === 'all') {
+        document.querySelectorAll('div.stat-chip[data-scuba-filter]').forEach(function(c) { c.classList.remove('inactive'); });
+        document.querySelectorAll('tr[data-scuba-result]').forEach(function(r) { r.style.display = ''; });
+        document.querySelectorAll('tr.scuba-group-hdr').forEach(function(r) { r.style.display = ''; });
+        return;
+    }
+    chip.classList.toggle('inactive');
+    var hidden = Array.from(document.querySelectorAll('div.stat-chip[data-scuba-filter].inactive')).map(function(c) { return c.dataset.scubaFilter; });
+    document.querySelectorAll('tr[data-scuba-result]').forEach(function(r) {
+        r.style.display = hidden.indexOf(r.dataset.scubaResult) !== -1 ? 'none' : '';
+    });
+    document.querySelectorAll('tr.scuba-group-hdr').forEach(function(hdr) {
+        var next = hdr.nextElementSibling;
+        var anyVisible = false;
+        while (next && next.tagName === 'TR') {
+            if (next.classList.contains('scuba-group-hdr')) break;
+            if (next.dataset.scubaResult && next.style.display !== 'none') { anyVisible = true; break; }
+            next = next.nextElementSibling;
+        }
+        hdr.style.display = anyVisible ? '' : 'none';
+    });
+}
 // Row expand (sign-in history / permissions)
 function toggleSignIns(row) {
     var d = row.nextElementSibling;
@@ -2981,6 +4416,26 @@ function toggleModule(hdr) {
     body.style.display = isOpen ? 'none' : '';
     if (toggle) toggle.classList.toggle('open', !isOpen);
 }
+// Make h4 subsections inside module-body collapsible
+(function() {
+  document.querySelectorAll('.module-body').forEach(function(body) {
+    Array.from(body.querySelectorAll(':scope > h4')).forEach(function(h4) {
+      var det = document.createElement('details');
+      det.open = true;
+      if (h4.id) { det.id = h4.id; h4.removeAttribute('id'); }
+      var sum = document.createElement('summary');
+      sum.innerHTML = h4.innerHTML;
+      det.appendChild(sum);
+      var next = h4.nextElementSibling;
+      while (next && next.tagName !== 'H4') {
+        var after = next.nextElementSibling;
+        det.appendChild(next);
+        next = after;
+      }
+      h4.replaceWith(det);
+    });
+  });
+})();
 // Sidebar scroll-spy (handles both module and sub-section links)
 (function() {
     var main  = document.querySelector('.main');

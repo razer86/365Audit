@@ -8,6 +8,9 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.13.0 | Run All option key changed from `9` to `A` — frees up single-digit keys 8 and 9 for additional modules; `-Modules` parameter type changed from `[int[]]` to `[string[]]` with `ValidateSet('1'..'7', 'A')`; interactive menu parser updated to accept `A` alongside digits; menu `Sort-Object` updated to sort `'A'` after numeric keys; `$selectedIndexes` coercion converts numeric string inputs to `[int]` for hashtable lookup while preserving `'A'` as string |
+| 2.12.0 | Added option 7 "ScubaGear CIS Baseline" (`Invoke-ScubaGearAudit.ps1`); option 9 "Run All" updated to include all seven modules (1–7) |
+| 2.11.0 | Config loaded from `config.psd1` (version note — no new features, version bump only) |
 | 2.10.0 | Config loaded from `config.psd1` — `HuduApiKey`, `HuduBaseUrl`, and `HuduAssetLayoutId` sourced from file instead of environment variables; Hudu asset fetch now paginates (do/while until empty page — was a single request that missed assets beyond the first page); run context (mode, selected modules, timestamp, script path) written to transcript after module selection |
 | 2.9.3 | Audit transcript now saved to `Raw Files\AuditLog.txt`; works with the shared `Raw Files` output layout instead of the `Logs\` subfolder |
 | 2.9.2 | Audit transcript now saved to `Logs\AuditLog.txt` inside the customer output folder instead of the root; `Logs\` subfolder is created in the `finally` block before the move |
@@ -40,6 +43,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.10.0 | Added `PrivilegedAccess.Read.AzureAD` Graph permission (required by ScubaGear for PIM policy checks); added `Set-GlobalReaderRole` helper and calls in both new-app and update-app paths — Global Reader Entra role is now assigned to the service principal automatically (required by ScubaGear non-interactive assessment) |
+| 2.9.0 | Config loaded from `config.psd1` (version note — no new features, version bump only) |
 | 2.6.0 | Config loaded from `config.psd1` — `HuduApiKey`, `HuduBaseUrl`, `HuduAssetLayoutId`, and `AuditAppName` sourced from file instead of environment variables; `HuduAssetLayoutId` replaces all hardcoded `asset_layout_id=67` references |
 | 2.5.5 | Existing-asset consent remediation now distinguishes missing application permissions from missing admin consent, retries consent interactively when app-only assignment is denied, and removes the `Start-ThreadJob` timeout wrapper from the interactive `Connect-MgGraph` fallback to avoid `$using:` timer errors |
 | 2.5.4 | Added four Intune Graph application permissions: `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`, `DeviceManagementApps.Read.All`, `DeviceManagementServiceConfig.Read.All` |
@@ -79,6 +84,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.17.2 | Enterprise Apps Application permissions: use `$ra.ResourceDisplayName` as fallback for `ResourceApp` before falling back to raw ResourceId GUID; SP permission resolution switched from `-Property`-based SDK calls (which silently return empty `AppRoles`) to `Get-MgServicePrincipal` without `-Property` + `-ConsistencyLevel eventual` for appId filter queries; ID comparisons use string interpolation to handle `Nullable<Guid>` type differences in SDK v2 |
+| 1.17.1 | Added `Add-AuditIssue` calls to 17 outer catch blocks (sign-in logs, account creations/deletions, directory audit events, SSPR, CA policies, named locations, Secure Score, Security Defaults, enterprise apps, risky users/sign-ins, auth methods policy, external collaboration, app registrations, PIM assignments, org settings) — collection failures now logged to `AuditIssues.csv` |
 | 1.14.0 | Lazy-load Entra-specific Graph sub-modules via `Import-GraphSubModules` after connect — loads `Users`, `Groups`, `Reports`, `Identity.SignIns`, and `Applications` on demand instead of at startup; adds `Microsoft.Graph.Applications` required for `Get-MgServicePrincipal` and `Get-MgServicePrincipalAppRoleAssignment` |
 | 1.13.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Entra\` subfolder |
 | 1.12.0 | Output CSVs written to `Entra\` subfolder inside the customer output directory instead of the root |
@@ -106,6 +113,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.15.2 | Removed `-AllUsers` parameter from `Get-ExternalInOutlook` (parameter removed in newer EXO module versions); added server-side error detection in catch block to silently skip with `Write-Verbose` when the API returns "server side error" or "operation could not be completed" (feature unavailable for some tenants) |
+| 1.15.1 | Added `Add-AuditIssue` calls to 8 outer catch blocks (Safe Attachments, Safe Links, accepted domains, authentication policies, Exchange org config, external sender tagging, connection filter, OWA mailbox policies) |
 | 1.13.0 | Module install now verifies the module is discoverable after `Install-Module` and includes the installed version in the confirmation message; `Install-Module` uses `-ErrorAction Stop` for consistent failure handling |
 | 1.12.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Exchange\` subfolder |
 | 1.11.0 | Output CSVs written to `Exchange\` subfolder inside the customer output directory instead of the root |
@@ -131,6 +140,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.12.1 | Version bump for consistency with other audit script patch series; no qualifying outer catch blocks (only catch is inside a `ForEach-Object -Parallel` per-site loop — excluded by Add-AuditIssue pattern rules) |
 | 2.11.0 | Per-site group/user collection converted to `ForEach-Object -Parallel -ThrottleLimit 5` for concurrent execution; `SecureString` cert password extracted to plain text before the parallel block and reconstructed inside each runspace to avoid serialisation failure; `Connect-PnPOnline -ReturnConnection` now used with explicit `-Connection` on every PnP cmdlet to prevent thread-local connection loss; `Disconnect-PnPOnline` wrapped in `try/catch` in `finally` block; `Microsoft.Graph.Users` loaded on demand for `Get-MgUser` (unlicensed OneDrive detection); module install now verifies post-install and shows installed version |
 | 2.10.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `SharePoint\` subfolder |
 | 2.9.0 | Output CSVs written to `SharePoint\` subfolder inside the customer output directory instead of the root |
@@ -162,6 +172,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.9.1 | Added `Add-AuditIssue` call to Spoof Intelligence catch block (`Get-SpoofIntelligenceInsight`); DKIM per-domain and DNS helper catches excluded (per-item/lookup patterns) |
 | 1.9.0 | `Resolve-TxtRecord` now falls back from `dig` to `nslookup` on Linux/macOS when `dig` is unavailable, with a clear warning if neither tool is found; module install now verifies post-install and shows installed version |
 | 1.8.0 | Output CSVs and JSON files now written to the shared `Raw Files\` folder inside the customer output directory instead of the `MailSecurity\` subfolder |
 | 1.7.0 | Output CSVs and JSON files written to `MailSecurity\` subfolder inside the customer output directory instead of the root |
@@ -181,6 +192,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.8.1 | Added `Add-AuditIssue` calls to 9 catch blocks (managed devices, compliance policies, modern config policies, config profiles, apps, Autopilot devices, enrollment restrictions, Windows Update Rings, App Protection Policies) |
 | 1.7.0 | Lazy-load Intune-specific Graph sub-modules via `Import-GraphSubModules` after connect — loads `DeviceManagement`, `Devices.CorporateManagement`, and `DeviceManagement.Enrollment` on demand; Graph 429 throttle retry added to `Invoke-GraphCollectionRequest` — exponential backoff up to 5 attempts, honouring `Retry-After` header when present |
 | 1.6.0 | Intune exports refined after live validation: app install counts now populate correctly; configuration profile setting names/values are more human-readable (including Edge/Startup labels and duplicate-child suppression); Intune assignment details now resolve Entra group display names instead of raw GUIDs |
 | 1.5.0 | Output CSVs now written to the shared `Raw Files\` folder inside the customer output directory instead of the `Intune\` subfolder |
@@ -191,10 +203,42 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
+## Invoke-TeamsAudit.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.1.2 | `Get-CsTeamsChannelPolicy` catch block now silently skips with `Write-Verbose` on `CommandNotFoundException` or "not recognized" errors — command was removed in newer MicrosoftTeams module versions; previously raised a spurious Warning audit issue |
+| 1.1.1 | Added `Add-AuditIssue` calls to all 9 step catch blocks (federation config, client config, meeting policies, guest meeting config, guest calling config, messaging policies, app permission policies, app setup policies, channel policies) |
+| 1.1.0 | Replaced `Write-StepProgress` helper and `Write-Host` step output with `Write-Progress -Id 1` matching the pattern used by all other audit modules; added `New-Item -Force` output directory creation; completion message matches other modules |
+| 1.0.0 | Initial release — federation config, client config, meeting policies, guest meeting/calling config, messaging policies, app permission/setup policies, channel policies |
+
+---
+
+## Invoke-ScubaGearAudit.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.3.3 | Added `5>$null 6>$null` stream redirections to `Import-Module ScubaGear` and `Initialize-SCuBA` inside the PS 5.1 subprocess to suppress DEBUG output noise (ScubaGear sets module-scoped `$DebugPreference = 'Continue'` which bypasses the script-level preference); moved `Write-Progress -Completed` to before `Start-Process` so the PS 7 progress bar is cleared before the subprocess writes to the shared console window, preventing garbled output |
+| 1.3.2 | Remove `-LogIn $false` from `Invoke-SCuBA` — ScubaGear's `Invoke-Connection` gate skips `Connect-Tenant` entirely when `LogIn=$false`, silently ignoring `-AppID`/`-CertificateThumbprint` and causing "Authentication needed" on every Graph call; omitting the flag lets `LogIn` default to `$true` so ScubaGear calls `Connect-MgGraph` with the cert thumbprint as intended |
+| 1.3.1 | Clear stale MSAL token cache before `Invoke-SCuBA`: disconnect any existing Graph/EXO sessions and delete `$env:USERPROFILE\.graph` inside the PS 5.1 subprocess; fixes "Authentication needed. Please call Connect-MgGraph" failures when a cached token for a different tenant exists on disk (pattern from Galvnyz/M365-Assess) |
+| 1.3.0 | Replaced inherited PSModulePath filtering with an explicit clean WinPS 5.1 module path (`Documents\WindowsPowerShell\Modules`, `Program Files\WindowsPowerShell\Modules`, `System32\WindowsPowerShell\v1.0\Modules`); PS 7's inherited path omits the user WindowsPowerShell folder entirely, so filtering alone left `Import-Module` unable to find the freshly installed ScubaGear; user module folder is created if absent |
+| 1.2.0 | PS 7 module paths stripped from `$env:PSModulePath` at the start of the WinPS 5.1 subprocess so ScubaGear is installed into and loaded from `Documents\WindowsPowerShell\Modules` (PS 5.1 path) — prevents PackageManagement/PowerShellGet version conflicts caused by PS 7-installed modules being visible to PS 5.1; added `-SkipModuleCheck` to `Invoke-SCuBA` to bypass ScubaGear's internal dependency version checks after installation |
+| 1.1.0 | ScubaGear now runs in a Windows PowerShell 5.1 subprocess to avoid module-version conflicts with the PS 7 modules loaded by the 365Audit session; cert is imported into `Cert:\CurrentUser\My` in PS 7 (store is shared), then the temp script is spawned via `powershell.exe` with all values passed as named parameters; temp script is deleted in the `finally` block alongside cert cleanup; `powershell.exe` availability checked at startup |
+| 1.0.0 | Initial release — auto-installs/updates ScubaGear from PSGallery; calls `Initialize-SCuBA` to ensure OPA binary is present; bridges the .pfx cert to `Cert:\CurrentUser\My` for ScubaGear's thumbprint-based auth, then removes it in a `finally` block; runs `Invoke-SCuBA` for AAD, Defender, EXO, SharePoint, Teams (Power Platform excluded — requires interactive one-time registration); writes output to `Raw Files\ScubaGear_<timestamp>\`; collection failures written via `Add-AuditIssue` |
+
+---
+
 ## Generate-AuditSummary.ps1
 
 | Version | Notes |
 |---------|-------|
+| 1.42.0 | Compliance Overview: fixed Passed count always showing 0 when total issues exceeded the hardcoded 60-check total — total is now `max(150, critCount + warnCount + 30)` so Passed is always a meaningful non-zero value; sidebar navigation now uses `New-SbSub` helper to skip links for sections whose source CSV was not generated (prevents dead anchor links when a module was not run); Secure Score progress bar: added `margin-right:8px` and removed orphaned `&nbsp;` that caused the date to run into the bar; CSS: added `td ul, td ol { overflow-wrap: break-word }` to prevent bullet-point lists overflowing table cell boundaries; External Collaboration Settings: GUIDs translated to human-readable labels for `AllowInvitesFrom` and default guest role; displayed as a formatted table instead of raw values; App Registrations: collapsible permissions dropdown per app row loaded from `Entra_AppRegistrationPermissions.csv`; Enterprise Apps: collapsible permissions dropdown per app row loaded from `Entra_EnterpriseAppPermissions.csv`; removed separate "Consented Roles" count column; Stale Licensed Accounts: removed as a separate section — stale users now highlighted in-place in the User Accounts table with red bold Last Sign-In and a mouseover tooltip; Groups table: added clarification note distinguishing Role-Assignable from Dynamic membership groups; OneDrive: added collapsible per-user storage table below the usage count line; SharePoint storage stat chip fallback: when `StorageUsedMB = 0` from the API, sums per-site and OneDrive CSVs to compute an accurate used-storage figure; ScubaGear section collapsed by default; added CISA attribution note linking to the ScubaGear project page; CIS Foundations Benchmark references added to Org User Settings, Exchange Org Config, SharePoint External Sharing, Access Control Policies, Teams External Access, and Teams Client Config subsections |
+| 1.41.0 | ScubaGear integration: detects `Raw Files\ScubaGear_*\ScubaResults_*.json`; adds failing Shall controls as critical action items and failing Should/Warning controls as warnings under `ScubaGear / <product>` categories; adds ScubaGear Baseline section with per-product pass/fail/warning counts and link to ScubaGear HTML report; sidebar entry added conditionally when ScubaGear output is present |
+| 1.40.0 | All `<h4>` subsections within module sections are now collapsible via JS-generated `<details>/<summary>` elements (open by default); module section order changed to follow CIS M365 Foundations Benchmark chapter sequence: Entra (CIS 1) → Exchange (CIS 3/6) → Mail Security (CIS 2) → SharePoint (CIS 7) → Teams (CIS 8) → Intune (CIS 5); sidebar navigation order updated to match |
+| 1.39.0 | Stat chips in all six module section headers are now clickable anchor links — each chip navigates to the relevant subsection (e.g. MFA chip → `#entra-users`, Forwarding chip → `#exchange-forwarding`); company info block moved from standalone card into the coloured top bar with domain, tenant ID, and report metadata; removed standalone `Microsoft 365 Audit Summary` heading; removed `$_companyCard` from content area |
+| 1.38.0 | Action Items block is now collapsible — wrapped in a clickable header showing the critical/warning count summary; uses the existing `toggleModule` JS; header background and hover styling match the sidebar aesthetic |
+| 1.37.0 | Added section header stat chips to all six module sections (Entra: users/MFA/GAs; Exchange: mailboxes/shared/forwarding; SharePoint: sites/storage/external; Mail Security: SPF/DMARC/DKIM coverage %; Intune: device/compliant/non-compliant; Teams: federation/guest/channels); added Compliance Overview section (distribution bar showing pass/warn/critical, per-module breakdown, CIS controls with findings); added Technical Issues section that renders AuditIssues.csv (written by Add-AuditIssue in catch blocks); added Compliance Overview and Technical Issues links to sidebar nav; added CSS for `.section-stats`, `.stat-chip`, `.cov-bar`, and `.issue-sev-*` styles |
+| 1.36.0 | CIS benchmark alignment: added CIS Microsoft 365 Foundations Benchmark v6.0.1 reference IDs to all applicable existing action items; added new action items for previously unchecked controls — CIS 1.2.3 (users can create tenants), CIS 1.3.6 (Customer Lockbox disabled), CIS 2.1.3 (malware admin notification disabled), CIS 2.1.13 (connection filter safe list enabled), CIS 7.2.11 (default sharing link permission Edit), CIS 8.2.1 (external federation open to all domains), CIS 8.5.7 (external participants can control meetings), CIS 8.5.8 (external meeting chat enabled), CIS 8.5.9 (cloud recording on by default) |
 | 1.30.0 | `MspDomains` and `KnownPartners` loaded from `config.psd1` — replaces hardcoded domain and partner lists; Technical Contact domain check and GDAP partner checks are guarded and skipped with a warning when the respective config values are absent; action item text uses generic wording instead of MSP-specific names |
 | 1.29.0 | Summary styling streamlined; added severity colouring for Technical Contact when the corresponding action item is raised; Action Items now group `CRITICAL` before `WARNING`, sort by module order (Entra, Exchange, SharePoint, Mail Security, Intune), and use fixed column alignment; Conditional Access drilldowns expanded to show richer scope and condition detail when newer `Entra_CA_Policies.csv` exports are present |
 | 1.28.0 | All CSV discovery now reads from the shared `Raw Files\` folder while report sections continue grouping by filename prefix; raw-file links in the HTML report now point to `Raw Files\<filename>` |
@@ -235,6 +279,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.4.0 | `-Modules` parameter type changed from `[int[]]` to `[string[]]` with `ValidateSet('1'..'7', 'A')` to match `Start-365Audit.ps1`; per-customer module fallback cast changed from `[int[]]` to `@()` to allow both numeric and `'A'` values from `UnattendedCustomers.psd1`; `UnattendedCustomers.psd1.example` updated to use `@('A')` and document options 6 (Teams) and 7 (ScubaGear) |
 | 2.3.0 | Config loaded from `config.psd1` — `HuduApiKey` and `HuduBaseUrl` sourced from file instead of environment variables |
 | 2.2.0 | Console output logging delegated to `Start-365Audit.ps1` — each customer's full run log is saved as `AuditLog.txt` in that customer's audit output folder; no separate bulk transcript needed since `Start-365Audit.ps1` stops its transcript in `finally` before the next customer begins |
 | 2.1.0 | Customer list extracted to `UnattendedCustomers.json` — techs edit the JSON file rather than the script; each entry has `HuduCompanySlug` and `Modules` (per-customer module selection); `-Modules` param now acts as a global override for all customers; `-Customers` param filters by slug; summary table includes per-customer modules column; script hard-errors with copy hint if JSON file is not found |
@@ -247,6 +292,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.23.0 | Added `Add-AuditIssue` function — call from catch blocks to write collection failures, permission errors, and module issues to `AuditIssues.csv` in the audit output folder; supports Severity (Critical/Warning/Info), Section, Collector, Description, and optional Action fields; appends to existing CSV or creates with header on first write |
+| 1.22.0 | `Connect-TeamsSecure` added — connects to Microsoft Teams PowerShell using certificate-based app-only auth; detects `$AuditAppId`/`$AuditTenantId`/`$AuditCertFilePath`/`$AuditCertPassword` from launcher scope; loads X509Certificate2 directly from PFX without cert-store import; falls back to interactive browser auth when credentials are absent |
 | 1.21.0 | Graph sub-module loading refactored to lazy-load via new `Import-GraphSubModules` helper — only installs and imports the modules required by the running audit section instead of all 9 at startup; core bootstrap reduced to `Authentication` and `Identity.DirectoryManagement`; `Resolve-GraphModuleVersion` simplified to use `Authentication` version only (all Graph sub-modules are versioned in lockstep); `Install-Module` for sub-modules uses `-WarningAction SilentlyContinue` to suppress spurious dependency-in-use warnings; all install blocks now verify the module is discoverable post-install and display the installed version |
 | 1.20.0 | Delegated `Connect-MgGraphSecure` now passes `-NoWelcome` so the Microsoft Graph SDK banner does not clutter launcher or diagnostic-script output |
 | 1.19.0 | `Initialize-AuditOutput` now creates and returns a shared `Raw Files\` subfolder (`RawOutputPath`) under each customer run folder so all modules and the launcher transcript can write to a single raw-output location |

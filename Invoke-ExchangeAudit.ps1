@@ -21,7 +21,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.13.0
+    Version     : 1.15.2
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -39,7 +39,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.13.0"
+$ScriptVersion = "1.15.2"
 Write-Verbose "Invoke-ExchangeAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -73,7 +73,7 @@ Connect-ExchangeOnlineSecure
 Write-Host "`nStarting Exchange Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 16
+$totalSteps = 22
 $activity   = "Exchange Audit — $($context.OrgName)"
 
 
@@ -294,7 +294,7 @@ $step++
 Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Exporting spam and malware filter policies..." -PercentComplete ([int]($step / $totalSteps * 100))
 
 Get-HostedContentFilterPolicy |
-    Select-Object -Property Name, SpamAction, HighConfidenceSpamAction, BulkSpamAction |
+    Select-Object -Property Name, SpamAction, HighConfidenceSpamAction, BulkSpamAction, HighConfidencePhishAction, ZapEnabled, PhishZapEnabled, SpamZapEnabled |
     Export-Csv "$outputDir\Exchange_SpamPolicies.csv" -NoTypeInformation -Encoding UTF8
 
 Get-MalwareFilterPolicy |
@@ -397,6 +397,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking Safe Attachments policies..." -CurrentOperation "Saved: Exchange_SafeAttachments.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-SafeAttachmentPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "  Safe Attachments not available — requires Defender for Office 365 P1 or higher"
 }
 
@@ -412,6 +413,7 @@ try {
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking Safe Links policies..." -CurrentOperation "Saved: Exchange_SafeLinks.csv" -PercentComplete ([int]($step / $totalSteps * 100))
 }
 catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-SafeLinksPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
     Write-Warning "  Safe Links not available — requires Defender for Office 365 P1 or higher"
 }
 
@@ -449,6 +451,153 @@ $connectorRows += @(Get-OutboundConnector -ErrorAction SilentlyContinue) | ForEa
 if ($connectorRows.Count -gt 0) {
     $connectorRows | Export-Csv "$outputDir\Exchange_MailConnectors.csv" -NoTypeInformation -Encoding UTF8
     Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting mail connectors..." -CurrentOperation "Saved: Exchange_MailConnectors.csv ($($connectorRows.Count) connectors)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+
+
+# ================================
+# ===   17. Accepted Domains    ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Accepted Domains..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $acceptedDomains = Get-AcceptedDomain -ErrorAction Stop
+    $acceptedDomains | Select-Object DomainName, DomainType, Default |
+        Export-Csv "$outputDir\Exchange_AcceptedDomains.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Accepted Domains..." -CurrentOperation "Saved: Exchange_AcceptedDomains.csv ($($acceptedDomains.Count) domains)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-AcceptedDomain' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve accepted domains: $_"
+}
+
+
+# ================================
+# ===   18. Legacy Auth / Basic Auth Policy  ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Legacy Auth Policy..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $_orgCfg         = Get-OrganizationConfig -ErrorAction Stop
+    $_defaultAuthPol = $_orgCfg.DefaultAuthenticationPolicy
+
+    $_authPolicies = Get-AuthenticationPolicy -ErrorAction Stop
+    $_authPolicies | ForEach-Object {
+        [PSCustomObject]@{
+            PolicyName                          = $_.Name
+            AllowBasicAuthActiveSync            = $_.AllowBasicAuthActiveSync
+            AllowBasicAuthImap                  = $_.AllowBasicAuthImap
+            AllowBasicAuthPop                   = $_.AllowBasicAuthPop
+            AllowBasicAuthSmtp                  = $_.AllowBasicAuthSmtp
+            AllowBasicAuthWebServices           = $_.AllowBasicAuthWebServices
+            AllowBasicAuthRpc                   = $_.AllowBasicAuthRpc
+            AllowBasicAuthPowerShell            = $_.AllowBasicAuthPowerShell
+            AllowBasicAuthOfflineAddressBook    = $_.AllowBasicAuthOfflineAddressBook
+            AllowBasicAuthReportingWebServices  = $_.AllowBasicAuthReportingWebServices
+            IsDefault                           = ($_.Name -eq $_defaultAuthPol)
+            ModernAuthEnabled                   = $_orgCfg.OAuth2ClientProfileEnabled
+        }
+    } | Export-Csv "$outputDir\Exchange_LegacyAuth.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Legacy Auth Policy..." -CurrentOperation "Saved: Exchange_LegacyAuth.csv ($($_authPolicies.Count) policies)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-AuthenticationPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve authentication policies: $_"
+}
+
+
+# ================================
+# ===   19. Exchange Org Config (SMTP AUTH, Customer Lockbox, Modern Auth) ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Exchange organisation config..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    # Reuse $_orgCfg if already in scope from step 18; otherwise fetch fresh
+    if (-not $_orgCfg) { $_orgCfg = Get-OrganizationConfig -ErrorAction Stop }
+    [PSCustomObject]@{
+        SmtpClientAuthDisabled = $_orgCfg.SmtpClientAuthenticationDisabled
+        CustomerLockboxEnabled = $_orgCfg.CustomerLockboxEnabled
+        ModernAuthEnabled      = $_orgCfg.OAuth2ClientProfileEnabled
+        AuditDisabled          = $_orgCfg.AuditDisabled
+        MessageCopyForSent     = $_orgCfg.MessageCopyForSentAsEnabled
+    } | Export-Csv "$outputDir\Exchange_OrgConfig.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Collecting Exchange organisation config..." -CurrentOperation "Saved: Exchange_OrgConfig.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-OrganizationConfig' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve Exchange organisation config: $_"
+}
+
+
+# ================================
+# ===   20. External Sender Tagging ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking external sender identification..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $extSenderCfg = Get-ExternalInOutlook -ErrorAction Stop
+    [PSCustomObject]@{
+        Enabled         = $extSenderCfg.Enabled
+        AllUsers        = $extSenderCfg.AllUsers
+        AllowList       = ($extSenderCfg.AllowList -join '; ')
+    } | Export-Csv "$outputDir\Exchange_ExternalSenderTagging.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking external sender identification..." -CurrentOperation "Saved: Exchange_ExternalSenderTagging.csv" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    if ($_ -match 'server side error|operation could not be completed') {
+        Write-Verbose "Get-ExternalInOutlook: server-side error — feature may not be available for this tenant. Skipping."
+    } else {
+        Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-ExternalInOutlook' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
+        Write-Warning "Unable to retrieve external sender tagging settings: $_"
+    }
+}
+
+
+# ================================
+# ===   21. Connection Filter Policy (IP Allow List) ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking connection filter policies..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $connFilters = @(Get-HostedConnectionFilterPolicy -ErrorAction Stop)
+    $connFilters | ForEach-Object {
+        [PSCustomObject]@{
+            PolicyName    = $_.Name
+            IsDefault     = $_.IsDefault
+            IPAllowList   = ($_.IPAllowList -join '; ')
+            IPBlockList   = ($_.IPBlockList -join '; ')
+            EnableSafeList = $_.EnableSafeList
+        }
+    } | Export-Csv "$outputDir\Exchange_ConnectionFilter.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking connection filter policies..." -CurrentOperation "Saved: Exchange_ConnectionFilter.csv ($($connFilters.Count) policies)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-HostedConnectionFilterPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve connection filter policies: $_"
+}
+
+
+# ================================
+# ===   22. OWA Mailbox Policy ===
+# ================================
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking OWA mailbox policies..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $owaPolicies = @(Get-OwaMailboxPolicy -ErrorAction Stop)
+    $owaPolicies | ForEach-Object {
+        [PSCustomObject]@{
+            PolicyName                        = $_.Name
+            AdditionalStorageProvidersAvailable = $_.AdditionalStorageProvidersAvailable
+            ClassicAttachmentsEnabled         = $_.ClassicAttachmentsEnabled
+            OneDriveAttachmentsEnabled        = $_.OneDriveAttachmentsEnabled
+            ThirdPartyAttachmentsEnabled      = $_.ThirdPartyAttachmentsEnabled
+            PersonalAccountCalendarsEnabled   = $_.PersonalAccountCalendarsEnabled
+        }
+    } | Export-Csv "$outputDir\Exchange_OwaPolicy.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking OWA mailbox policies..." -CurrentOperation "Saved: Exchange_OwaPolicy.csv ($($owaPolicies.Count) policies)" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Warning' -Section 'Exchange' -Collector 'Get-OwaMailboxPolicy' -Description ($_.Exception.Message ?? "$_") -Action 'Check permissions or re-run Setup-365AuditApp.ps1'
+    Write-Warning "Unable to retrieve OWA mailbox policies: $_"
 }
 
 

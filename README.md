@@ -140,9 +140,9 @@ Copy the App ID, Tenant ID, and certificate details from the Hudu asset:
 Supply `-Modules` to bypass the menu entirely. The HTML report is generated but not opened automatically, making this suitable for scheduled tasks and bulk runs:
 
 ```powershell
-.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 1,2,3,4    # all modules
-.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 9          # same as above (option 9)
-.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 1,2        # Entra + Exchange only
+.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 1,2,3,4,5,6,7    # all modules
+.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules A              # same as above (Run All)
+.\Start-365Audit.ps1 -HuduCompanyId '<slug>' -Modules 1,2            # Entra + Exchange only
 ```
 
 On launch the toolkit will:
@@ -172,7 +172,7 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
    ```powershell
    @{
        Customers = @(
-           @{ HuduCompanySlug = 'a1b2c3d4e5f6'; HuduCompanyName = 'Contoso Ltd';  Modules = @(9) }
+           @{ HuduCompanySlug = 'a1b2c3d4e5f6'; HuduCompanyName = 'Contoso Ltd';  Modules = @('A') }
            @{ HuduCompanySlug = 'f6e5d4c3b2a1'; HuduCompanyName = 'Fabrikam Inc'; Modules = @(1, 2) }
        )
    }
@@ -205,7 +205,9 @@ Select one or more modules by number (comma-separated, e.g. `1,2,3`). All module
 | 3 | SharePoint Online Audit | Sites, permissions, storage, OneDrive |
 | 4 | Mail Security Audit | DKIM, DMARC, SPF, anti-spam/phish policies |
 | 5 | Intune / Endpoint Audit | Devices, compliance policies, configuration profiles, apps, enrollment |
-| 9 | Run All (1–5) | Full audit across all modules, then generates the HTML summary once |
+| 6 | Teams Audit | Federation, client config, meeting/guest/messaging policies, app policies |
+| 7 | ScubaGear CIS Baseline | CISA M365 Foundations Benchmark assessment (runs in Windows PowerShell 5.1) |
+| A | Run All (1–7) | Full audit across all modules, then generates the HTML summary once |
 | 0 | Exit | — |
 
 ---
@@ -269,6 +271,13 @@ Connects to Microsoft Graph and audits Entra ID (Azure Active Directory).
 | `Entra_AccountCreations.csv` | Account creation events within the audit retention window |
 | `Entra_AccountDeletions.csv` | Account deletion events within the audit retention window |
 | `Entra_AuditEvents.csv` | Notable events: role changes and MFA/security info modifications |
+| `Entra_EnterpriseApps.csv` | Third-party enterprise apps with admin-consent status and consented role count |
+| `Entra_EnterpriseAppPermissions.csv` | Application and delegated permissions granted to each enterprise app |
+| `Entra_AppRegistrations.csv` | App registrations with credential expiry dates and secret/cert counts |
+| `Entra_AppRegistrationPermissions.csv` | Permissions declared in `requiredResourceAccess` for each app registration |
+| `Entra_RiskyUsers.csv` | Users flagged by Identity Protection (requires Azure AD P2; absent if unlicensed) |
+| `Entra_RiskySignIns.csv` | Risky sign-in events (requires Azure AD P2; absent if unlicensed) |
+| `Entra_PIMAssignments.csv` | Privileged Identity Management role assignments (requires Azure AD P2; absent if unlicensed) |
 
 ---
 
@@ -374,9 +383,49 @@ Connects to Microsoft Graph and audits Intune / Endpoint Management. Gracefully 
 
 ---
 
+### Invoke-TeamsAudit.ps1
+
+Connects to Microsoft Teams via the MicrosoftTeams module and audits federation, client, meeting, and policy configuration.
+
+**Output files:**
+
+| File | Description |
+|---|---|
+| `Teams_FederationConfig.csv` | External access (federation) settings — allowed/blocked domains, Teams and Skype federation flags |
+| `Teams_ClientConfig.csv` | Teams client configuration — file sharing, cloud storage, external app, and communication settings |
+| `Teams_MeetingPolicies.csv` | Meeting policies — recording, transcription, lobby, and external participant settings |
+| `Teams_GuestMeetingConfig.csv` | Guest meeting configuration — IP audio/video, screen share, and meeting flags |
+| `Teams_GuestCallingConfig.csv` | Guest calling settings |
+| `Teams_MessagingPolicies.csv` | Messaging policies — Giphy, memes, URL previews, read receipts, and chat edit/delete settings |
+| `Teams_AppPermissionPolicies.csv` | App permission policies — Microsoft, third-party, and tenant app access controls |
+| `Teams_AppSetupPolicies.csv` | App setup policies — pinned apps and user pinning settings |
+| `Teams_ChannelPolicies.csv` | Channel policies — private and shared channel creation permissions (skipped gracefully if not available in module version) |
+
+---
+
+### Invoke-ScubaGearAudit.ps1
+
+Runs the [CISA ScubaGear M365 Foundations Benchmark](https://github.com/cisagov/ScubaGear) assessment against the tenant. ScubaGear and its dependencies must run in Windows PowerShell 5.1 — this module spawns a clean PS 5.1 subprocess automatically and cleans up the temporary certificate import on exit.
+
+> Requires `powershell.exe` (Windows PowerShell 5.1) to be available on the machine. Power Platform is excluded (requires an interactive one-time registration).
+
+**Output folder:** `Raw\ScubaGear_<timestamp>\`
+
+| File | Description |
+|---|---|
+| `BaselineReports.html` | ScubaGear's own interactive HTML report with full control details |
+| `ScubaResults_<uuid>.json` | Consolidated JSON results ingested by `Generate-AuditSummary.ps1` |
+| `ScubaResults.csv` | Flat CSV of all controls with pass/fail/warning status |
+| `ActionPlan.csv` | Failing Shall controls with blank remediation fields for MSP follow-up |
+| `IndividualReports\` | Per-product HTML and JSON reports (AAD, Defender, EXO, SharePoint, Teams) |
+
+`Generate-AuditSummary.ps1` detects the `ScubaGear_*` folder automatically and adds failing controls to the action items list plus a collapsible CIS Baseline section to the report.
+
+---
+
 ### Generate-AuditSummary.ps1
 
-Reads CSV files from the current audit run's `Raw Files` folder and compiles them into a single HTML report (`M365_AuditSummary.html`), which opens automatically in the default browser.
+Reads CSV files from the current audit run's `Raw` folder and compiles them into a single HTML report (`M365_AuditSummary.html`), which opens automatically in the default browser.
 
 **Action Items**
 
@@ -397,16 +446,21 @@ The top of the report shows a prioritised list of findings requiring attention:
 
 **Report sections:**
 
-- **Microsoft Entra** — MFA coverage, stale licensed accounts, licence table, SSPR status, Security Defaults, global admin count, role summary, guest accounts and stale guest count, CA policies, legacy auth check, Identity Secure Score with control breakdown (To Action / Implemented)
+- **Microsoft Entra** — MFA coverage, licence table, SSPR status, Security Defaults, global admin count, role summary, guest accounts, CA policies, legacy auth check, Identity Secure Score with To Action / Implemented breakdown, external collaboration settings, app registrations with collapsible permissions, enterprise apps with collapsible permissions, risky users / sign-ins
 - **Exchange Online** — Mailbox count and storage, delegated permissions, external forwarding rule alerts, broken inbox rules, shared mailbox sign-in status, outbound spam auto-forward policy, Safe Attachments and Safe Links status
-- **SharePoint / OneDrive** — Tenant storage gauge, site collection table with expandable groups panel, external sharing policy and site overrides, access control policies, OneDrive usage and unlicensed accounts
+- **SharePoint / OneDrive** — Tenant storage gauge, site collection table with expandable groups panel, external sharing policy and site overrides, access control policies, OneDrive per-user storage table and unlicensed accounts
 - **Mail Security** — DKIM, DMARC, and SPF coverage per domain
+- **Intune** — Licence status, device inventory with OS and compliance breakdown, stale devices, compliance policies, configuration profiles, app install summary
+- **Teams** — Federation settings, client config, meeting policies, guest access settings, app policies
+- **ScubaGear CIS Baseline** — Per-product pass/fail/warning counts with link to full ScubaGear HTML report (collapsed by default; only rendered when ScubaGear output is present)
+- **Compliance Overview** — Distribution bar (passed / warnings / critical) with per-module breakdown and list of CIS controls with findings
+- **Technical Issues** — Collection failures recorded by `Add-AuditIssue` catch blocks across all modules
 
 ---
 
 ## Output Structure
 
-Each audit run creates a customer folder one level above the repository root (to avoid git tracking audit data). `OrgInfo.json` and `M365_AuditSummary.html` stay at the root of that folder, while all generated CSVs, JSON files, and the session transcript are stored under `Raw Files`:
+Each audit run creates a customer folder one level above the repository root (to avoid git tracking audit data). `OrgInfo.json` and `M365_AuditSummary.html` stay at the root of that folder, while all generated CSVs, JSON files, and the session transcript are stored under `Raw`:
 
 ```
 365Audit/            ← repository
@@ -414,7 +468,7 @@ Each audit run creates a customer folder one level above the repository root (to
 └── <CompanyName>_<yyyyMMdd>/
     ├── OrgInfo.json
     └── M365_AuditSummary.html
-    └── Raw Files/
+    └── Raw/
         ├── AuditLog.txt
         ├── Entra_Users.csv
         ├── Entra_SecureScore.csv
@@ -537,7 +591,9 @@ All modules accept the `-DevMode` switch for standalone testing.
 ├── Invoke-ExchangeAudit.ps1                  # Exchange Online module
 ├── Invoke-IntuneAudit.ps1                    # Intune / Endpoint module
 ├── Invoke-MailSecurityAudit.ps1              # Mail security module
+├── Invoke-ScubaGearAudit.ps1                 # CISA ScubaGear CIS Baseline module
 ├── Invoke-SharePointAudit.ps1                # SharePoint / OneDrive module
+├── Invoke-TeamsAudit.ps1                     # Teams module
 ├── Setup-365AuditApp.ps1                     # One-time app registration, certificate setup, and renewal
 ├── Start-365Audit.ps1                        # Interactive launcher and module menu
 ├── Start-UnattendedAudit.ps1                 # Automated bulk runner

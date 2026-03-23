@@ -53,7 +53,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.3.0
+    Version     : 2.4.0
 
 .LINK
     https://github.com/razer86/365Audit
@@ -64,8 +64,8 @@
 param (
     [string[]]$Customers,
 
-    [ValidateSet(1, 2, 3, 4, 9)]
-    [int[]]$Modules,
+    [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
+    [string[]]$Modules,
 
     [string]$HuduBaseUrl,
     [string]$HuduApiKey,
@@ -73,7 +73,7 @@ param (
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.3.0"
+$ScriptVersion = "2.4.0"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -142,7 +142,7 @@ $failed         = @()
 foreach ($entry in $customerList) {
         $currentIndex++
         $customerId   = $entry.HuduCompanySlug
-        $customerMods = if ($Modules) { $Modules } else { [int[]]($entry.Modules ?? @(1, 2, 3, 4)) }
+        $customerMods = if ($Modules) { $Modules } else { @($entry.Modules ?? @(1, 2, 3, 4)) }
         $customerLabel = "[$currentIndex/$totalCustomers] $customerId"
 
         Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
