@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.13.0
+    Version     : 2.14.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -115,10 +115,18 @@ param (
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
     [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
-    [string[]]$Modules
+    [string[]]$Modules,
+
+    # ── Output ────────────────────────────────────────────────────────────────
+    # Override the root folder where per-customer output folders are created.
+    # Falls back to OutputRoot in config.psd1, then defaults to two levels above the toolkit.
+    [Parameter(ParameterSetName = 'Manual')]
+    [Parameter(ParameterSetName = 'HuduById')]
+    [Parameter(ParameterSetName = 'HuduByName')]
+    [string]$OutputRoot
 )
 
-$ScriptVersion = "2.13.0"
+$ScriptVersion = "2.14.1"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -172,11 +180,26 @@ if (Test-Path $_configPath) {
         if (-not $HuduApiKey  -and $_config.HuduApiKey)        { $HuduApiKey           = $_config.HuduApiKey }
         if (-not $HuduBaseUrl -and $_config.HuduBaseUrl)       { $HuduBaseUrl          = $_config.HuduBaseUrl }
         if ($_config.HuduAssetLayoutId -gt 0)                  { $_huduAssetLayoutId   = $_config.HuduAssetLayoutId }
+        if (-not $OutputRoot  -and $_config.OutputRoot)        { $OutputRoot           = $_config.OutputRoot }
     }
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
 if (-not $HuduBaseUrl) { $HuduBaseUrl = 'https://neconnect.huducloud.com' }
 
+# Validate OutputRoot early — before Graph connects — so a typo fails fast with a clear message.
+if ($OutputRoot) {
+    try {
+        $OutputRoot  = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputRoot)
+        $_qualifier  = Split-Path -Qualifier $OutputRoot -ErrorAction SilentlyContinue
+        if ($_qualifier -and -not (Test-Path $_qualifier)) {
+            throw "Drive or UNC root is not accessible: '$_qualifier'"
+        }
+        New-Item -ItemType Directory -Path $OutputRoot -Force -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "OutputRoot '$OutputRoot' is invalid: $($_.Exception.Message)"
+    }
+}
 
 # === Fetch credentials from Hudu =============================================
 if ($PSCmdlet.ParameterSetName -in 'HuduById', 'HuduByName') {
@@ -432,6 +455,9 @@ Write-Host "Run mode    : $(if ($Modules) { '-Modules ' + ($Modules -join ',') }
 Write-Host "Selected    : $($_resolvedModuleNames -join ', ')"
 Write-Host "Started at  : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "Script path : $PSCommandPath"
+
+# Propagate OutputRoot to Initialize-AuditOutput before any module runs.
+if ($OutputRoot) { $script:AuditOutputRoot = $OutputRoot }
 
 # === Execute Selected Modules ===
 $auditContext = $null

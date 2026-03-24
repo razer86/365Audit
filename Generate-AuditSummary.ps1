@@ -68,7 +68,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.42.0
+    Version     : 1.43.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -90,7 +90,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.42.0"
+$ScriptVersion = "1.43.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -1185,6 +1185,25 @@ if (Test-Path $_aiSharedSignInCsv) {
     $_aiSharedEnabled = @(Import-Csv $_aiSharedSignInCsv | Where-Object { $_.AccountDisabled -eq "False" })
     if ($_aiSharedEnabled.Count -gt 0) {
         Add-ActionItem -Severity 'warning' -Category 'Exchange / Mailboxes' -Text "$($_aiSharedEnabled.Count) shared mailbox(es) have interactive sign-in enabled. Shared mailboxes should have sign-in disabled to prevent direct login and MFA bypass. (CIS 1.2.2)" -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/admin/email/about-shared-mailboxes'
+    }
+}
+
+# Mailboxes nearly full (>75% used) with no In-Place Archive
+$_aiMbxCapCsv = Join-Path $exchangeDir "Exchange_Mailboxes.csv"
+if (Test-Path $_aiMbxCapCsv) {
+    $_aiMbxNearFull = @(Import-Csv $_aiMbxCapCsv | Where-Object {
+        $_.LimitMB -and $_.LimitMB -ne '' -and [double]$_.LimitMB -gt 0 -and
+        $_.ArchiveEnabled -eq 'False' -and
+        ([double]$_.TotalSizeMB / [double]$_.LimitMB) -gt 0.75
+    })
+    if ($_aiMbxNearFull.Count -gt 0) {
+        $_nearFullList = ($_aiMbxNearFull | ForEach-Object {
+            $pct = [math]::Round(([double]$_.TotalSizeMB / [double]$_.LimitMB) * 100, 0)
+            "$($_.DisplayName) ($($_.UserPrincipalName)) — $pct% used, no archive"
+        }) -join '<br>'
+        Add-ActionItem -Severity 'warning' -Category 'Exchange / Mailboxes' `
+            -Text "$($_aiMbxNearFull.Count) mailbox(es) are over 75% full and do not have an In-Place Archive enabled. Enable archiving to prevent mail delivery failures when the quota is reached:<br>$_nearFullList" `
+            -DocUrl 'https://learn.microsoft.com/en-us/microsoft-365/compliance/enable-archive-mailboxes'
     }
 }
 
@@ -2615,6 +2634,16 @@ if ($exchangeFiles.Count -gt 0) {
     if (Test-Path $mbxCsv) {
         $mailboxes = @(Import-Csv $mbxCsv)
 
+        # Build UPN set for row highlighting — mailboxes >75% full with no archive
+        $_nearFullUpns = @{}
+        foreach ($_m in $mailboxes) {
+            if ($_m.LimitMB -and $_m.LimitMB -ne '' -and [double]$_m.LimitMB -gt 0 -and
+                $_m.ArchiveEnabled -eq 'False' -and
+                ([double]$_m.TotalSizeMB / [double]$_m.LimitMB) -gt 0.75) {
+                $_nearFullUpns[$_m.UserPrincipalName] = $true
+            }
+        }
+
         $exchangeSummary.Add("<h4 id='exchange-mailboxes'>Mailboxes</h4>")
         $exchangeSummary.Add((Get-ExpandHintHtml -Text 'Click a row to expand delegated permissions.'))
 
@@ -2637,8 +2666,17 @@ if ($exchangeFiles.Count -gt 0) {
 
             $archiveSizeCell = if ($mbx.ArchiveSizeMB -and $mbx.ArchiveSizeMB -ne '') { "$($mbx.ArchiveSizeMB) MB" } else { "—" }
 
+            # Near-full / no-archive highlighting
+            $_isNearFull  = $_nearFullUpns.ContainsKey($upn)
+            $_rowStyle    = if ($_isNearFull) { " style='border-left:3px solid #ff9800;background:#fff8f0'" } else { "" }
+            $archiveCell  = if ($_isNearFull) {
+                "<td><span style='color:#e65100;font-weight:600' title='Mailbox is over 75% full with no archive enabled'>No Archive</span></td>"
+            } else {
+                "<td>$($mbx.ArchiveEnabled)</td>"
+            }
+
             # Main mailbox row — clickable
-            $mainRow = "<tr class='user-row' onclick='togglePerms(this)' title='Click to show/hide delegated permissions'><td>$($mbx.DisplayName)</td><td>$upn</td><td>$($mbx.RecipientType)</td>$usageCell<td>$($mbx.ArchiveEnabled)</td><td>$archiveSizeCell</td></tr>"
+            $mainRow = "<tr class='user-row'$_rowStyle onclick='togglePerms(this)' title='Click to show/hide delegated permissions'><td>$($mbx.DisplayName)</td><td>$upn</td><td>$($mbx.RecipientType)</td>$usageCell$archiveCell<td>$archiveSizeCell</td></tr>"
 
             # Permissions detail row (hidden by default)
             $perms = if ($permsByUpn.ContainsKey($upn)) { $permsByUpn[$upn] } else { $null }

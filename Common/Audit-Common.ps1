@@ -11,7 +11,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.23.0
+    Version     : 1.24.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -20,7 +20,7 @@
 
 #Requires -Version 7.2
 
-$ScriptVersion = "1.23.0"
+$ScriptVersion = "1.24.0"
 $RemoteBaseUrl = "https://raw.githubusercontent.com/razer86/365Audit/refs/heads/main"
 Write-Verbose "Audit-Common.ps1 loaded (v$ScriptVersion)"
 
@@ -550,7 +550,14 @@ function Connect-TeamsSecure {
 # ==========================================
 function Initialize-AuditOutput {
     [CmdletBinding()]
-    param()
+    param(
+        # Optional override for the root folder where per-customer output folders are created.
+        # Takes precedence over config.psd1 OutputRoot and the default (two levels above the toolkit).
+        # Persisted in $script:AuditOutputRoot so subsequent calls from module scripts use it automatically.
+        [string]$OutputRoot = ''
+    )
+
+    if ($OutputRoot) { $script:AuditOutputRoot = $OutputRoot }
 
     if ($script:AuditOutputContext) {
         return $script:AuditOutputContext
@@ -589,7 +596,11 @@ function Initialize-AuditOutput {
 
     $cleanDisplayName = $orgExpanded.DisplayName -replace '[^a-zA-Z0-9]', ''
     $folderName       = "${cleanDisplayName}_$(Get-Date -Format 'yyyyMMdd')"
-    $outputDir        = Join-Path $PSScriptRoot "..\..\$folderName"
+    $outputDir        = if ($script:AuditOutputRoot) {
+        Join-Path $script:AuditOutputRoot $folderName
+    } else {
+        Join-Path $PSScriptRoot "..\..\$folderName"
+    }
     $rawOutputDir     = Join-Path $outputDir "Raw"
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     New-Item -ItemType Directory -Path $rawOutputDir -Force | Out-Null

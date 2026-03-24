@@ -24,6 +24,13 @@
     # Change this to match your asset layout name if you have renamed it in Hudu.
     HuduAssetName = 'M365 Audit Toolkit'
 
+    # ── Output ───────────────────────────────────────────────────────────────
+
+    # Optional: root folder where per-customer output folders are created.
+    # Each run produces a subfolder named <OrgName>_<yyyyMMdd> inside this path.
+    # If omitted, reports are written two levels above the toolkit directory.
+    # OutputRoot = 'C:\AuditReports'
+
     # ── MSP identity ─────────────────────────────────────────────────────────
 
     # Your MSP's email domains. Technical contact addresses not in this list

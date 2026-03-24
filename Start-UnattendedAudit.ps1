@@ -53,7 +53,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.4.0
+    Version     : 2.5.1
 
 .LINK
     https://github.com/razer86/365Audit
@@ -70,10 +70,14 @@ param (
     [string]$HuduBaseUrl,
     [string]$HuduApiKey,
 
+    # Override the root folder where per-customer output folders are created.
+    # Falls back to OutputRoot in config.psd1, then defaults to two levels above the toolkit.
+    [string]$OutputRoot,
+
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.4.0"
+$ScriptVersion = "2.5.1"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -86,10 +90,26 @@ if (Test-Path $_configPath) {
         $_config = Import-PowerShellDataFile -Path $_configPath
         if (-not $HuduApiKey  -and $_config.HuduApiKey)  { $HuduApiKey  = $_config.HuduApiKey }
         if (-not $HuduBaseUrl -and $_config.HuduBaseUrl) { $HuduBaseUrl = $_config.HuduBaseUrl }
+        if (-not $OutputRoot  -and $_config.OutputRoot)  { $OutputRoot  = $_config.OutputRoot }
     }
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
 if (-not $HuduBaseUrl) { $HuduBaseUrl = 'https://neconnect.huducloud.com' }
+
+# Validate OutputRoot early — before any customer runs — so a typo fails the whole batch immediately.
+if ($OutputRoot) {
+    try {
+        $OutputRoot  = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputRoot)
+        $_qualifier  = Split-Path -Qualifier $OutputRoot -ErrorAction SilentlyContinue
+        if ($_qualifier -and -not (Test-Path $_qualifier)) {
+            throw "Drive or UNC root is not accessible: '$_qualifier'"
+        }
+        New-Item -ItemType Directory -Path $OutputRoot -Force -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "OutputRoot '$OutputRoot' is invalid: $($_.Exception.Message)"
+    }
+}
 
 # ── Load customer list from PSD1 ───────────────────────────────────────────────
 $customerListPath = Join-Path $PSScriptRoot 'UnattendedCustomers.psd1'
@@ -170,12 +190,15 @@ foreach ($entry in $customerList) {
 
             # --- Step 2: Run audit ---
             Write-Host "  Starting audit (modules: $($customerMods -join ','))..." -ForegroundColor DarkCyan
-            & $auditScript `
-                -HuduCompanyId $customerId `
-                -HuduBaseUrl   $HuduBaseUrl `
-                -HuduApiKey    $HuduApiKey `
-                -Modules       $customerMods `
-                -ErrorAction Stop
+            $auditParams = @{
+                HuduCompanyId = $customerId
+                HuduBaseUrl   = $HuduBaseUrl
+                HuduApiKey    = $HuduApiKey
+                Modules       = $customerMods
+                ErrorAction   = 'Stop'
+            }
+            if ($OutputRoot) { $auditParams['OutputRoot'] = $OutputRoot }
+            & $auditScript @auditParams
 
             $result.AuditStatus = 'Completed'
             Write-Host "  $customerLabel — DONE" -ForegroundColor Green
