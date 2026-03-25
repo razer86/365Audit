@@ -346,10 +346,19 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
+## Helpers/Remove-AuditCustomer.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — offboards a customer by removing their app registration from Entra ID and deleting the corresponding Hudu asset; Hudu lookup resolves AppId/TenantId automatically from the asset; `-PermanentDelete` purges from the Entra recycle bin immediately (default is soft-delete, recoverable for 30 days); `-AppId`/`-TenantId` can be used directly when Hudu is not involved; full `SupportsShouldProcess` with `ConfirmImpact = 'High'` and `-WhatIf` support |
+
+---
+
 ## Helpers/Sync-UnattendedCustomers.ps1
 
 | Version | Notes |
 |---------|-------|
+| 1.0.1 | `$DefaultModules` type changed from `[int[]]` to `[string[]]` with `ValidateSet`; default changed from `@(9)` to `@('A')`; module comment and `.PARAMETER` doc updated to include modules 6=Teams, 7=ScubaGear, A=All; PSD1 serialisation now quotes module values so `'A'` renders as a valid string in the output file |
 | 1.0.0 | Initial release — queries Hudu for all assets matching `HuduAssetLayoutId`, resolves company slugs, and merges results into `UnattendedCustomers.psd1`; preserves existing entries, appends new companies with `Modules = @(9)`, warns about slugs no longer in Hudu; supports `-WhatIf` and `-DefaultModules` |
 
 ---

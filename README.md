@@ -544,6 +544,31 @@ Reads `HuduBaseUrl`, `HuduApiKey`, and `HuduAssetName` from `config.psd1`.
 
 ---
 
+### Remove-AuditCustomer.ps1
+
+Offboards a customer by removing their app registration from Entra ID and deleting the corresponding Hudu asset. Use when a customer leaves or when you need to fully reset a customer's 365Audit configuration.
+
+```powershell
+# Hudu lookup — resolves AppId/TenantId from the asset automatically
+.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6'
+.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyName 'Contoso Ltd'
+
+# Direct — removes Entra app only (no Hudu asset involved)
+.\Helpers\Remove-AuditCustomer.ps1 -AppId '<AppId>' -TenantId '<TenantId>'
+
+# Preview without making changes
+.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6' -WhatIf
+
+# Permanently purge from Entra recycle bin (cannot be undone)
+.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6' -PermanentDelete
+```
+
+By default the app is **soft-deleted** and remains recoverable from the Entra recycle bin for 30 days. Use `-PermanentDelete` only when certain the customer will not be re-onboarded.
+
+Reads `HuduBaseUrl`, `HuduApiKey`, `HuduAssetLayoutId`, and `HuduAssetName` from `config.psd1`.
+
+---
+
 ### Uninstall-AuditModules.ps1
 
 Removes all installed versions of every module required by the toolkit. Useful for testing a clean first-run install experience or resolving conflicting module versions.
@@ -581,7 +606,8 @@ All modules accept the `-DevMode` switch for standalone testing.
 ├── Helpers/
 │   ├── Get-HuduAssetLayouts.ps1              # Lists Hudu asset layouts to find the correct layout ID
 │   ├── Get-ModuleVersionStatus.ps1           # Checks installed vs latest PSGallery versions for all modules
-│   ├── New-HuduAssetLayout.ps1              # Creates the M365 Audit Toolkit asset layout in Hudu
+│   ├── New-HuduAssetLayout.ps1               # Creates the M365 Audit Toolkit asset layout in Hudu
+│   ├── Remove-AuditCustomer.ps1              # Offboards a customer — removes Entra app and Hudu asset
 │   ├── Sync-UnattendedCustomers.ps1          # Syncs UnattendedCustomers.psd1 from Hudu assets
 │   └── Uninstall-AuditModules.ps1            # Removes all toolkit modules (clean reinstall / conflict resolution)
 ├── CHANGELOG.md                              # Full version history for all scripts
