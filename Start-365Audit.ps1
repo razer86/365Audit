@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.14.1
+    Version     : 2.15.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -126,7 +126,7 @@ param (
     [string]$OutputRoot
 )
 
-$ScriptVersion = "2.14.1"
+$ScriptVersion = "2.15.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -513,6 +513,14 @@ try {
     }
     else {
         Write-Warning "No audit output context found — summary report skipped."
+    }
+
+    # Record output path to temp file so callers (e.g. Start-UnattendedAudit.ps1)
+    # can retrieve it after this script returns from a child-scope & call.
+    if ($auditContext) {
+        $auditContext.OutputPath | Set-Content `
+            -Path (Join-Path $env:TEMP '365Audit_LastOutput.txt') `
+            -Encoding UTF8 -NoNewline
     }
 }
 finally {

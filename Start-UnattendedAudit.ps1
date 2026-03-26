@@ -53,7 +53,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.5.1
+    Version     : 2.6.0
 
 .LINK
     https://github.com/razer86/365Audit
@@ -77,7 +77,7 @@ param (
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.5.1"
+$ScriptVersion = "2.6.0"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -91,6 +91,7 @@ if (Test-Path $_configPath) {
         if (-not $HuduApiKey  -and $_config.HuduApiKey)  { $HuduApiKey  = $_config.HuduApiKey }
         if (-not $HuduBaseUrl -and $_config.HuduBaseUrl) { $HuduBaseUrl = $_config.HuduBaseUrl }
         if (-not $OutputRoot  -and $_config.OutputRoot)  { $OutputRoot  = $_config.OutputRoot }
+        $_reportLayoutId = if ($_config.HuduReportLayoutId -gt 0) { [int]$_config.HuduReportLayoutId } else { 68 }
     }
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
@@ -202,6 +203,26 @@ foreach ($entry in $customerList) {
 
             $result.AuditStatus = 'Completed'
             Write-Host "  $customerLabel — DONE" -ForegroundColor Green
+
+            # ── Publish report to Hudu ────────────────────────────────────────
+            $_publishScript  = Join-Path $scriptRoot 'Helpers\Publish-HuduAuditReport.ps1'
+            $_lastOutputFile = Join-Path $env:TEMP '365Audit_LastOutput.txt'
+            $_customerOutputPath = if (Test-Path $_lastOutputFile) {
+                (Get-Content $_lastOutputFile -Raw -ErrorAction SilentlyContinue).Trim()
+            } else { $null }
+
+            if ((Test-Path $_publishScript) -and $_customerOutputPath -and (Test-Path $_customerOutputPath)) {
+                Write-Host "  Publishing report to Hudu..." -ForegroundColor DarkCyan
+                try {
+                    & $_publishScript `
+                        -OutputPath     $_customerOutputPath `
+                        -CompanySlug    $customerId `
+                        -HuduBaseUrl    $HuduBaseUrl `
+                        -HuduApiKey     $HuduApiKey `
+                        -ReportLayoutId $_reportLayoutId
+                }
+                catch { Write-Warning "  Hudu publish failed: $($_.Exception.Message)" }
+            }
         }
         catch {
             $result.AuditStatus = 'Failed'

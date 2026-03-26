@@ -68,7 +68,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.43.0
+    Version     : 1.47.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -90,7 +90,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.43.0"
+$ScriptVersion = "1.48.0"
 Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -269,8 +269,10 @@ $html.Add(@"
 <style>
 /* ── Reset & layout ── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293b;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:14px;}
+body{margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293b;font-size:14px;}
+.page-wrapper{height:100vh;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;scroll-behavior:smooth;}
 /* ── App header ── */
+.sticky-header{position:sticky;top:0;z-index:20;}
 .app-header{background:linear-gradient(135deg,#0f2744 0%,#1d4ed8 100%);color:#fff;padding:0.6rem 1.25rem;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,0.25);}
 .app-header h1{font-size:0.97rem;font-weight:700;letter-spacing:0.01em;}
 .app-header-sub{font-size:0.72rem;opacity:0.7;margin-top:0.1rem;}
@@ -298,9 +300,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293
 .kpi-sub{font-size:0.63rem;color:#94a3b8;margin-top:0.05rem;}
 .kpi-value.ok{color:#16a34a;} .kpi-value.warn{color:#d97706;} .kpi-value.critical{color:#dc2626;}
 /* ── Layout ── */
-.layout{display:flex;flex:1;overflow:hidden;}
+.layout{display:flex;flex:1;}
 /* ── Sidebar ── */
-.sidebar{width:208px;background:#1e293b;color:#94a3b8;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;overflow-x:hidden;}
+.sidebar{width:208px;background:#1e293b;color:#94a3b8;display:flex;flex-direction:column;flex-shrink:0;overflow-x:hidden;position:sticky;top:0;height:100vh;overflow-y:auto;}
 .sidebar::-webkit-scrollbar{width:3px;} .sidebar::-webkit-scrollbar-thumb{background:#334155;}
 .sb-section-label{padding:0.85rem 1rem 0.3rem;font-size:0.62rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#475569;}
 .sb-item{display:flex;align-items:center;gap:0.5rem;padding:0.46rem 1rem;font-size:0.81rem;color:#94a3b8;text-decoration:none;border-left:3px solid transparent;transition:background 0.12s,color 0.12s,border-color 0.12s;white-space:nowrap;cursor:pointer;}
@@ -312,8 +314,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f0f4f8;color:#1e293
 .sb-badge.warn{background:rgba(245,158,11,0.25);color:#fcd34d;}
 .sb-divider{margin:0.4rem 1rem;border:none;border-top:1px solid #263548;}
 /* ── Main content ── */
-.main{flex:1;overflow-y:auto;scroll-behavior:smooth;}
-.main::-webkit-scrollbar{width:6px;} .main::-webkit-scrollbar-thumb{background:#c8d3de;border-radius:3px;}
+.main{flex:1;min-width:0;}
 .content-area{padding:0.9rem 1.1rem;}
 /* ── Company card ── */
 .company-card{background:#fff;border:1px solid #dde3ea;border-radius:8px;padding:0.7rem 1rem;margin-bottom:0.8rem;}
@@ -508,6 +509,8 @@ if (Test-Path $orgInfoPath) {
 
     $html.Add(@"
 <body>
+<div class='page-wrapper'>
+<div class='sticky-header'>
 <div class='app-header'>
   <div></div>
   <div class='app-hdr-company'>$(ConvertTo-HtmlText $orgInfo.DisplayName)</div>
@@ -519,6 +522,8 @@ else {
     $script:companyCardHtml = ''
     $html.Add(@"
 <body>
+<div class='page-wrapper'>
+<div class='sticky-header'>
 <div class='app-header'>
   <div></div>
   <div class='app-hdr-company'>Microsoft 365 Audit</div>
@@ -1584,13 +1589,15 @@ $html.Add(@"
   <div class='kpi-card'><div class='kpi-value $_kpiDevClass'>$_kpiDevStr</div><div class='kpi-label'>Managed Devices</div><div class='kpi-sub'>$_kpiDevSub</div></div>
   <div class='kpi-card'><div class='kpi-value $_kpiAiClass'>$_kpiAiStr</div><div class='kpi-label'>Action Items</div><div class='kpi-sub'>$_kpiAiSub</div></div>
 </div>
+</div><!-- /sticky-header -->
 <div class='layout'>
   <nav class='sidebar'>
+    <a class='sb-item' href='#action-items'><span class='sb-dot dot-neutral'></span>Action Items</a>
+    <a class='sb-item' href='#compliance-overview'><span class='sb-dot dot-neutral'></span>Compliance Overview</a>
+    <hr class='sb-divider'>
     <div class='sb-section-label'>Modules</div>
     $($_sbItemsHtml -join "`n    ")
     <hr class='sb-divider'>
-    <div class='sb-section-label'>Report</div>
-    <a class='sb-item' href='#compliance-overview'><span class='sb-dot dot-neutral'></span>Compliance Overview</a>
     <a class='sb-item' href='#tech-issues'><span class='sb-dot dot-neutral'></span>Technical Issues</a>
     <a class='sb-item' href='$(([System.IO.Path]::GetRelativePath($script:ReportBaseDir, (Join-Path $AuditFolder "Raw")) -replace '\\', '/'))' target='_blank'><span class='sb-dot dot-neutral'></span>Raw CSV Files</a>
   </nav>
@@ -4474,32 +4481,559 @@ function toggleModule(hdr) {
     });
   });
 })();
-// Sidebar scroll-spy (handles both module and sub-section links)
+// Layout mode: app-shell when standalone, flow when embedded in a CMS (e.g. Hudu)
 (function() {
-    var main  = document.querySelector('.main');
+    var wrapper  = document.querySelector('.page-wrapper');
+    var hdr      = document.querySelector('.sticky-header');
+    var sb       = document.querySelector('.sidebar');
+    // If our wrapper is a direct child of <body> we are standalone; otherwise we are embedded
+    var embedded = !wrapper || wrapper.parentNode.nodeName !== 'BODY';
+
+    if (embedded) {
+        // Inside a CMS — remove fixed-height constraints and let the host page scroll
+        if (wrapper) { wrapper.style.height = 'auto'; wrapper.style.overflowY = 'visible'; }
+        if (hdr)     { hdr.style.position = 'static'; }
+        if (sb)      { sb.style.position = 'static'; sb.style.height = 'auto'; }
+    } else {
+        // Standalone — apply app-shell: wrapper scrolls, sidebar tracks header bottom
+        function sizeIt() {
+            if (!hdr || !sb) return;
+            var h = hdr.offsetHeight;
+            sb.style.top    = h + 'px';
+            sb.style.height = 'calc(100vh - ' + h + 'px)';
+        }
+        sizeIt();
+        window.addEventListener('resize', sizeIt);
+    }
+
+    // Scroll-spy — precompute stable offsets so hidden elements (display:none collapsed
+    // sections) never pollute the active calculation via zero-value getBoundingClientRect.
     var links = document.querySelectorAll('.sb-item[href^="#"], .sb-sub[href^="#"]');
-    if (!main || !links.length) return;
-    function update() {
-        var mainRect = main.getBoundingClientRect();
-        var trigger  = mainRect.top + 80;
-        var current  = '';
+    if (!links.length) return;
+    var scroller    = embedded ? window : (wrapper || window);
+    var triggerPx   = function() { return embedded ? 20 : (hdr ? hdr.offsetHeight + 20 : 20); };
+    var scrollTop   = function() { return embedded ? (window.pageYOffset || document.documentElement.scrollTop) : (wrapper ? wrapper.scrollTop : 0); };
+
+    // Build sorted array of { id, pos } where pos is the element's distance from the
+    // top of the scroll container at the time the page finishes loading.
+    // Elements inside display:none ancestors have a zero bounding rect — exclude them.
+    function buildAnchors() {
+        var base = scrollTop();
+        var data = [];
         links.forEach(function(link) {
             var id = link.getAttribute('href').substring(1);
             var el = document.getElementById(id);
-            if (el && el.getBoundingClientRect().top <= trigger) current = id;
+            if (!el) return;
+            var r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return; // hidden — skip
+            data.push({ id: id, pos: r.top + base });
         });
+        data.sort(function(a, b) { return a.pos - b.pos; });
+        return data;
+    }
+    var anchors = buildAnchors();
+
+    // Rebuild if user expands/collapses a module (positions shift)
+    var origToggle = window.toggleModule;
+    window.toggleModule = function(h) { if (origToggle) origToggle(h); anchors = buildAnchors(); applyActive(); };
+
+    function applyActive() {
+        var threshold = scrollTop() + triggerPx();
+        var current   = '';
+        for (var i = anchors.length - 1; i >= 0; i--) {
+            if (anchors[i].pos <= threshold) { current = anchors[i].id; break; }
+        }
         links.forEach(function(link) {
-            var id = link.getAttribute('href').substring(1);
-            link.classList.toggle('active', id === current);
+            link.classList.toggle('active', link.getAttribute('href').substring(1) === current);
+        });
+        document.querySelectorAll('.sb-module-group').forEach(function(group) {
+            var parent = group.querySelector('.sb-item');
+            var activeSub = group.querySelector('.sb-sub.active');
+            if (parent && !parent.classList.contains('active')) {
+                parent.classList.toggle('active', !!activeSub);
+            }
         });
     }
-    main.addEventListener('scroll', update, { passive: true });
-    update();
+    scroller.addEventListener('scroll', applyActive, { passive: true });
+    applyActive();
 })();
 </script>
+</div><!-- /page-wrapper -->
 </body></html>
 "@)
 $html -join "`n" | Set-Content -Path $reportPath -Encoding UTF8
+
+# Write structured action items sidecar for downstream integrations (e.g. Hudu publish)
+if ($actionItems.Count -gt 0) {
+    $sidecarPath = Join-Path $AuditFolder 'ActionItems.json'
+    $actionItems | ForEach-Object { [PSCustomObject]$_ } | ConvertTo-Json -Depth 3 |
+        Set-Content -Path $sidecarPath -Encoding UTF8
+    Write-Verbose "Action items sidecar written: $sidecarPath"
+}
+
+# Write Hudu-compatible inline-styled report (M365_HuduReport.html)
+# No JavaScript. Inline styles throughout. Collapsible sections via <details>/<summary>.
+$_huduReportPath = Join-Path $AuditFolder 'M365_HuduReport.html'
+$_huduCompany    = if ($orgInfo -and $orgInfo.DisplayName) { [System.Net.WebUtility]::HtmlEncode($orgInfo.DisplayName) } else { 'Microsoft 365 Tenant' }
+$_huduColour     = @{ ok = '#16a34a'; warn = '#d97706'; critical = '#dc2626' }
+
+# ── Builder helpers ────────────────────────────────────────────────────────────
+
+function New-HuduKpiTile { param([string]$Label, [string]$Value, [string]$Sub, [string]$Colour)
+    $subHtml = if ($Sub) { "<div style='font-size:11px;color:var(--au-text-dim,#94a3b8);margin-top:3px;'>$Sub</div>" } else { '' }
+    return "<div style='flex:1;min-width:155px;background:var(--au-surface,#fff);border:1px solid var(--au-border,#e2e8f0);border-radius:8px;padding:14px 16px;'>" +
+           "<div style='font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.05em;margin-bottom:4px;'>$Label</div>" +
+           "<div style='font-size:22px;font-weight:700;color:$Colour;'>$Value</div>$subHtml</div>"
+}
+
+function New-HuduSection { param([string]$Title, [string]$Content, [switch]$Open, [string]$Accent = '#1e3a5f')
+    $openAttr = if ($Open) { ' open' } else { '' }
+    return "<details$openAttr style='margin-bottom:10px;border:1px solid var(--au-border,#e2e8f0);border-radius:8px;overflow:hidden;'>" +
+           "<summary style='padding:11px 16px;background:$Accent;color:#fff;font-weight:600;font-size:13px;cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;'>" +
+           "<span>$Title</span><span style='font-size:10px;opacity:.65;'>&#9660;</span></summary>" +
+           "<div style='padding:14px 16px;background:var(--au-surface,#fff);'>$Content</div></details>"
+}
+
+function New-HuduStatGrid { param([hashtable[]]$Stats)
+    $tiles = foreach ($s in $Stats) {
+        $c = if ($s.Colour) { $s.Colour } else { 'var(--au-text,#1e293b)' }
+        "<div style='flex:1;min-width:110px;padding:10px 12px;background:var(--au-surface2,#f8fafc);border-radius:6px;border:1px solid var(--au-border,#e2e8f0);'>" +
+        "<div style='font-size:10px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;'>$($s.Label)</div>" +
+        "<div style='font-size:17px;font-weight:700;color:$c;margin-top:3px;'>$($s.Value)</div></div>"
+    }
+    return "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;'>$($tiles -join '')</div>"
+}
+
+function New-HuduTable { param([string[]]$Headers, [string[][]]$Rows, [int]$MaxRows = 0)
+    if (-not $Rows -or $Rows.Count -eq 0) { return "<p style='font-size:12px;color:var(--au-text-dim,#94a3b8);margin:4px 0;'>No records found.</p>" }
+    $show     = if ($MaxRows -gt 0 -and $Rows.Count -gt $MaxRows) { $Rows | Select-Object -First $MaxRows } else { $Rows }
+    $truncMsg = if ($MaxRows -gt 0 -and $Rows.Count -gt $MaxRows) { "<p style='font-size:11px;color:var(--au-text-dim,#94a3b8);margin:6px 0 0;'>Showing $MaxRows of $($Rows.Count) — full list in M365_AuditSummary.html.</p>" } else { '' }
+    $hCells   = $Headers | ForEach-Object { "<th style='padding:6px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;background:var(--au-surface2,#f8fafc);white-space:nowrap;'>$_</th>" }
+    $bRows    = $show | ForEach-Object { $cells = $_ | ForEach-Object { "<td style='padding:6px 10px;font-size:12px;color:var(--au-text,#1e293b);border-top:1px solid var(--au-border-inner,#f1f5f9);'>$_</td>" }; "<tr>$($cells -join '')</tr>" }
+    return "<table style='width:100%;border-collapse:collapse;border:1px solid var(--au-border,#e2e8f0);border-radius:6px;overflow:hidden;margin-bottom:4px;'>" +
+           "<thead><tr>$($hCells -join '')</tr></thead><tbody>$($bRows -join '')</tbody></table>$truncMsg"
+}
+
+function New-HuduAiTable { param([array]$Items, [string]$Heading, [string]$AccentColour)
+    if (-not $Items -or $Items.Count -eq 0) { return '' }
+    $rows = foreach ($ai in $Items) {
+        $_cleanText = $ai.Text -replace '\s*\(CIS\s[\d.]+\)', ''
+        "<tr style='border-bottom:1px solid var(--au-border-inner,#f1f5f9);'>" +
+        "<td style='padding:8px 10px;font-size:12px;font-weight:600;color:var(--au-text-muted,#475569);white-space:nowrap;'>$($ai.Category)</td>" +
+        "<td style='padding:8px 10px;font-size:13px;color:var(--au-text,#1e293b);'>$_cleanText</td></tr>"
+    }
+    return "<div style='margin-bottom:12px;'>" +
+           "<div style='padding:9px 14px;background:$AccentColour;border-radius:6px 6px 0 0;'>" +
+           "<span style='color:#fff;font-weight:700;font-size:13px;'>$Heading ($($Items.Count))</span></div>" +
+           "<div style='border:1px solid var(--au-border,#e2e8f0);border-top:none;border-radius:0 0 6px 6px;overflow:hidden;'>" +
+           "<table style='width:100%;border-collapse:collapse;'>" +
+           "<thead><tr style='background:var(--au-surface2,#f8fafc);'>" +
+           "<th style='padding:7px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;width:160px;'>Category</th>" +
+           "<th style='padding:7px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;'>Finding</th>" +
+           "</tr></thead>" +
+           "<tbody>$($rows -join '')</tbody></table></div></div>"
+}
+
+function New-HuduModuleAi {
+    # Compact action item sub-panel for a module section, filtered by category prefix
+    param([string[]]$Prefixes)
+    $_mItems = @($actionItems | Where-Object {
+        $_cat = $_.Category; $Prefixes | Where-Object { $_cat -like "$_*" }
+    } | Sort-Object { $_.Sequence })
+    if ($_mItems.Count -eq 0) { return "<p style='font-size:12px;color:var(--au-good-text,#16a34a);margin:10px 0 0;'>&#10003; No action items for this module.</p>" }
+    $_mc = @($_mItems | Where-Object { $_.Severity -eq 'critical' })
+    $_mw = @($_mItems | Where-Object { $_.Severity -eq 'warning'  })
+    $rows = foreach ($ai in $_mItems) {
+        $sev  = if ($ai.Severity -eq 'critical') { '#dc2626' } else { '#d97706' }
+        $icon = if ($ai.Severity -eq 'critical') { '&#9889;' } else { '&#9888;' }
+        $doc  = if ($ai.DocUrl) { "<td style='padding:5px 8px;white-space:nowrap;'><a href='$($ai.DocUrl)' style='color:#3b82f6;font-size:11px;'>Docs</a></td>" } else { '<td></td>' }
+        "<tr style='border-top:1px solid var(--au-border-inner,#f1f5f9);'>" +
+        "<td style='padding:5px 8px;white-space:nowrap;font-size:11px;font-weight:700;color:$sev;'>$icon $(($ai.Severity).ToUpper())</td>" +
+        "<td style='padding:5px 8px;font-size:11px;color:var(--au-text-muted,#475569);white-space:nowrap;'>$($ai.Category)</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($ai.Text)</td>$doc</tr>"
+    }
+    $badge = @()
+    if ($_mc.Count -gt 0) { $badge += "<span style='color:#dc2626;font-weight:700;'>$($_mc.Count) critical</span>" }
+    if ($_mw.Count -gt 0) { $badge += "<span style='color:#d97706;font-weight:700;'>$($_mw.Count) warning$(if ($_mw.Count -ne 1) {'s'})</span>" }
+    return "<div style='margin-top:12px;border-top:2px solid var(--au-border-inner,#f1f5f9);padding-top:10px;'>" +
+           "<div style='font-size:12px;font-weight:700;color:var(--au-text,#334155);margin-bottom:6px;'>Action Items &mdash; $($badge -join ' &bull; ')</div>" +
+           "<table style='width:100%;border-collapse:collapse;'><tbody>$($rows -join '')</tbody></table></div>"
+}
+
+# ── KPI row ────────────────────────────────────────────────────────────────────
+$_huduKpiRow = "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;'>" +
+    (New-HuduKpiTile 'MFA Coverage'    $_kpiMfaStr   $_kpiMfaSub   $_huduColour[$_kpiMfaClass])  +
+    (New-HuduKpiTile 'Secure Score'    $_kpiScoreVal $_kpiScoreSub $_huduColour[$_kpiScoreClass]) +
+    (New-HuduKpiTile 'Managed Devices' $_kpiDevStr   $_kpiDevSub   $_huduColour[$_kpiDevClass])  +
+    (New-HuduKpiTile 'Action Items'    $_kpiAiStr    $_kpiAiSub    $_huduColour[$_kpiAiClass])   +
+    "</div>"
+
+# ── Section: Action Items (ScubaGear excluded — same as main report) ───────────
+$_huduCritItems = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -notlike 'ScubaGear*' } |
+    Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
+$_huduWarnItems = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -notlike 'ScubaGear*' } |
+    Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
+
+$_huduAiContent = (New-HuduAiTable -Items $_huduCritItems -Heading '&#9889; Critical Issues' -AccentColour '#dc2626') +
+                  (New-HuduAiTable -Items $_huduWarnItems -Heading '&#9888; Warnings'        -AccentColour '#d97706')
+if (-not $_huduAiContent) {
+    $_huduAiContent = "<p style='padding:14px;background:var(--au-good-bg,#f0fdf4);border:1px solid var(--au-border,#e2e8f0);border-radius:6px;color:var(--au-good-text,#15803d);font-size:13px;margin:0;'>&#10003; No action items — all checks passed.</p>"
+}
+$_huduAiParts = @()
+if ($_huduCritItems.Count -gt 0) { $_huduAiParts += "$($_huduCritItems.Count) critical" }
+if ($_huduWarnItems.Count -gt 0) { $_huduAiParts += "$($_huduWarnItems.Count) warning$(if ($_huduWarnItems.Count -ne 1) {'s'})" }
+$_huduAiTitle = if ($_huduAiParts.Count -gt 0) { "Action Items &mdash; $($_huduAiParts -join ', ')" } else { "Action Items" }
+
+$_secActionItems = New-HuduSection -Title $_huduAiTitle -Content $_huduAiContent -Open -Accent '#1e3a5f'
+
+# ── Section: Microsoft Entra ───────────────────────────────────────────────────
+$_entraContent = ''
+$_h_users = @(try { Import-Csv (Join-Path $rawDir 'Entra_Users.csv') -ErrorAction Stop } catch { @() })
+if ($_h_users.Count -gt 0) {
+    $_h_enabled  = @($_h_users | Where-Object { $_.AccountStatus -eq 'Enabled' })
+    $_h_licensed = @($_h_users | Where-Object { $_.AssignedLicense -and $_.AssignedLicense -ne '' -and $_.AssignedLicense -ne 'None' -and $_.AccountStatus -eq 'Enabled' })
+    $_entraContent += New-HuduStatGrid -Stats @(
+        @{ Label = 'Enabled Users';   Value = $_h_enabled.Count;  Colour = 'var(--au-text,#1e293b)' }
+        @{ Label = 'Licensed';        Value = $_h_licensed.Count; Colour = 'var(--au-text,#1e293b)' }
+        @{ Label = 'MFA Coverage';    Value = $_kpiMfaStr;         Colour = $_huduColour[$_kpiMfaClass] }
+        @{ Label = 'Secure Score';    Value = $_kpiScoreVal;       Colour = $_huduColour[$_kpiScoreClass] }
+    )
+}
+$_h_admins = @(try { Import-Csv (Join-Path $rawDir 'Entra_GlobalAdmins.csv') -ErrorAction Stop } catch { @() })
+$_h_ca     = @(try { Import-Csv (Join-Path $rawDir 'Entra_CA_Policies.csv')  -ErrorAction Stop } catch { @() })
+$_h_sd     = @(try { Import-Csv (Join-Path $rawDir 'Entra_SecurityDefaults.csv') -ErrorAction Stop } catch { @() })
+if ($_h_admins.Count -gt 0 -or $_h_ca.Count -gt 0 -or $_h_sd.Count -gt 0) {
+    $_h_caEnabled  = @($_h_ca | Where-Object { $_.State -eq 'enabled' })
+    $_h_caRO       = @($_h_ca | Where-Object { $_.State -eq 'enabledForReportingButNotEnforcing' })
+    $_h_sdEnabled  = if ($_h_sd.Count -gt 0) { $_h_sd[0].SecurityDefaultsEnabled } else { '—' }
+    $_adminColour  = if ($_h_admins.Count -gt 4 -or $_h_admins.Count -eq 0) { '#dc2626' } elseif ($_h_admins.Count -eq 1) { '#d97706' } else { '#16a34a' }
+    $_entraContent += New-HuduStatGrid -Stats @(
+        @{ Label = 'Global Admins';      Value = $_h_admins.Count;    Colour = $_adminColour }
+        @{ Label = 'CA Policies';        Value = $_h_caEnabled.Count; Colour = if ($_h_caEnabled.Count -gt 0) { '#16a34a' } else { '#d97706' } }
+        @{ Label = 'Report-Only CA';     Value = $_h_caRO.Count;      Colour = if ($_h_caRO.Count -gt 0) { '#d97706' } else { 'var(--au-text,#1e293b)' } }
+        @{ Label = 'Security Defaults';  Value = $_h_sdEnabled;       Colour = if ($_h_sdEnabled -eq 'True') { '#16a34a' } elseif ($_h_sdEnabled -eq 'False') { '#d97706' } else { 'var(--au-text,#1e293b)' } }
+    )
+}
+if ($_h_users.Count -gt 0) {
+    $_thS  = "padding:6px 8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;background:var(--au-surface2,#f8fafc);white-space:nowrap;"
+    $_uRows = @($_h_users | Sort-Object UPN | Select-Object -First 30 | ForEach-Object {
+        $_mfaStyle = if ($_.MFAEnabled -eq 'False') { 'background:var(--au-bad-bg,#fef2f2);color:var(--au-bad-text,#991b1b);font-weight:600;white-space:nowrap;' } else { 'color:var(--au-good-text,#15803d);font-weight:600;white-space:nowrap;' }
+        "<tr style='border-bottom:1px solid var(--au-border-inner,#f1f5f9);'>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.UPN)</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);white-space:nowrap;'>$("$($_.FirstName) $($_.LastName)".Trim())</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);white-space:nowrap;'>$($_.AccountStatus)</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.AssignedLicense)</td>" +
+        "<td style='padding:5px 8px;font-size:12px;text-align:center;${_mfaStyle}'>$($_.MFAEnabled)</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);white-space:nowrap;'>$($_.LastSignIn)</td>" +
+        "</tr>"
+    })
+    $_truncNote = if ($_h_users.Count -gt 30) { "<p style='font-size:11px;color:var(--au-text-dim,#94a3b8);margin:4px 0 0;'>Showing 30 of $($_h_users.Count) — full list in M365_AuditSummary.html.</p>" } else { '' }
+    $_entraContent += "<table style='width:100%;border-collapse:collapse;border:1px solid var(--au-border,#e2e8f0);border-radius:6px;overflow:hidden;margin-bottom:4px;'>" +
+        "<thead><tr><th style='$_thS'>UPN</th><th style='$_thS'>Name</th><th style='$_thS'>Status</th>" +
+        "<th style='$_thS'>License</th><th style='$_thS'>MFA</th><th style='$_thS'>Last Sign-In</th>" +
+        "</tr></thead><tbody>$($_uRows -join '')</tbody></table>$_truncNote"
+}
+$_secEntra = New-HuduSection -Title 'Microsoft Entra' -Content $_entraContent
+
+# ── Section: Exchange ──────────────────────────────────────────────────────────
+$_exchContent = ''
+$_h_mbx = @(try { Import-Csv (Join-Path $rawDir 'Exchange_Mailboxes.csv') -ErrorAction Stop } catch { @() })
+if ($_h_mbx.Count -gt 0) {
+    $_h_userMbx     = @($_h_mbx | Where-Object { $_.RecipientType -eq 'UserMailbox' })
+    $_h_sharedMbx   = @($_h_mbx | Where-Object { $_.RecipientType -eq 'SharedMailbox' })
+    $_h_resourceMbx = @($_h_mbx | Where-Object { $_.RecipientType -notin @('UserMailbox','SharedMailbox') })
+    $_exchContent += New-HuduStatGrid -Stats @(
+        @{ Label = 'User Mailboxes';    Value = $_h_userMbx.Count;     Colour = 'var(--au-text,#1e293b)' }
+        @{ Label = 'Shared Mailboxes';  Value = $_h_sharedMbx.Count;   Colour = 'var(--au-text,#1e293b)' }
+        @{ Label = 'Resource / Other';  Value = $_h_resourceMbx.Count; Colour = 'var(--au-text,#1e293b)' }
+    )
+}
+$_h_fwdRules = @(try { Import-Csv (Join-Path $rawDir 'Exchange_InboxForwardingRules.csv') -ErrorAction Stop } catch { @() })
+if ($_h_fwdRules.Count -gt 0) {
+    $_exchContent += "<p style='font-size:12px;color:#d97706;margin:0 0 10px;font-weight:600;'>&#9888; $($_h_fwdRules.Count) inbox forwarding rule(s) detected — see full report for details.</p>"
+}
+if ($_h_mbx.Count -gt 0) {
+    $_thS = "padding:6px 8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;background:var(--au-surface2,#f8fafc);white-space:nowrap;"
+    $_mRows = @($_h_mbx | Sort-Object @{E={switch ($_.RecipientType){'UserMailbox'{0}'SharedMailbox'{1}default{2}}}}, DisplayName | Select-Object -First 30 | ForEach-Object {
+        $_usedMB  = if ($_.TotalSizeMB  -and $_.TotalSizeMB  -ne '') { [double]$_.TotalSizeMB  } else { 0 }
+        $_limitMB = if ($_.LimitMB      -and $_.LimitMB      -ne '') { [double]$_.LimitMB      } else { 0 }
+        if ($_limitMB -gt 0) {
+            $_pct    = [math]::Round(($_usedMB / $_limitMB) * 100, 0)
+            $_barW   = [math]::Min($_pct, 100)
+            $_barClr = if ($_pct -gt 95) { '#dc2626' } elseif ($_pct -gt 80) { '#d97706' } else { '#16a34a' }
+            $_limitGB  = [math]::Round($_limitMB / 1024, 1)
+            $_sizeCell = "<div style='display:flex;align-items:center;gap:5px;'><div style='background:#e2e8f0;border-radius:3px;width:50px;height:7px;flex-shrink:0;overflow:hidden;'><div style='background:$_barClr;width:${_barW}%;height:7px;'></div></div><span style='font-size:11px;color:var(--au-text-muted,#64748b);white-space:nowrap;'>$_pct% of ${_limitGB} GB</span></div>"
+        } else {
+            $_sizeCell = if ($_usedMB -gt 0) { "<span style='font-size:12px;color:var(--au-text-muted,#64748b);'>$([math]::Round($_usedMB)) MB</span>" } else { "<span style='color:var(--au-text-dim,#94a3b8);'>—</span>" }
+        }
+        $_archiveCell = if ($_.ArchiveEnabled -eq 'True') {
+            "<span style='color:var(--au-good-text,#15803d);font-weight:700;'>&#10003;</span>"
+        } elseif ($_limitMB -gt 0 -and $_usedMB -gt 0 -and ($_usedMB / $_limitMB) -gt 0.75) {
+            "<span style='color:#d97706;font-weight:600;' title='No archive, mailbox over 75% full'>&#9888; None</span>"
+        } else {
+            "<span style='color:var(--au-text-dim,#94a3b8);'>—</span>"
+        }
+        "<tr style='border-bottom:1px solid var(--au-border-inner,#f1f5f9);'>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.DisplayName)</td>" +
+        "<td style='padding:5px 8px;font-size:11px;color:var(--au-text-muted,#64748b);'>$($_.UserPrincipalName)</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.RecipientType)</td>" +
+        "<td style='padding:5px 8px;min-width:90px;'>$_sizeCell</td>" +
+        "<td style='padding:5px 8px;text-align:center;'>$_archiveCell</td>" +
+        "</tr>"
+    })
+    $_truncNote = if ($_h_mbx.Count -gt 30) { "<p style='font-size:11px;color:var(--au-text-dim,#94a3b8);margin:4px 0 0;'>Showing 30 of $($_h_mbx.Count) — full list in M365_AuditSummary.html.</p>" } else { '' }
+    $_exchContent += "<table style='width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:4px;'>" +
+        "<thead><tr><th style='$_thS'>Display Name</th><th style='$_thS'>UPN</th><th style='$_thS'>Type</th>" +
+        "<th style='$_thS'>Size</th><th style='$_thS'>Archive</th>" +
+        "</tr></thead><tbody>$($_mRows -join '')</tbody></table>$_truncNote"
+}
+$_secExchange = New-HuduSection -Title 'Exchange' -Content $_exchContent
+
+# ── Section: SharePoint ────────────────────────────────────────────────────────
+$_spContent = ''
+$_h_sites = @(try { Import-Csv (Join-Path $rawDir 'SharePoint_Sites.csv') -ErrorAction Stop } catch { @() })
+if ($_h_sites.Count -gt 0) {
+    $_h_hubSites = @($_h_sites | Where-Object { $_.IsHubSite -eq 'True' })
+    $_h_spSizeMB = ($_h_sites | Measure-Object -Property StorageUsedMB -Sum -ErrorAction SilentlyContinue).Sum
+    $_spSizeLabel = if ($_h_spSizeMB -ge 1024) { "$([math]::Round($_h_spSizeMB / 1024, 1)) GB" } else { "$([math]::Round($_h_spSizeMB)) MB" }
+    $_spContent += New-HuduStatGrid -Stats @(
+        @{ Label = 'Storage Used'; Value = $_spSizeLabel;     Colour = 'var(--au-text,#1e293b)' }
+        @{ Label = 'Total Sites';  Value = $_h_sites.Count;   Colour = 'var(--au-text,#1e293b)' }
+        @{ Label = 'Hub Sites';    Value = $_h_hubSites.Count; Colour = 'var(--au-text,#1e293b)' }
+    )
+}
+if ($_h_sites.Count -gt 0) {
+    $_spTmpl = @{
+        'SITEPAGEPUBLISHING#0' = 'Communication'; 'GROUP#0' = 'Team (M365)'; 'STS#0' = 'Classic Team'
+        'STS#3' = 'Team'; 'GLOBAL#0' = 'Root Site'; 'SPSPERS#0' = 'OneDrive'; 'EHS#1' = 'Team Site'
+        'SPSMSITEHOST#0' = 'MySite Host'; 'APPCATALOG#0' = 'App Catalog'; 'SRCHCEN#0' = 'Search Center'
+        'SRCHCENTERLITE#0' = 'Search Center'; 'EDISC#0' = 'eDiscovery'; 'TEAMCHANNEL#0' = 'Teams Channel'
+        'TEAMCHANNEL#1' = 'Teams Channel'; 'PWA#0' = 'Project Web App'; 'RedirectSite#0' = 'Redirect'
+        'BLANKINTERNET#0' = 'Publishing'; 'BLANKINTERNETCONTAINER#0' = 'Publishing Portal'
+        'ENTERWIKI#0' = 'Enterprise Wiki'
+    }
+    $_thS = "padding:6px 8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;background:var(--au-surface2,#f8fafc);white-space:nowrap;"
+    $_sRows = @($_h_sites | Sort-Object Title | Select-Object -First 30 | ForEach-Object {
+        $_sg      = if ($_.StorageUsedMB -and [double]$_.StorageUsedMB -gt 0) { "$([math]::Round([double]$_.StorageUsedMB/1024,2)) GB" } else { '—' }
+        $_urlPath = $_.Url -replace '^https://[^/]+', ''
+        $_tmLabel = if ($_spTmpl.ContainsKey($_.Template)) { $_spTmpl[$_.Template] } `
+                    elseif ($_.Template -like 'TEAMCHANNEL*') { 'Teams Channel' } `
+                    elseif ($_.Template -like 'SPSPERS*')     { 'OneDrive' } `
+                    elseif ($_.Template -like 'GROUP*')       { 'Team (M365)' } `
+                    else { $_.Template }
+        "<tr style='border-bottom:1px solid var(--au-border-inner,#f1f5f9);'>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.Title)</td>" +
+        "<td style='padding:5px 8px;font-size:11px;color:var(--au-text-muted,#64748b);word-break:break-all;'>$_urlPath</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);white-space:nowrap;'>$_tmLabel</td>" +
+        "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);white-space:nowrap;'>$_sg</td>" +
+        "<td style='padding:5px 8px;font-size:11px;color:var(--au-text-muted,#64748b);'>$($_.Owner)</td>" +
+        "</tr>"
+    })
+    $_truncNote = if ($_h_sites.Count -gt 30) { "<p style='font-size:11px;color:var(--au-text-dim,#94a3b8);margin:4px 0 0;'>Showing 30 of $($_h_sites.Count) — full list in M365_AuditSummary.html.</p>" } else { '' }
+    $_spContent += "<table style='width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:4px;'>" +
+        "<thead><tr><th style='$_thS'>Title</th><th style='$_thS'>URL</th><th style='$_thS'>Template</th>" +
+        "<th style='$_thS'>Storage</th><th style='$_thS'>Owner</th>" +
+        "</tr></thead><tbody>$($_sRows -join '')</tbody></table>$_truncNote"
+}
+$_secSharePoint = New-HuduSection -Title 'SharePoint' -Content $_spContent
+
+# ── Section: Mail Security ─────────────────────────────────────────────────────
+$_mailContent = ''
+$_h_dmarc = @(try { Import-Csv (Join-Path $rawDir 'MailSec_DMARC.csv') -ErrorAction Stop } catch { @() })
+$_h_spf   = @(try { Import-Csv (Join-Path $rawDir 'MailSec_SPF.csv')   -ErrorAction Stop } catch { @() })
+$_h_dkim  = @(try { Import-Csv (Join-Path $rawDir 'MailSec_DKIM.csv')  -ErrorAction Stop } catch { @() })
+if ($_h_dmarc.Count -gt 0 -or $_h_spf.Count -gt 0) {
+    $_h_allDomains = @(($_h_dmarc | Select-Object -ExpandProperty Domain) + ($_h_spf | Select-Object -ExpandProperty Domain) |
+        Where-Object { $_ -notlike '*.onmicrosoft.com' } | Sort-Object -Unique)
+    if ($_h_allDomains.Count -gt 0) {
+        $_mailRows = foreach ($_dom in $_h_allDomains) {
+            $_d = $_h_dmarc | Where-Object { $_.Domain -eq $_dom } | Select-Object -First 1
+            $_s = $_h_spf   | Where-Object { $_.Domain -eq $_dom } | Select-Object -First 1
+            $_k = $_h_dkim  | Where-Object { $_.Domain -eq $_dom } | Select-Object -First 1
+            $_dmarcRaw = if ($_d) { $_d.DMARC } else { '' }
+            $_dmarcVal = if ($_dmarcRaw -and $_dmarcRaw -ne 'Not Found' -and $_dmarcRaw -match 'v=DMARC1') {
+                if ($_dmarcRaw -match 'p=none') { "<span style='color:#d97706;font-weight:600;font-size:11px;'>$_dmarcRaw</span>" }
+                else { "<span style='color:var(--au-good-text,#15803d);font-weight:600;font-size:11px;'>$_dmarcRaw</span>" }
+            } else { "<span style='color:#dc2626;font-weight:600;'>Not Found</span>" }
+            $_spfRaw  = if ($_s) { $_s.SPF } else { '' }
+            $_spfVal  = if ($_spfRaw -and $_spfRaw -ne 'Not Found') {
+                "<span style='color:var(--au-good-text,#15803d);font-weight:600;font-size:11px;'>$_spfRaw</span>"
+            } else { "<span style='color:#dc2626;font-weight:600;'>Not Found</span>" }
+            $_dkimVal = if ($_k) {
+                switch ($_k.DKIMEnabled) {
+                    'True'           { "<span style='color:var(--au-good-text,#15803d);font-weight:600;'>Enabled</span>" }
+                    'False'          { "<span style='color:#dc2626;font-weight:600;'>Not Enabled</span>" }
+                    'Not Configured' { "<span style='color:#dc2626;font-weight:600;'>Not Configured</span>" }
+                    default          { "<span style='color:#94a3b8;'>$($_k.DKIMEnabled)</span>" }
+                }
+            } else { "<span style='color:#dc2626;font-weight:600;'>Not Found</span>" }
+            ,@($_dom, $_dmarcVal, $_spfVal, $_dkimVal)
+        }
+        $_mailContent += New-HuduTable -Headers @('Domain', 'DMARC', 'SPF', 'DKIM') -Rows $_mailRows
+    }
+}
+$_secMailSec = New-HuduSection -Title 'Mail Security' -Content $_mailContent
+
+# ── Section: Intune (only if data present) ────────────────────────────────────
+$_secIntune = ''
+if (Test-Path (Join-Path $rawDir 'Intune_Devices.csv')) {
+    $_intuneContent = ''
+    $_h_devs = @(try { Import-Csv (Join-Path $rawDir 'Intune_Devices.csv') -ErrorAction Stop } catch { @() })
+    if ($_h_devs.Count -gt 0) {
+        $_h_compliant    = @($_h_devs | Where-Object { $_.ComplianceState -eq 'compliant' })
+        $_h_nonCompliant = @($_h_devs | Where-Object { $_.ComplianceState -eq 'noncompliant' })
+        $_h_stale        = @($_h_devs | Where-Object { try { ([datetime]::Now - [datetime]$_.LastSyncDateTime).TotalDays -gt 30 } catch { $false } })
+        $_intuneContent += New-HuduStatGrid -Stats @(
+            @{ Label = 'Total Devices';   Value = $_h_devs.Count;         Colour = 'var(--au-text,#1e293b)' }
+            @{ Label = 'Compliant';       Value = $_h_compliant.Count;    Colour = '#16a34a' }
+            @{ Label = 'Non-Compliant';   Value = $_h_nonCompliant.Count; Colour = if ($_h_nonCompliant.Count -gt 0) { '#dc2626' } else { '#16a34a' } }
+            @{ Label = 'Stale (>30 d)';   Value = $_h_stale.Count;        Colour = if ($_h_stale.Count -gt 0) { '#d97706' } else { 'var(--au-text,#1e293b)' } }
+        )
+        $_devRows = $_h_devs | Sort-Object DeviceName | ForEach-Object {
+            $_syncDt = [datetime]::MinValue
+            $_isStale = $_.LastSyncDateTime -and [datetime]::TryParse($_.LastSyncDateTime, [ref]$_syncDt) -and (([datetime]::UtcNow - $_syncDt).TotalDays -gt 30)
+            $_rowBg = switch ($_.ComplianceState) {
+                'compliant'    { 'background:var(--au-good-bg,#f0fdf4);' }
+                'noncompliant' { 'background:var(--au-bad-bg,#fef2f2);' }
+                default        { '' }
+            }
+            $_compColour = switch ($_.ComplianceState) {
+                'compliant'    { 'color:var(--au-good-text,#15803d);font-weight:600;' }
+                'noncompliant' { 'color:var(--au-bad-text,#991b1b);font-weight:600;' }
+                default        { 'color:var(--au-text-muted,#64748b);' }
+            }
+            $_syncStyle = if ($_isStale) { 'color:var(--au-bad-text,#991b1b);font-weight:600;' } else { 'color:var(--au-text,#1e293b);' }
+            "<tr style='${_rowBg}border-bottom:1px solid var(--au-border-inner,#e2e8f0);'>" +
+            "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.DeviceName)</td>" +
+            "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.OS)</td>" +
+            "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.OSVersion)</td>" +
+            "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.OwnerType)</td>" +
+            "<td style='padding:5px 8px;font-size:12px;${_compColour}'>$($_.ComplianceState)</td>" +
+            "<td style='padding:5px 8px;font-size:12px;color:var(--au-text,#1e293b);'>$($_.AssignedUser)</td>" +
+            "<td style='padding:5px 8px;font-size:12px;${_syncStyle}'>$($_.LastSyncDateTime)</td>" +
+            "</tr>"
+        }
+        $_thStyle = "padding:6px 8px;text-align:left;font-size:11px;text-transform:uppercase;color:var(--au-text-muted,#64748b);letter-spacing:.04em;background:var(--au-surface2,#f8fafc);white-space:nowrap;"
+        $_intuneContent += "<table style='width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:4px;'>" +
+            "<thead><tr>" +
+            "<th style='$_thStyle'>Device</th><th style='$_thStyle'>OS</th><th style='$_thStyle'>Version</th>" +
+            "<th style='$_thStyle'>Owner</th><th style='$_thStyle'>Compliance</th>" +
+            "<th style='$_thStyle'>Assigned User</th><th style='$_thStyle'>Last Sync</th>" +
+            "</tr></thead><tbody>$($_devRows -join '')</tbody></table>"
+    }
+    $_secIntune = New-HuduSection -Title 'Intune / Endpoint Management' -Content $_intuneContent
+}
+
+# ── Section: Teams (only if data present) ────────────────────────────────────
+$_secTeams = ''
+$_h_teamsFed = @(try { Import-Csv (Join-Path $rawDir 'Teams_FederationConfig.csv') -ErrorAction Stop } catch { @() })
+if ($_h_teamsFed.Count -gt 0) {
+    $_teamsContent = ''
+    $_tf = $_h_teamsFed[0]
+    $_fedColour  = if ($_tf.AllowFederatedUsers -eq 'True') { '#d97706' } else { '#16a34a' }
+    $_consColour = if ($_tf.AllowTeamsConsumer  -eq 'True') { '#d97706' } else { '#16a34a' }
+    $_teamsContent += New-HuduStatGrid -Stats @(
+        @{ Label = 'External Federation'; Value = $_tf.AllowFederatedUsers; Colour = $_fedColour  }
+        @{ Label = 'Teams Consumer';      Value = $_tf.AllowTeamsConsumer;  Colour = $_consColour }
+        @{ Label = 'Skype (Public)';      Value = $_tf.AllowPublicUsers;    Colour = if ($_tf.AllowPublicUsers -eq 'True') { '#d97706' } else { 'var(--au-text,#1e293b)' } }
+    )
+    $_teamsContent += New-HuduModuleAi -Prefixes @('Teams /')
+    $_secTeams = New-HuduSection -Title 'Microsoft Teams' -Content $_teamsContent
+}
+
+# ── Section: ScubaGear (only if results loaded) ────────────────────────────────
+$_secScuba = ''
+if ($_scubaResults) {
+    $_sgContent = ''
+    $_sgAiItems = @($actionItems | Where-Object { $_.Category -like 'ScubaGear*' })
+    $_sgRows    = foreach ($_sgP in $_scubaResults.Results.PSObject.Properties) {
+        $_allCtrls = @($_sgP.Value | ForEach-Object { $_.Controls }) | Where-Object { $_ }
+        $_sgPass   = @($_allCtrls | Where-Object { $_.Result -eq 'Pass'    }).Count
+        $_sgFail   = @($_allCtrls | Where-Object { $_.Result -eq 'Fail'    }).Count
+        $_sgWarn   = @($_allCtrls | Where-Object { $_.Result -eq 'Warning' }).Count
+        $_sgNA     = @($_allCtrls | Where-Object { $_.Result -notin @('Pass','Fail','Warning') }).Count
+        $_sgColour = if ($_sgFail -gt 0) { '#dc2626' } elseif ($_sgWarn -gt 0) { '#d97706' } else { '#16a34a' }
+        ,@("<span style='font-weight:600;color:$_sgColour;'>$($_sgP.Name)</span>", $_sgPass, $_sgFail, $_sgWarn, $_sgNA)
+    }
+    if ($_sgRows.Count -gt 0) {
+        $_sgContent += New-HuduTable -Headers @('Product', 'Pass', 'Fail', 'Warning', 'N/A') -Rows $_sgRows
+    }
+    $_sgContent += New-HuduModuleAi -Prefixes @('ScubaGear /')
+    $_sgAiCrits = @($_sgAiItems | Where-Object { $_.Severity -eq 'critical' }).Count
+    $_sgAiWarns = @($_sgAiItems | Where-Object { $_.Severity -eq 'warning'  }).Count
+    $_sgParts   = @(); if ($_sgAiCrits -gt 0) { $_sgParts += "$_sgAiCrits critical" }; if ($_sgAiWarns -gt 0) { $_sgParts += "$_sgAiWarns warning$(if ($_sgAiWarns -ne 1){'s'})" }
+    $_scubaTitle = if ($_sgParts.Count -gt 0) { "ScubaGear CIS Baseline &mdash; $($_sgParts -join ', ')" } else { "ScubaGear CIS Baseline" }
+    $_secScuba = New-HuduSection -Title $_scubaTitle -Content $_sgContent -Accent '#334155'
+}
+
+# ── Assemble HTML ─────────────────────────────────────────────────────────────
+$_huduHtml = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M365 Audit Report &mdash; $_huduCompany</title>
+<style>
+:root{
+  --au-bg:#f8fafc;--au-surface:#fff;--au-surface2:#f8fafc;
+  --au-text:#1e293b;--au-text-muted:#64748b;--au-text-dim:#94a3b8;
+  --au-border:#e2e8f0;--au-border-inner:#f1f5f9;
+  --au-good-bg:#f0fdf4;--au-good-text:#15803d;
+  --au-warn-bg:#fffbeb;--au-warn-text:#92400e;
+  --au-bad-bg:#fef2f2; --au-bad-text:#991b1b;
+}
+@media(prefers-color-scheme:dark){:root{
+  --au-bg:#0f172a;--au-surface:#1e293b;--au-surface2:#0f172a;
+  --au-text:#e2e8f0;--au-text-muted:#94a3b8;--au-text-dim:#475569;
+  --au-border:#334155;--au-border-inner:#1e293b;
+  --au-good-bg:#052e16;--au-good-text:#4ade80;
+  --au-warn-bg:#451a03;--au-warn-text:#fcd34d;
+  --au-bad-bg:#450a0a; --au-bad-text:#fca5a5;
+}}
+html.dark :root{
+  --au-bg:#0f172a;--au-surface:#1e293b;--au-surface2:#0f172a;
+  --au-text:#e2e8f0;--au-text-muted:#94a3b8;--au-text-dim:#475569;
+  --au-border:#334155;--au-border-inner:#1e293b;
+  --au-good-bg:#052e16;--au-good-text:#4ade80;
+  --au-warn-bg:#451a03;--au-warn-text:#fcd34d;
+  --au-bad-bg:#450a0a; --au-bad-text:#fca5a5;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:20px;background:var(--au-bg,#f8fafc);color:var(--au-text,#1e293b);}
+details>summary{list-style:none;} details>summary::-webkit-details-marker{display:none;}
+a{color:#3b82f6;} table{width:100%;border-collapse:collapse;}
+</style>
+</head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:20px;background:var(--au-bg,#f8fafc);color:var(--au-text,#1e293b);">
+
+<div style="background:#1e3a5f;color:#fff;padding:18px 24px;border-radius:8px;margin-bottom:20px;display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+  <div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.7;margin-bottom:4px;">Microsoft 365 Audit Report</div>
+    <div style="font-size:18px;font-weight:700;">$_huduCompany</div>
+  </div>
+  <div style="font-size:12px;opacity:.75;">Generated: $reportDate</div>
+</div>
+
+$_huduKpiRow
+$_secActionItems
+$_secEntra
+$_secExchange
+$_secSharePoint
+$_secMailSec
+$_secIntune
+$_secTeams
+$_secScuba
+
+<div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--au-border,#e2e8f0);font-size:11px;color:var(--au-text-dim,#94a3b8);">
+  Full detail: M365_AuditSummary.html &bull; 365Audit v$ScriptVersion
+</div>
+
+</body>
+</html>
+"@
+
+$_huduHtml | Set-Content -Path $_huduReportPath -Encoding UTF8
+Write-Verbose "Hudu report written: $_huduReportPath"
 
 Write-Host "Summary report written to: $reportPath" -ForegroundColor Green
 if (-not $NoOpen) {
