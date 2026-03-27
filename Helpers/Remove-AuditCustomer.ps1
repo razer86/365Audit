@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Removes a customer's 365Audit app registration from Entra ID and deletes
-    the corresponding asset from Hudu.
+    Removes a customer's 365Audit app registration from Entra ID and archives
+    the corresponding asset in Hudu.
 
 .DESCRIPTION
     Used when a customer offboards or when you need to fully reset a customer's
@@ -12,7 +12,7 @@
       2. Connects to Microsoft Graph interactively (browser sign-in).
       3. Deletes the app registration from Entra ID (soft-delete by default;
          use -PermanentDelete to purge from the recycle bin immediately).
-      4. Deletes the Hudu asset.
+      4. Archives the Hudu asset (preserves history; asset is hidden from active views).
 
     When run with -AppId and -TenantId directly (no Hudu), only the Entra app
     registration is removed.
@@ -49,7 +49,7 @@
 
 .EXAMPLE
     .\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6'
-    Looks up the customer in Hudu, removes the Entra app, and deletes the Hudu asset.
+    Looks up the customer in Hudu, removes the Entra app, and archives the Hudu asset.
 
 .EXAMPLE
     .\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6' -PermanentDelete
@@ -219,7 +219,7 @@ Write-Host "  Company     : $companyLabel"
 Write-Host "  App ID      : $AppId"
 Write-Host "  Tenant ID   : $TenantId"
 if ($huduAssetId) {
-    Write-Host "  Hudu asset  : will be DELETED (ID: $huduAssetId)"
+    Write-Host "  Hudu asset  : will be ARCHIVED (ID: $huduAssetId)"
 }
 else {
     Write-Host "  Hudu asset  : none found / not applicable"
@@ -277,14 +277,14 @@ else {
     }
 }
 
-# ── Remove Hudu asset ──────────────────────────────────────────────────────────
+# ── Archive Hudu asset ─────────────────────────────────────────────────────────
 
 if ($huduAssetId) {
-    if ($PSCmdlet.ShouldProcess("Hudu asset ID $huduAssetId for '$companyLabel'", 'Delete from Hudu')) {
+    if ($PSCmdlet.ShouldProcess("Hudu asset ID $huduAssetId for '$companyLabel'", 'Archive in Hudu')) {
         $huduUrl = $HuduBaseUrl.TrimEnd('/')
         $headers = @{ 'x-api-key' = $HuduApiKey }
-        Invoke-RestMethod -Uri "$huduUrl/api/v1/assets/$huduAssetId" -Headers $headers -Method Delete -ErrorAction Stop | Out-Null
-        Write-Status "Hudu asset deleted for '$companyLabel'." -Type Success
+        Invoke-RestMethod -Uri "$huduUrl/api/v1/assets/$huduAssetId/archive" -Headers $headers -Method Put -ErrorAction Stop | Out-Null
+        Write-Status "Hudu asset archived for '$companyLabel'." -Type Success
     }
 }
 

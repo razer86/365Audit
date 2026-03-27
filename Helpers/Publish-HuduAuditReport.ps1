@@ -6,8 +6,8 @@
     After a successful audit run this script:
       1. Reads ActionItems.json written by Generate-AuditSummary.ps1
       2. Finds or creates the 'Monthly Audit Report' asset for the company in Hudu
-      3. Populates the 'Critical Action Items' and 'Warning Action Items' RichText fields
-      4. Uploads M365_HuduReport.html as an attachment to the asset
+      3. Populates the report_summary field with the content of M365_HuduReport.html
+      4. Uploads M365_AuditSummary.html (the full interactive report) as an attachment
       5. Compresses the full output folder to a zip and uploads that as an attachment
 
 .PARAMETER OutputPath
@@ -63,11 +63,16 @@ $formHeaders = @{ 'x-api-key' = $HuduApiKey }
 
 # ── 1. Locate report files ─────────────────────────────────────────────────────
 
-$huduHtmlFile = Get-Item (Join-Path $OutputPath 'M365_HuduReport.html') -ErrorAction SilentlyContinue
+$huduBodyFile  = Get-Item (Join-Path $OutputPath 'M365_HuduReport.html')    -ErrorAction SilentlyContinue
+$fullReportFile = Get-Item (Join-Path $OutputPath 'M365_AuditSummary.html') -ErrorAction SilentlyContinue
 
-if (-not $huduHtmlFile) {
+if (-not $huduBodyFile) {
     Write-Warning "Publish-HuduAuditReport: M365_HuduReport.html not found in '$OutputPath' — skipping."
     return
+}
+
+if (-not $fullReportFile) {
+    Write-Warning "Publish-HuduAuditReport: M365_AuditSummary.html not found in '$OutputPath' — full report attachment will be skipped."
 }
 
 # ── 2. Resolve Hudu company ID from slug ──────────────────────────────────────
@@ -150,7 +155,7 @@ Write-Host "  [Hudu] Updating asset fields..." -ForegroundColor DarkCyan
 $updateBody = @{
     asset = @{
         custom_fields = @(
-            @{ report_summary = Get-Content $huduHtmlFile.FullName -Raw -Encoding UTF8 }
+            @{ report_summary = Get-Content $huduBodyFile.FullName -Raw -Encoding UTF8 }
         )
     }
 } | ConvertTo-Json -Depth 6 -Compress
@@ -162,20 +167,21 @@ try {
 }
 catch { Write-Warning "Publish-HuduAuditReport: Field update failed — $_" }
 
-# ── 6. Upload M365_HuduReport.html to asset ───────────────────────────────────
+# ── 6. Upload M365_AuditSummary.html (full report) to asset ───────────────────
 
-Write-Host "  [Hudu] Uploading HTML report to asset..." -ForegroundColor DarkCyan
-
-try {
-    Invoke-RestMethod -Uri "$base/api/v1/uploads" -Method Post -Headers $formHeaders `
-        -Form @{
-            file                      = (Get-Item $huduHtmlFile.FullName)
-            'upload[uploadable_id]'   = "$assetId"
-            'upload[uploadable_type]' = 'Asset'
-        } -ErrorAction Stop | Out-Null
-    Write-Host "  [Hudu] HTML report uploaded." -ForegroundColor DarkCyan
+if ($fullReportFile) {
+    Write-Host "  [Hudu] Uploading full HTML report to asset..." -ForegroundColor DarkCyan
+    try {
+        Invoke-RestMethod -Uri "$base/api/v1/uploads" -Method Post -Headers $formHeaders `
+            -Form @{
+                file                      = (Get-Item $fullReportFile.FullName)
+                'upload[uploadable_id]'   = "$assetId"
+                'upload[uploadable_type]' = 'Asset'
+            } -ErrorAction Stop | Out-Null
+        Write-Host "  [Hudu] Full HTML report uploaded." -ForegroundColor DarkCyan
+    }
+    catch { Write-Warning "Publish-HuduAuditReport: Full HTML upload failed — $_" }
 }
-catch { Write-Warning "Publish-HuduAuditReport: HTML upload failed — $_" }
 
 # ── 7. Compress output folder and attach zip to asset ─────────────────────────
 
