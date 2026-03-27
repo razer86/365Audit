@@ -83,16 +83,26 @@ HuduAssetLayoutId = <printed ID>
 
 ## Publish-HuduAuditReport.ps1
 
-**Purpose:** Push a completed audit report into Hudu after a run.
+**Purpose:** Push a completed audit report into Hudu after a run, with automatic month-over-month delta injection.
 
 After a successful audit this script:
 
 1. Locates or creates a `Monthly Audit Report` asset for the company (uses a separate asset layout from the credentials asset)
-2. Writes the content of `M365_HuduReport.html` into the asset's `report_summary` rich-text field — this is the Hudu-optimised summary intended to be read inline
-3. Uploads `M365_AuditSummary.html` (the full interactive report) as an attachment to the asset
-4. Compresses the entire output folder to a `.zip` and uploads that as a second attachment, preserving all raw CSV/JSON data
+2. Downloads the prior month's zip attachment and extracts `AuditMetrics.json` + `ActionItems.json` to compute changes since last month
+3. Injects coloured delta indicators (`+/-N%`) into the KPI tile cards and adds a "Changes Since Last Month" section showing resolved and new action items
+4. Writes the enriched `M365_HuduReport.html` content into the asset's `report_summary` rich-text field
+5. Uploads `M365_AuditSummary.html` (the full interactive report) as an attachment to the asset
+6. Compresses the entire output folder to a `.zip` and uploads that as a second attachment, preserving all raw CSV/JSON data
+
+Delta computation is non-fatal — if no prior month asset or zip exists (first run, or the prior zip was not uploaded), the report is published without delta information.
 
 ```powershell
+# Minimal — Hudu connection details read from config.psd1
+.\Helpers\Publish-HuduAuditReport.ps1 `
+    -OutputPath  'C:\AuditReports\ContosoPty_20260326' `
+    -CompanySlug 'a1b2c3d4e5f6'
+
+# Override config.psd1 values explicitly
 .\Helpers\Publish-HuduAuditReport.ps1 `
     -OutputPath  'C:\AuditReports\ContosoPty_20260326' `
     -CompanySlug 'a1b2c3d4e5f6' `
@@ -102,13 +112,14 @@ After a successful audit this script:
 
 This is typically called automatically by `Start-UnattendedAudit.ps1` at the end of each customer's run. It can also be run manually to re-publish an existing report.
 
-| Parameter | Description |
-| --- | --- |
-| `-OutputPath` | Path to the customer's audit output folder |
-| `-CompanySlug` | 12-character hex Hudu company slug |
-| `-HuduBaseUrl` | Hudu instance base URL |
-| `-HuduApiKey` | Hudu API key |
-| `-ReportLayoutId` | Asset layout ID for the `Monthly Audit Report` layout (default: `68`) |
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `-OutputPath` | Yes | Path to the customer's audit output folder |
+| `-CompanySlug` | Yes | Hudu company slug |
+| `-HuduBaseUrl` | No | Hudu instance base URL — falls back to `HuduBaseUrl` in `config.psd1` |
+| `-HuduApiKey` | No | Hudu API key — falls back to `HuduApiKey` in `config.psd1` |
+| `-ReportLayoutId` | No | Asset layout ID for the `Monthly Audit Report` layout — falls back to `HuduReportLayoutId` in `config.psd1`, then `68` |
+| `-ReportAssetName` | No | Prefix for the monthly report asset name (asset created as `<name> - yyyy-MM`) — falls back to `HuduReportAssetName` in `config.psd1`, then `M365 Monthly Audit` |
 
 ---
 

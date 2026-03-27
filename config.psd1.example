@@ -16,17 +16,21 @@
     # API key — found in Hudu under Administrator > API Keys
     HuduApiKey  = ''
 
+    # Prefix used when naming the credential asset in Hudu — asset is created as "<HuduAssetName> - <Company Name>".
+    # Change this to match your asset layout name if you have renamed it in Hudu.
+    HuduAssetName = 'M365 - Monthly Audit Reporting Toolkit'
+
     # Asset layout ID for the audit credential asset in Hudu.
     # Hudu URLs show slugs, not IDs. Run .\Helpers\Get-HuduAssetLayouts.ps1 to list all layouts and their IDs.
     HuduAssetLayoutId = 67
 
+    # Prefix used when naming the monthly report asset in Hudu.
+    # The asset is created as "<HuduReportAssetName> - yyyy-MM" (e.g. "M365 Monthly Audit - 2026-03").
+    HuduReportAssetName = 'M365 - Monthly Audit Report'
+
     # Asset layout ID for the 'Monthly Audit Report' asset written after each unattended run.
     # Set to 0 to disable Hudu report publishing.
     HuduReportLayoutId = 68
-
-    # Prefix used when naming the credential asset in Hudu — asset is created as "<HuduAssetName> - <Company Name>".
-    # Change this to match your asset layout name if you have renamed it in Hudu.
-    HuduAssetName = 'M365 Audit Toolkit'
 
     # ── Output ───────────────────────────────────────────────────────────────
 
