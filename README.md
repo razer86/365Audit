@@ -36,7 +36,7 @@ Tested with **OpenSSL 3.x**. The `-legacy` flag is used automatically when expor
 
 ## First-Time Setup
 
-> **New Hudu instance?** Before setting up any customers, run `New-HuduAssetLayout.ps1` once to create the required asset layout in Hudu. See [Helpers — New-HuduAssetLayout.ps1](#new-huduassetlayoutps1).
+> **New Hudu instance?** Before setting up any customers, run `New-HuduAssetLayout.ps1` once to create the required asset layout in Hudu. See [Helpers — New-HuduAssetLayout.ps1](docs/Helpers.md#new-huduassetlayoutps1).
 
 Before running the toolkit for any customer, run `Setup-365AuditApp.ps1` once in that tenant as a **Global Administrator**.
 
@@ -271,86 +271,17 @@ On each launch, the toolkit downloads `version.json` from GitHub and compares it
 
 Standalone utility scripts in the `Helpers\` folder. None are required for normal audit runs.
 
-### Get-HuduAssetLayouts.ps1
-
-Lists all Hudu asset layouts with their numeric IDs. Use this to find the correct value for `HuduAssetLayoutId` in `config.psd1`.
-
-```powershell
-.\Helpers\Get-HuduAssetLayouts.ps1
-```
-
----
-
-### Get-ModuleVersionStatus.ps1
-
-Bulk PSGallery lookup for all required modules — shows installed vs latest versions. Use this when troubleshooting module version conflicts, MSAL assembly errors, or unexpected authentication failures before opening a bug report.
-
-```powershell
-.\Helpers\Get-ModuleVersionStatus.ps1
-```
-
-| Status | Meaning |
+| Script | Purpose |
 |---|---|
-| `OK` | Installed and up to date |
-| `UPDATE AVAILABLE` | Newer version exists in PSGallery |
-| `NOT INSTALLED` | Not yet installed — will be installed automatically on first run |
-| `MULTIPLE VERSIONS` | More than one version installed — run `Uninstall-AuditModules.ps1` to clean up |
+| [Get-HuduAssetLayouts.ps1](docs/Helpers.md#get-huduassetlayoutsps1) | Find numeric asset layout IDs for `config.psd1` |
+| [Get-ModuleVersionStatus.ps1](docs/Helpers.md#get-moduleversionstatusps1) | Diagnose module version conflicts |
+| [New-HuduAssetLayout.ps1](docs/Helpers.md#new-huduassetlayoutps1) | One-time Hudu layout creation for new instances |
+| [Publish-HuduAuditReport.ps1](docs/Helpers.md#publish-huduauditreportps1) | Push a completed report into Hudu |
+| [Remove-AuditCustomer.ps1](docs/Helpers.md#remove-auditcustomerps1) | Offboard a customer — remove Entra app and archive Hudu asset |
+| [Sync-UnattendedCustomers.ps1](docs/Helpers.md#sync-unattendedcustomersps1) | Populate `UnattendedCustomers.json` from Hudu automatically |
+| [Uninstall-AuditModules.ps1](docs/Helpers.md#uninstall-auditmodulesps1) | Clean-remove all toolkit modules for a fresh reinstall |
 
----
-
-### New-HuduAssetLayout.ps1
-
-Creates the M365 Audit Toolkit asset layout in Hudu. Run once on a new Hudu instance before running `Setup-365AuditApp.ps1` for the first time.
-
-```powershell
-.\Helpers\New-HuduAssetLayout.ps1 -WhatIf    # preview
-.\Helpers\New-HuduAssetLayout.ps1            # create
-```
-
-After creation, copy the printed layout ID into `config.psd1` as `HuduAssetLayoutId`.
-
-> Requires **Hudu Administrator or Super Administrator** — a standard user API key will receive a 422 error.
-
----
-
-### Remove-AuditCustomer.ps1
-
-Offboards a customer by removing their app registration from Entra ID and archiving the corresponding Hudu asset.
-
-```powershell
-.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6'    # Hudu lookup
-.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyName 'Contoso Ltd'
-.\Helpers\Remove-AuditCustomer.ps1 -AppId '<id>' -TenantId '<id>'    # direct, no Hudu
-.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6' -WhatIf
-.\Helpers\Remove-AuditCustomer.ps1 -HuduCompanyId 'a1b2c3d4e5f6' -PermanentDelete
-```
-
-By default the app is **soft-deleted** and remains recoverable from the Entra recycle bin for 30 days. Use `-PermanentDelete` only when certain the customer will not be re-onboarded. The Hudu asset is always archived rather than deleted, preserving the audit history.
-
----
-
-### Sync-UnattendedCustomers.ps1
-
-Queries Hudu for all companies with a 365Audit asset and merges them into `UnattendedCustomers.psd1`. Existing entries are left untouched; new companies are appended with `Modules = @('A')` by default.
-
-```powershell
-.\Helpers\Sync-UnattendedCustomers.ps1
-.\Helpers\Sync-UnattendedCustomers.ps1 -DefaultModules '1','2','4'
-.\Helpers\Sync-UnattendedCustomers.ps1 -WhatIf
-```
-
----
-
-### Uninstall-AuditModules.ps1
-
-Removes all installed versions of every module required by the toolkit. Useful for resolving conflicting module versions or testing a clean install.
-
-```powershell
-.\Helpers\Uninstall-AuditModules.ps1 -WhatIf    # preview
-.\Helpers\Uninstall-AuditModules.ps1            # remove
-```
-
-> Run in a **fresh PowerShell session** that has not loaded any 365Audit scripts. If modules were installed in `AllUsers` scope, run as Administrator.
+See [docs/Helpers.md](docs/Helpers.md) for full usage, parameters, and examples.
 
 ---
 
