@@ -16,7 +16,7 @@ Hudu's web UI only exposes slugs in page URLs — the numeric ID required by the
 
 Output example:
 
-```
+```text
 ID   Name
 --   ----
 42   Passwords
@@ -42,7 +42,7 @@ Performs a single bulk PSGallery lookup for every module required by the toolkit
 ```
 
 | Status | Meaning |
-|---|---|
+| --- | --- |
 | `OK` | Installed and up to date |
 | `UPDATE AVAILABLE` | Newer version exists in PSGallery — run `Update-Module <name>` |
 | `NOT INSTALLED` | Not yet installed — will be installed automatically on first audit run |
@@ -103,7 +103,7 @@ After a successful audit this script:
 This is typically called automatically by `Start-UnattendedAudit.ps1` at the end of each customer's run. It can also be run manually to re-publish an existing report.
 
 | Parameter | Description |
-|---|---|
+| --- | --- |
 | `-OutputPath` | Path to the customer's audit output folder |
 | `-CompanySlug` | 12-character hex Hudu company slug |
 | `-HuduBaseUrl` | Hudu instance base URL |
@@ -150,9 +150,10 @@ Requires an interactive browser sign-in (Global Administrator) to connect to Gra
 Instead of manually adding each customer to the JSON file, this script queries Hudu for every company that already has a `365Audit` asset (i.e. has been set up via `Setup-365AuditApp.ps1`) and merges them into `UnattendedCustomers.json`. Run it after onboarding a batch of new customers rather than editing the file by hand.
 
 **Merge behaviour:**
+
 - Companies already in the file are left untouched — their `Modules` config is preserved
 - New companies are appended with the `DefaultModules` value (default: `A` — Run All)
-- Companies in the file that no longer have a Hudu asset are flagged as warnings but are **not** removed — manual review required before deleting
+- Companies in the file that no longer have a Hudu asset are **commented out in-place** — they are skipped at runtime but remain visible in the file for manual review before permanent removal
 
 ```powershell
 # Sync all customers, new entries default to Run All

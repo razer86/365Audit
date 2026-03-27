@@ -8,9 +8,9 @@
     into UnattendedCustomers.psd1:
 
       - Companies already in the file are left untouched (their Modules config is preserved)
-      - New companies are appended with Modules = @(9) as the default
-      - Companies in the file but no longer found in Hudu are flagged as warnings,
-        but are NOT removed (require manual review)
+      - New companies are appended with the DefaultModules value
+      - Companies in the file but no longer found in Hudu are commented out in-place
+        so they are skipped at runtime but remain visible for manual review
 
     Reads HuduBaseUrl, HuduApiKey, and HuduAssetLayoutId from config.psd1.
 
@@ -120,8 +120,9 @@ Write-Host "Resolved $($companyMap.Count) company slug(s)." -ForegroundColor Dar
 
 # ── Merge: classify each found company ────────────────────────────────────────
 
-$toAdd   = [System.Collections.Generic.List[object]]::new()
-$kept    = [System.Collections.Generic.List[object]]::new()
+$toAdd  = [System.Collections.Generic.List[object]]::new()
+$kept   = [System.Collections.Generic.List[object]]::new()
+$stale  = [System.Collections.Generic.List[object]]::new()
 
 foreach ($cid in $companyMap.Keys) {
     $info = $companyMap[$cid]
@@ -140,37 +141,38 @@ foreach ($cid in $companyMap.Keys) {
     }
 }
 
-# Warn about entries in the file that are no longer in Hudu
+# Entries in the file that are no longer in Hudu — will be commented out
 $foundSlugs = $companyMap.Values | ForEach-Object { $_.Slug }
 foreach ($slug in $existing.Keys) {
     if ($slug -notin $foundSlugs) {
-        Write-Warning "  '$slug' is in UnattendedCustomers.psd1 but has no matching Hudu asset — review manually."
+        $stale.Add($existing[$slug])
     }
 }
 
 # ── Report ─────────────────────────────────────────────────────────────────────
 
 Write-Host ""
-Write-Host "  Existing (unchanged) : $($kept.Count)" -ForegroundColor DarkGray
-Write-Host "  New to add           : $($toAdd.Count)" -ForegroundColor $(if ($toAdd.Count -gt 0) { 'Green' } else { 'DarkGray' })
+Write-Host "  Existing (unchanged) : $($kept.Count)"  -ForegroundColor DarkGray
+Write-Host "  New to add           : $($toAdd.Count)"  -ForegroundColor $(if ($toAdd.Count -gt 0) { 'Green' } else { 'DarkGray' })
+Write-Host "  No longer in Hudu    : $($stale.Count)" -ForegroundColor $(if ($stale.Count -gt 0) { 'Yellow' } else { 'DarkGray' })
 
 if ($toAdd.Count -gt 0) {
-    $toAdd | ForEach-Object { Write-Host "    + $($_.HuduCompanyName) ($($_.HuduCompanySlug))" -ForegroundColor Green }
+    $toAdd  | ForEach-Object { Write-Host "    + $($_.HuduCompanyName) ($($_.HuduCompanySlug))" -ForegroundColor Green }
+}
+if ($stale.Count -gt 0) {
+    $stale  | ForEach-Object { Write-Host "    # $($_.HuduCompanyName) ($($_.HuduCompanySlug)) — commented out" -ForegroundColor Yellow }
 }
 
-if ($toAdd.Count -eq 0) {
+if ($toAdd.Count -eq 0 -and $stale.Count -eq 0) {
     Write-Host ""
-    Write-Host "No new customers found — UnattendedCustomers.psd1 is already up to date." -ForegroundColor Cyan
+    Write-Host "No changes — UnattendedCustomers.psd1 is already up to date." -ForegroundColor Cyan
     exit 0
 }
 
-# ── Build merged customer list ─────────────────────────────────────────────────
+# ── Build active customer list (sorted) ───────────────────────────────────────
 
-$allEntries = [System.Collections.Generic.List[object]]::new()
-foreach ($e in $kept) { $allEntries.Add($e) }
-foreach ($e in $toAdd) { $allEntries.Add($e) }
-
-$allEntries = @($allEntries | Sort-Object HuduCompanyName)
+$activeEntries = @($kept + $toAdd | Sort-Object HuduCompanyName)
+$staleEntries  = @($stale        | Sort-Object HuduCompanyName)
 
 # ── Serialise to PSD1 ──────────────────────────────────────────────────────────
 
@@ -183,15 +185,31 @@ $outputLines.Add('')
 $outputLines.Add('@{')
 $outputLines.Add('    Customers = @(')
 
-foreach ($entry in $allEntries) {
+foreach ($entry in $activeEntries) {
     $slug = $entry.HuduCompanySlug
-    $name = ($entry.HuduCompanyName -replace "'", "''")   # escape single quotes
+    $name = ($entry.HuduCompanyName -replace "'", "''")
     $mods = ($entry.Modules | ForEach-Object { "'$_'" }) -join ', '
     $outputLines.Add('        @{')
     $outputLines.Add("            HuduCompanySlug = '$slug'")
     $outputLines.Add("            HuduCompanyName = '$name'")
     $outputLines.Add("            Modules         = @($mods)")
     $outputLines.Add('        }')
+}
+
+# Stale entries — commented out so they are skipped at runtime but remain visible
+if ($staleEntries.Count -gt 0) {
+    $outputLines.Add('')
+    $outputLines.Add('        # ── No longer found in Hudu — review and remove when confirmed offboarded ──')
+    foreach ($entry in $staleEntries) {
+        $slug = $entry.HuduCompanySlug
+        $name = ($entry.HuduCompanyName -replace "'", "''")
+        $mods = ($entry.Modules | ForEach-Object { "'$_'" }) -join ', '
+        $outputLines.Add("#       @{")
+        $outputLines.Add("#           HuduCompanySlug = '$slug'")
+        $outputLines.Add("#           HuduCompanyName = '$name'")
+        $outputLines.Add("#           Modules         = @($mods)")
+        $outputLines.Add("#       }")
+    }
 }
 
 $outputLines.Add('    )')
@@ -202,5 +220,5 @@ $outputLines.Add('}')
 if ($PSCmdlet.ShouldProcess($outputPath, 'Write UnattendedCustomers.psd1')) {
     Set-Content -Path $outputPath -Value $outputLines -Encoding UTF8
     Write-Host ""
-    Write-Host "UnattendedCustomers.psd1 updated — $($allEntries.Count) customer(s) total." -ForegroundColor Cyan
+    Write-Host "UnattendedCustomers.psd1 updated — $($activeEntries.Count) active, $($staleEntries.Count) commented out." -ForegroundColor Cyan
 }
