@@ -1,0 +1,116 @@
+name: Version Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.ps1'
+      - 'version.json'
+  pull_request:
+    paths:
+      - '**.ps1'
+      - 'version.json'
+
+jobs:
+  version-check:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history needed for PR diff
+
+      # ── 1. Verify version.json, $ScriptVersion, and .NOTES Version all match ──
+      - name: Check version consistency
+        shell: pwsh
+        run: |
+          $failed  = $false
+          $versionMap = Get-Content 'version.json' | ConvertFrom-Json
+
+          foreach ($entry in $versionMap.PSObject.Properties) {
+              $scriptPath  = $entry.Name
+              $jsonVersion = $entry.Value.Trim()
+
+              if (-not (Test-Path $scriptPath)) {
+                  Write-Warning "version.json references '$scriptPath' but the file does not exist."
+                  continue
+              }
+
+              $content = Get-Content $scriptPath -Raw
+
+              # $ScriptVersion = "X.Y.Z"
+              $svMatch = [regex]::Match($content, '(?m)^\$ScriptVersion\s*=\s*"([^"]+)"')
+              if (-not $svMatch.Success) {
+                  Write-Error "[$scriptPath] No `$ScriptVersion variable found."
+                  $failed = $true
+                  continue
+              }
+              $scriptVersion = $svMatch.Groups[1].Value.Trim()
+
+              # Version     : X.Y.Z  (in .NOTES block)
+              $notesMatch = [regex]::Match($content, '(?m)^\s*Version\s*:\s*(.+)$')
+              if (-not $notesMatch.Success) {
+                  Write-Error "[$scriptPath] No 'Version :' line found in .NOTES."
+                  $failed = $true
+                  continue
+              }
+              $notesVersion = $notesMatch.Groups[1].Value.Trim()
+
+              $ok = $true
+              if ($jsonVersion -ne $scriptVersion) {
+                  Write-Error "[$scriptPath] version.json=$jsonVersion  |  `$ScriptVersion=$scriptVersion"
+                  $ok = $false
+              }
+              if ($jsonVersion -ne $notesVersion) {
+                  Write-Error "[$scriptPath] version.json=$jsonVersion  |  .NOTES Version=$notesVersion"
+                  $ok = $false
+              }
+              if ($ok) {
+                  Write-Host "OK  $scriptPath  ($jsonVersion)"
+              } else {
+                  $failed = $true
+              }
+          }
+
+          if ($failed) { exit 1 }
+
+      # ── 2. On PRs: warn if a tracked .ps1 changed but its version was not bumped ──
+      - name: Check version bumped for changed scripts (PR only)
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $base    = '${{ github.event.pull_request.base.sha }}'
+          $head    = '${{ github.event.pull_request.head.sha }}'
+          $failed  = $false
+
+          $changedScripts = git diff --name-only $base $head | Where-Object { $_ -match '\.ps1$' }
+          if (-not $changedScripts) {
+              Write-Host "No .ps1 files changed."
+              exit 0
+          }
+
+          $headVersionMap = Get-Content 'version.json' | ConvertFrom-Json
+          $baseVersionRaw = git show "${base}:version.json" 2>$null
+          if (-not $baseVersionRaw) {
+              Write-Host "version.json not found at base — skipping bump check."
+              exit 0
+          }
+          $baseVersionMap = $baseVersionRaw | ConvertFrom-Json
+
+          foreach ($script in $changedScripts) {
+              $normalized = $script -replace '\\', '/'
+              if (-not $headVersionMap.PSObject.Properties[$normalized]) { continue }
+
+              $headVer = $headVersionMap.$normalized
+              $baseVer = if ($baseVersionMap.PSObject.Properties[$normalized]) { $baseVersionMap.$normalized } else { $null }
+
+              if ($headVer -eq $baseVer) {
+                  Write-Error "[$normalized] was modified but version is still $headVer — please bump version.json, `$ScriptVersion, and .NOTES."
+                  $failed = $true
+              } else {
+                  Write-Host "BUMPED  $normalized  ($baseVer -> $headVer)"
+              }
+          }
+
+          if ($failed) { exit 1 }
