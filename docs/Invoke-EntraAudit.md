@@ -47,3 +47,7 @@ Granted automatically by `Setup-365AuditApp.ps1`:
 | `Entra_RiskyUsers.csv` | Users flagged by Identity Protection (requires Azure AD P2; absent if unlicensed) |
 | `Entra_RiskySignIns.csv` | Risky sign-in events (requires Azure AD P2; absent if unlicensed) |
 | `Entra_PIMAssignments.csv` | Privileged Identity Management role assignments (requires Azure AD P2; absent if unlicensed) |
+
+| `Entra_AuthMethodsPolicy.csv` | Authentication methods policy — enabled methods and registration requirements |
+| `Entra_ExternalCollab.csv` | External collaboration settings — guest invitations, B2B, and email-verified user join policy |
+| `Entra_OrgSettings.csv` | Tenant-level organisation settings — default user role permissions and admin consent workflow status |

@@ -158,7 +158,7 @@ Requires an interactive browser sign-in (Global Administrator) to connect to Gra
 
 **Purpose:** Automatically populate `UnattendedCustomers.json` from Hudu.
 
-Instead of manually adding each customer to the JSON file, this script queries Hudu for every company that already has a `365Audit` asset (i.e. has been set up via `Setup-365AuditApp.ps1`) and merges them into `UnattendedCustomers.json`. Run it after onboarding a batch of new customers rather than editing the file by hand.
+Instead of manually adding each customer to the PSD1 file, this script queries Hudu for every company that already has a `365Audit` asset (i.e. has been set up via `Setup-365AuditApp.ps1`) and merges them into `UnattendedCustomers.psd1`. Run it after onboarding a batch of new customers rather than editing the file by hand.
 
 **Merge behaviour:**
 
@@ -204,3 +204,4 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 Install-Module ExchangeOnlineManagement -Scope CurrentUser
 Install-Module PnP.PowerShell -Scope CurrentUser
 ```
+

@@ -31,7 +31,6 @@
 #Requires -Version 7.2
 
 param (
-    [string]$AuditFolder,
     [switch]$DevMode = $false
 )
 

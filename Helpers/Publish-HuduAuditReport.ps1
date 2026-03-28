@@ -45,25 +45,25 @@
     # Minimal — Hudu connection details read from config.psd1
     .\Helpers\Publish-HuduAuditReport.ps1 `
         -OutputPath  'C:\AuditReports\ContosoPty_20260326' `
-        -CompanySlug 'contoso-pty-ltd'
+        -CompanySlug 'a1b2c3d4e5f6'
 
 .EXAMPLE
     # Explicit — override config.psd1 values
     .\Helpers\Publish-HuduAuditReport.ps1 `
         -OutputPath  'C:\AuditReports\ContosoPty_20260326' `
-        -CompanySlug 'contoso-pty-ltd' `
+        -CompanySlug 'a1b2c3d4e5f6' `
         -HuduBaseUrl 'https://hudu.example.com' `
         -HuduApiKey  'your-api-key'
 
 .NOTES
-    Author  : Raymond Slater
-    Version : 1.2.1
+    Author      : Raymond Slater
+    Version     : 1.2.1
 #>
 
 #Requires -Version 7.2
 
 [CmdletBinding()]
-param(
+param (
     [Parameter(Mandatory)]
     [string]$OutputPath,
 
@@ -75,6 +75,9 @@ param(
     [int]$ReportLayoutId = 0,
     [string]$ReportAssetName = ''
 )
+
+$ScriptVersion         = "1.2.1"
+Write-Verbose "Publish-HuduAuditReport.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
 
@@ -458,3 +461,4 @@ try {
 }
 catch { Write-Warning "Publish-HuduAuditReport: Zip upload failed — $_" }
 finally { Remove-Item $zipPath -ErrorAction SilentlyContinue }
+

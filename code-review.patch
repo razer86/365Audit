@@ -1,0 +1,396 @@
+diff --git a/Helpers/Get-HuduAssetLayouts.ps1 b/Helpers/Get-HuduAssetLayouts.ps1
+index 26a21e5..ad8b339 100644
+--- a/Helpers/Get-HuduAssetLayouts.ps1
++++ b/Helpers/Get-HuduAssetLayouts.ps1
+@@ -23,8 +23,8 @@
+     .\Helpers\Get-HuduAssetLayouts.ps1 -HuduBaseUrl 'https://hudu.example.com' -HuduApiKey 'abc123'
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.0.0
++    Author      : Raymond Slater
++    Version     : 1.0.0
+ #>
+ 
+ #Requires -Version 7.2
+@@ -34,6 +34,9 @@ param (
+     [string]$HuduApiKey
+ )
+ 
++$ScriptVersion         = "1.0.0"
++Write-Verbose "Get-HuduAssetLayouts.ps1 loaded (v$ScriptVersion)"
++
+ $ErrorActionPreference = 'Stop'
+ 
+ # ── Load config.psd1 fallbacks ─────────────────────────────────────────────────
+diff --git a/Helpers/Get-ModuleVersionStatus.ps1 b/Helpers/Get-ModuleVersionStatus.ps1
+index f83f2ce..142a7ad 100644
+--- a/Helpers/Get-ModuleVersionStatus.ps1
++++ b/Helpers/Get-ModuleVersionStatus.ps1
+@@ -14,12 +14,15 @@
+     .\Helpers\Get-ModuleVersionStatus.ps1
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.0.0
++    Author      : Raymond Slater
++    Version     : 1.0.0
+ #>
+ 
+ #Requires -Version 7.2
+ 
++$ScriptVersion         = "1.0.0"
++Write-Verbose "Get-ModuleVersionStatus.ps1 loaded (v$ScriptVersion)"
++
+ $ErrorActionPreference = 'Continue'
+ 
+ # ScubaGear installs into the Windows PowerShell 5.1 module path.
+diff --git a/Helpers/New-HuduAssetLayout.ps1 b/Helpers/New-HuduAssetLayout.ps1
+index 87c38e8..df39b0a 100644
+--- a/Helpers/New-HuduAssetLayout.ps1
++++ b/Helpers/New-HuduAssetLayout.ps1
+@@ -21,11 +21,11 @@
+ 
+ .PARAMETER Icon
+     Font Awesome icon class for the layout (e.g. 'fas fa-shield-halved').
+-    Defaults to 'fas fa-shield-halved'.
++    Defaults to 'fab fa-microsoft'.
+ 
+ .PARAMETER Color
+-    Background colour for the layout icon (hex, e.g. '#1E40AF').
+-    Defaults to '#1E40AF' (blue).
++    Background colour for the layout icon (hex, e.g. '#1849a9').
++    Defaults to '#1849a9' (blue).
+ 
+ .PARAMETER IconColor
+     Icon foreground colour (hex). Defaults to '#FFFFFF' (white).
+@@ -46,8 +46,8 @@
+     .\Helpers\New-HuduAssetLayout.ps1 -LayoutName 'M365 Audit Toolkit'
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.0.0
++    Author      : Raymond Slater
++    Version     : 1.0.0
+ 
+     Requires Hudu Administrator or Super Administrator to create asset layouts.
+ #>
+@@ -64,6 +64,9 @@ param (
+     [string]$HuduApiKey
+ )
+ 
++$ScriptVersion         = "1.0.0"
++Write-Verbose "New-HuduAssetLayout.ps1 loaded (v$ScriptVersion)"
++
+ $ErrorActionPreference = 'Stop'
+ 
+ # ── Load config.psd1 fallbacks ─────────────────────────────────────────────────
+diff --git a/Helpers/Publish-HuduAuditReport.ps1 b/Helpers/Publish-HuduAuditReport.ps1
+index 925a33b..44fdd92 100644
+--- a/Helpers/Publish-HuduAuditReport.ps1
++++ b/Helpers/Publish-HuduAuditReport.ps1
+@@ -45,25 +45,25 @@
+     # Minimal — Hudu connection details read from config.psd1
+     .\Helpers\Publish-HuduAuditReport.ps1 `
+         -OutputPath  'C:\AuditReports\ContosoPty_20260326' `
+-        -CompanySlug 'contoso-pty-ltd'
++        -CompanySlug 'a1b2c3d4e5f6'
+ 
+ .EXAMPLE
+     # Explicit — override config.psd1 values
+     .\Helpers\Publish-HuduAuditReport.ps1 `
+         -OutputPath  'C:\AuditReports\ContosoPty_20260326' `
+-        -CompanySlug 'contoso-pty-ltd' `
++        -CompanySlug 'a1b2c3d4e5f6' `
+         -HuduBaseUrl 'https://hudu.example.com' `
+         -HuduApiKey  'your-api-key'
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.2.1
++    Author      : Raymond Slater
++    Version     : 1.2.1
+ #>
+ 
+ #Requires -Version 7.2
+ 
+ [CmdletBinding()]
+-param(
++param (
+     [Parameter(Mandatory)]
+     [string]$OutputPath,
+ 
+@@ -76,6 +76,9 @@ param(
+     [string]$ReportAssetName = ''
+ )
+ 
++$ScriptVersion         = "1.2.1"
++Write-Verbose "Publish-HuduAuditReport.ps1 loaded (v$ScriptVersion)"
++
+ $ErrorActionPreference = 'Stop'
+ 
+ # ── Load config.psd1 fallbacks ─────────────────────────────────────────────────
+@@ -201,7 +204,7 @@ else {
+ 
+ function Format-DeltaSpan {
+     [CmdletBinding()]
+-    param(
++    param (
+         [double]$Delta,
+         [switch]$InvertColour,
+         [string]$Suffix    = '%',
+diff --git a/Helpers/Remove-AuditCustomer.ps1 b/Helpers/Remove-AuditCustomer.ps1
+index bc17dfa..243af94 100644
+--- a/Helpers/Remove-AuditCustomer.ps1
++++ b/Helpers/Remove-AuditCustomer.ps1
+@@ -64,8 +64,8 @@
+     Preview what would be removed without making any changes.
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.0.0
++    Author      : Raymond Slater
++    Version     : 1.0.0
+ #>
+ 
+ #Requires -Version 7.2
+@@ -105,7 +105,7 @@ param (
+     [switch]$PermanentDelete
+ )
+ 
+-$ScriptVersion = '1.0.0'
++$ScriptVersion = "1.0.0"
+ Write-Verbose "Remove-AuditCustomer.ps1 loaded (v$ScriptVersion)"
+ 
+ $ErrorActionPreference = 'Stop'
+diff --git a/Helpers/Sync-UnattendedCustomers.ps1 b/Helpers/Sync-UnattendedCustomers.ps1
+index 43c2217..23782a4 100644
+--- a/Helpers/Sync-UnattendedCustomers.ps1
++++ b/Helpers/Sync-UnattendedCustomers.ps1
+@@ -29,18 +29,21 @@
+     .\Helpers\Sync-UnattendedCustomers.ps1 -DefaultModules '1','2','4'
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.0.0
++    Author      : Raymond Slater
++    Version     : 1.0.0
+ #>
+ 
+ #Requires -Version 7.2
+ 
+ [CmdletBinding(SupportsShouldProcess)]
+-param(
++param (
+     [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
+     [string[]]$DefaultModules = @('A')
+ )
+ 
++$ScriptVersion         = "1.0.0"
++Write-Verbose "Sync-UnattendedCustomers.ps1 loaded (v$ScriptVersion)"
++
+ $ErrorActionPreference = 'Stop'
+ 
+ # ── Load config ────────────────────────────────────────────────────────────────
+diff --git a/Helpers/Uninstall-AuditModules.ps1 b/Helpers/Uninstall-AuditModules.ps1
+index c3f2ba7..bef018a 100644
+--- a/Helpers/Uninstall-AuditModules.ps1
++++ b/Helpers/Uninstall-AuditModules.ps1
+@@ -24,8 +24,8 @@
+     .\Helpers\Uninstall-AuditModules.ps1 -WhatIf
+ 
+ .NOTES
+-    Author  : Raymond Slater
+-    Version : 1.0.0
++    Author      : Raymond Slater
++    Version     : 1.0.0
+ #>
+ 
+ #Requires -Version 7.2
+@@ -33,6 +33,9 @@
+ [CmdletBinding(SupportsShouldProcess)]
+ param()
+ 
++$ScriptVersion         = "1.0.0"
++Write-Verbose "Uninstall-AuditModules.ps1 loaded (v$ScriptVersion)"
++
+ $ErrorActionPreference = 'Continue'
+ 
+ # ScubaGear installs into the Windows PowerShell 5.1 module path.
+diff --git a/Invoke-EntraAudit.ps1 b/Invoke-EntraAudit.ps1
+index 9be7df1..d5ddf54 100644
+--- a/Invoke-EntraAudit.ps1
++++ b/Invoke-EntraAudit.ps1
+@@ -48,7 +48,6 @@
+ #Requires -Version 7.2
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Invoke-ExchangeAudit.ps1 b/Invoke-ExchangeAudit.ps1
+index 4942fa8..259f2ca 100644
+--- a/Invoke-ExchangeAudit.ps1
++++ b/Invoke-ExchangeAudit.ps1
+@@ -31,7 +31,6 @@
+ #Requires -Version 7.2
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Invoke-IntuneAudit.ps1 b/Invoke-IntuneAudit.ps1
+index c3c7a01..7deefc9 100644
+--- a/Invoke-IntuneAudit.ps1
++++ b/Invoke-IntuneAudit.ps1
+@@ -37,7 +37,6 @@
+ #Requires -Version 7.2
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Invoke-MailSecurityAudit.ps1 b/Invoke-MailSecurityAudit.ps1
+index 1d57dbf..626a63e 100644
+--- a/Invoke-MailSecurityAudit.ps1
++++ b/Invoke-MailSecurityAudit.ps1
+@@ -31,7 +31,6 @@
+ #Requires -Version 7.2
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Invoke-ScubaGearAudit.ps1 b/Invoke-ScubaGearAudit.ps1
+index d201195..a4adc19 100644
+--- a/Invoke-ScubaGearAudit.ps1
++++ b/Invoke-ScubaGearAudit.ps1
+@@ -41,7 +41,6 @@
+ #Requires -Version 7.2
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Invoke-SharePointAudit.ps1 b/Invoke-SharePointAudit.ps1
+index 09d1d8b..a19db31 100644
+--- a/Invoke-SharePointAudit.ps1
++++ b/Invoke-SharePointAudit.ps1
+@@ -28,7 +28,6 @@
+ #Requires -Version 7.4
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Invoke-TeamsAudit.ps1 b/Invoke-TeamsAudit.ps1
+index fc31208..d5bde17 100644
+--- a/Invoke-TeamsAudit.ps1
++++ b/Invoke-TeamsAudit.ps1
+@@ -37,7 +37,6 @@
+ #Requires -Version 7.2
+ 
+ param (
+-    [string]$AuditFolder,
+     [switch]$DevMode = $false
+ )
+ 
+diff --git a/Setup-365AuditApp.ps1 b/Setup-365AuditApp.ps1
+index abca259..fff2cee 100644
+--- a/Setup-365AuditApp.ps1
++++ b/Setup-365AuditApp.ps1
+@@ -97,9 +97,10 @@ param (
+     [string]$HuduApiKey
+ )
+ 
+-$ScriptVersion      = '2.10.0'
++$ScriptVersion         = "2.10.0"
+ $ErrorActionPreference = 'Stop'
+ $ProgressPreference    = 'SilentlyContinue'
++Write-Verbose "Setup-365AuditApp.ps1 loaded (v$ScriptVersion)"
+ 
+ # Load config.psd1 from the script root — fallback for HuduApiKey / HuduBaseUrl.
+ # Explicit command-line parameters always take precedence over config file values.
+diff --git a/docs/Generate-AuditSummary.md b/docs/Generate-AuditSummary.md
+index 1c6dd4d..46bd874 100644
+--- a/docs/Generate-AuditSummary.md
++++ b/docs/Generate-AuditSummary.md
+@@ -11,6 +11,7 @@ Called automatically at the end of every audit run by `Start-365Audit.ps1`. When
+ | `-AuditFolder` | String (Mandatory) | Path to the customer audit folder |
+ | `-NoOpen` | Switch | Generate the report without opening it in the browser |
+ | `-CertExpiryDays` | Int | When 0–30, inserts a Toolkit / Certificate warning action item |
++| `-OutputPath` | String | Override the default output path for the generated HTML report |
+ 
+ ## Action Items
+ 
+diff --git a/docs/Helpers.md b/docs/Helpers.md
+index f6e850c..3994a23 100644
+--- a/docs/Helpers.md
++++ b/docs/Helpers.md
+@@ -158,7 +158,7 @@ Requires an interactive browser sign-in (Global Administrator) to connect to Gra
+ 
+ **Purpose:** Automatically populate `UnattendedCustomers.json` from Hudu.
+ 
+-Instead of manually adding each customer to the JSON file, this script queries Hudu for every company that already has a `365Audit` asset (i.e. has been set up via `Setup-365AuditApp.ps1`) and merges them into `UnattendedCustomers.json`. Run it after onboarding a batch of new customers rather than editing the file by hand.
++Instead of manually adding each customer to the PSD1 file, this script queries Hudu for every company that already has a `365Audit` asset (i.e. has been set up via `Setup-365AuditApp.ps1`) and merges them into `UnattendedCustomers.psd1`. Run it after onboarding a batch of new customers rather than editing the file by hand.
+ 
+ **Merge behaviour:**
+ 
+diff --git a/docs/Invoke-EntraAudit.md b/docs/Invoke-EntraAudit.md
+index 1eb356d..e25afb8 100644
+--- a/docs/Invoke-EntraAudit.md
++++ b/docs/Invoke-EntraAudit.md
+@@ -47,3 +47,6 @@ Granted automatically by `Setup-365AuditApp.ps1`:
+ | `Entra_RiskyUsers.csv` | Users flagged by Identity Protection (requires Azure AD P2; absent if unlicensed) |
+ | `Entra_RiskySignIns.csv` | Risky sign-in events (requires Azure AD P2; absent if unlicensed) |
+ | `Entra_PIMAssignments.csv` | Privileged Identity Management role assignments (requires Azure AD P2; absent if unlicensed) |
++| `Entra_AuthMethodsPolicy.csv` | Authentication methods policy — enabled methods and registration requirements |
++| `Entra_ExternalCollab.csv` | External collaboration settings — guest invitations, B2B, and email-verified user join policy |
++| `Entra_OrgSettings.csv` | Tenant-level organisation settings — default user role permissions and admin consent workflow status |
+diff --git a/docs/Invoke-ExchangeAudit.md b/docs/Invoke-ExchangeAudit.md
+index 244496d..3d8a64d 100644
+--- a/docs/Invoke-ExchangeAudit.md
++++ b/docs/Invoke-ExchangeAudit.md
+@@ -38,3 +38,10 @@ Granted automatically by `Setup-365AuditApp.ps1`:
+ | `Exchange_AuditConfig.csv` | Tenant unified audit log and admin audit log settings |
+ | `Exchange_AnonymousRelayConnectors.csv` | Receive connectors permitting anonymous relay |
+ | `Exchange_ResourceMailboxes.csv` | Room and equipment mailboxes with booking settings |
++| `Exchange_MailConnectors.csv` | Inbound and outbound mail flow connectors with connector type, TLS settings, and enabled state |
++| `Exchange_AcceptedDomains.csv` | Accepted (verified) domains and their type (Authoritative, InternalRelay, ExternalRelay) |
++| `Exchange_LegacyAuth.csv` | Authentication policies with per-protocol basic auth (legacy auth) allow/deny status and modern auth flag |
++| `Exchange_OrgConfig.csv` | Organisation-level settings — SMTP client auth, Customer Lockbox, modern auth, and audit configuration |
++| `Exchange_ExternalSenderTagging.csv` | External sender identification settings and domain allowlist (Get-ExternalInOutlook) |
++| `Exchange_ConnectionFilter.csv` | Hosted connection filter policies with IP allow/block lists and safe list flag |
++| `Exchange_OwaPolicy.csv` | Outlook on the Web mailbox policies — storage provider, attachment, and personal calendar settings |
+diff --git a/docs/Invoke-IntuneAudit.md b/docs/Invoke-IntuneAudit.md
+index 86ae78f..e3aeb45 100644
+--- a/docs/Invoke-IntuneAudit.md
++++ b/docs/Invoke-IntuneAudit.md
+@@ -24,3 +24,7 @@ Granted automatically by `Setup-365AuditApp.ps1`:
+ | `Intune_Apps.csv` | Assigned app inventory with install/failed/pending counts and assignment details |
+ | `Intune_AutopilotDevices.csv` | Windows Autopilot device identities (skipped gracefully on 403) |
+ | `Intune_EnrollmentRestrictions.csv` | Enrollment restriction policies |
++| `Intune_LicenceCheck.csv` | Intune licence detection result and the licensed SKU part numbers found in the tenant |
++| `Intune_CompliancePolicySettings.csv` | Per-setting detail for each compliance policy (setting name, value, and data type) |
++| `Intune_UpdateRings.csv` | Windows Update ring policies with deferral periods and deadline settings |
++| `Intune_AppProtectionPolicies.csv` | App protection (MAM) policies with platform, managed app count, and deployment target |
+diff --git a/version.json b/version.json
+index 48049ff..72efc13 100644
+--- a/version.json
++++ b/version.json
+@@ -17,6 +17,5 @@
+   "Helpers/Publish-HuduAuditReport.ps1": "1.2.1",
+   "Helpers/Remove-AuditCustomer.ps1": "1.0.0",
+   "Helpers/Sync-UnattendedCustomers.ps1": "1.0.0",
+-  "Helpers/Test-HuduReportPublish.ps1": "1.0.0",
+   "Helpers/Uninstall-AuditModules.ps1": "1.0.0"
+ }
+-- 
+2.43.0
+

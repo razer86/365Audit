@@ -14,11 +14,14 @@
     .\Helpers\Get-ModuleVersionStatus.ps1
 
 .NOTES
-    Author  : Raymond Slater
-    Version : 1.0.0
+    Author      : Raymond Slater
+    Version     : 1.0.0
 #>
 
 #Requires -Version 7.2
+
+$ScriptVersion         = "1.0.0"
+Write-Verbose "Get-ModuleVersionStatus.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Continue'
 

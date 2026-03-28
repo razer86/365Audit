@@ -38,3 +38,11 @@ Granted automatically by `Setup-365AuditApp.ps1`:
 | `Exchange_AuditConfig.csv` | Tenant unified audit log and admin audit log settings |
 | `Exchange_AnonymousRelayConnectors.csv` | Receive connectors permitting anonymous relay |
 | `Exchange_ResourceMailboxes.csv` | Room and equipment mailboxes with booking settings |
+
+| `Exchange_MailConnectors.csv` | Inbound and outbound mail flow connectors with connector type, TLS settings, and enabled state |
+| `Exchange_AcceptedDomains.csv` | Accepted (verified) domains and their type (Authoritative, InternalRelay, ExternalRelay) |
+| `Exchange_LegacyAuth.csv` | Authentication policies with per-protocol basic auth (legacy auth) allow/deny status and modern auth flag |
+| `Exchange_OrgConfig.csv` | Organisation-level settings — SMTP client auth, Customer Lockbox, modern auth, and audit configuration |
+| `Exchange_ExternalSenderTagging.csv` | External sender identification settings and domain allowlist (Get-ExternalInOutlook) |
+| `Exchange_ConnectionFilter.csv` | Hosted connection filter policies with IP allow/block lists and safe list flag |
+| `Exchange_OwaPolicy.csv` | Outlook on the Web mailbox policies — storage provider, attachment, and personal calendar settings |

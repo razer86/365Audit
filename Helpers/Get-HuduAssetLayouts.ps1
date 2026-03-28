@@ -23,8 +23,8 @@
     .\Helpers\Get-HuduAssetLayouts.ps1 -HuduBaseUrl 'https://hudu.example.com' -HuduApiKey 'abc123'
 
 .NOTES
-    Author  : Raymond Slater
-    Version : 1.0.0
+    Author      : Raymond Slater
+    Version     : 1.0.0
 #>
 
 #Requires -Version 7.2
@@ -33,6 +33,9 @@ param (
     [string]$HuduBaseUrl,
     [string]$HuduApiKey
 )
+
+$ScriptVersion         = "1.0.0"
+Write-Verbose "Get-HuduAssetLayouts.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
 

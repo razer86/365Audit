@@ -105,7 +105,7 @@ param (
     [switch]$PermanentDelete
 )
 
-$ScriptVersion = '1.0.0'
+$ScriptVersion = "1.0.0"
 Write-Verbose "Remove-AuditCustomer.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
@@ -290,3 +290,4 @@ if ($huduAssetId) {
 
 Write-Host ""
 Write-Status "Customer removal complete for '$companyLabel'." -Type Success
+

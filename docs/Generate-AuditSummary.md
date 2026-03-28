@@ -11,6 +11,7 @@ Called automatically at the end of every audit run by `Start-365Audit.ps1`. When
 | `-AuditFolder` | String (Mandatory) | Path to the customer audit folder |
 | `-NoOpen` | Switch | Generate the report without opening it in the browser |
 | `-CertExpiryDays` | Int | When 0–30, inserts a Toolkit / Certificate warning action item |
+| `-OutputPath` | String | Override the default output path for the generated HTML report |
 
 ## Action Items
 
@@ -41,3 +42,4 @@ The top of the report shows a prioritised list of findings requiring attention:
 - **ScubaGear CIS Baseline** — Per-product pass/fail/warning counts with link to full ScubaGear HTML report (collapsed by default; only rendered when ScubaGear output is present)
 - **Compliance Overview** — Distribution bar (passed / warnings / critical) with per-module breakdown and list of CIS controls with findings
 - **Technical Issues** — Collection failures recorded by `Add-AuditIssue` catch blocks across all modules
+

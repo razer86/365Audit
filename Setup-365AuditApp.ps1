@@ -97,9 +97,10 @@ param (
     [string]$HuduApiKey
 )
 
-$ScriptVersion      = '2.10.0'
+$ScriptVersion         = "2.10.0"
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
+Write-Verbose "Setup-365AuditApp.ps1 loaded (v$ScriptVersion)"
 
 # Load config.psd1 from the script root — fallback for HuduApiKey / HuduBaseUrl.
 # Explicit command-line parameters always take precedence over config file values.
@@ -1462,3 +1463,4 @@ finally {
         }
     }
 }
+

@@ -29,17 +29,20 @@
     .\Helpers\Sync-UnattendedCustomers.ps1 -DefaultModules '1','2','4'
 
 .NOTES
-    Author  : Raymond Slater
-    Version : 1.0.0
+    Author      : Raymond Slater
+    Version     : 1.0.0
 #>
 
 #Requires -Version 7.2
 
 [CmdletBinding(SupportsShouldProcess)]
-param(
+param (
     [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
     [string[]]$DefaultModules = @('A')
 )
+
+$ScriptVersion         = "1.0.0"
+Write-Verbose "Sync-UnattendedCustomers.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
 
@@ -222,3 +225,4 @@ if ($PSCmdlet.ShouldProcess($outputPath, 'Write UnattendedCustomers.psd1')) {
     Write-Host ""
     Write-Host "UnattendedCustomers.psd1 updated — $($activeEntries.Count) active, $($staleEntries.Count) commented out." -ForegroundColor Cyan
 }
+

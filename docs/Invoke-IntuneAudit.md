@@ -24,3 +24,8 @@ Granted automatically by `Setup-365AuditApp.ps1`:
 | `Intune_Apps.csv` | Assigned app inventory with install/failed/pending counts and assignment details |
 | `Intune_AutopilotDevices.csv` | Windows Autopilot device identities (skipped gracefully on 403) |
 | `Intune_EnrollmentRestrictions.csv` | Enrollment restriction policies |
+
+| `Intune_LicenceCheck.csv` | Intune licence detection result and the licensed SKU part numbers found in the tenant |
+| `Intune_CompliancePolicySettings.csv` | Per-setting detail for each compliance policy (setting name, value, and data type) |
+| `Intune_UpdateRings.csv` | Windows Update ring policies with deferral periods and deadline settings |
+| `Intune_AppProtectionPolicies.csv` | App protection (MAM) policies with platform, managed app count, and deployment target |

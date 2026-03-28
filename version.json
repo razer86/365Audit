@@ -17,6 +17,5 @@
   "Helpers/Publish-HuduAuditReport.ps1": "1.2.1",
   "Helpers/Remove-AuditCustomer.ps1": "1.0.0",
   "Helpers/Sync-UnattendedCustomers.ps1": "1.0.0",
-  "Helpers/Test-HuduReportPublish.ps1": "1.0.0",
   "Helpers/Uninstall-AuditModules.ps1": "1.0.0"
 }

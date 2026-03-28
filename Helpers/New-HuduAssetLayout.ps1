@@ -21,11 +21,11 @@
 
 .PARAMETER Icon
     Font Awesome icon class for the layout (e.g. 'fas fa-shield-halved').
-    Defaults to 'fas fa-shield-halved'.
+    Defaults to 'fab fa-microsoft'.
 
 .PARAMETER Color
-    Background colour for the layout icon (hex, e.g. '#1E40AF').
-    Defaults to '#1E40AF' (blue).
+    Background colour for the layout icon (hex, e.g. '#1849a9').
+Defaults to '#1849a9' (blue).
 
 .PARAMETER IconColor
     Icon foreground colour (hex). Defaults to '#FFFFFF' (white).
@@ -46,8 +46,8 @@
     .\Helpers\New-HuduAssetLayout.ps1 -LayoutName 'M365 Audit Toolkit'
 
 .NOTES
-    Author  : Raymond Slater
-    Version : 1.0.0
+    Author      : Raymond Slater
+    Version     : 1.0.0
 
     Requires Hudu Administrator or Super Administrator to create asset layouts.
 #>
@@ -63,6 +63,9 @@ param (
     [string]$HuduBaseUrl,
     [string]$HuduApiKey
 )
+
+$ScriptVersion         = "1.0.0"
+Write-Verbose "New-HuduAssetLayout.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
 
@@ -204,3 +207,4 @@ Write-Host ""
 Write-Host "  Next step: update HuduAssetLayoutId in config.psd1:" -ForegroundColor Yellow
 Write-Host "    HuduAssetLayoutId = $newId" -ForegroundColor Cyan
 Write-Host ""
+

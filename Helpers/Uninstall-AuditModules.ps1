@@ -24,14 +24,17 @@
     .\Helpers\Uninstall-AuditModules.ps1 -WhatIf
 
 .NOTES
-    Author  : Raymond Slater
-    Version : 1.0.0
+    Author      : Raymond Slater
+    Version     : 1.0.0
 #>
 
 #Requires -Version 7.2
 
 [CmdletBinding(SupportsShouldProcess)]
 param()
+
+$ScriptVersion         = "1.0.0"
+Write-Verbose "Uninstall-AuditModules.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Continue'
 
