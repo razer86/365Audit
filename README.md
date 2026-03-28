@@ -2,6 +2,8 @@
 
 Monthly Microsoft 365 audit toolkit for MSP maintenance reporting. Run per customer to generate a report covering identity, messaging, and storage health.
 
+> **Note:** This toolkit is developed with AI assistance (Claude by Anthropic). All code is human-reviewed and tested against live Microsoft 365 tenants before being committed.
+
 ---
 
 ## Requirements
