@@ -57,7 +57,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.2.1
+    Version     : 1.4.0
 #>
 
 #Requires -Version 7.2
@@ -76,7 +76,7 @@ param (
     [string]$ReportAssetName = ''
 )
 
-$ScriptVersion         = "1.2.1"
+$ScriptVersion         = "1.4.0"
 Write-Verbose "Publish-HuduAuditReport.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
@@ -122,6 +122,14 @@ if (-not $fullReportFile) {
 
 # Load the Hudu report body — delta injection modifies this in memory before upload
 $huduBodyContent = Get-Content $huduBodyFile.FullName -Raw -Encoding UTF8
+
+# Load AuditMetrics.json for KPI field population (also used later for delta)
+$auditMetrics = $null
+$_metricsFilePath = Join-Path $OutputPath 'AuditMetrics.json'
+if (Test-Path $_metricsFilePath) {
+    try { $auditMetrics = Get-Content $_metricsFilePath -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { Write-Verbose "Could not parse AuditMetrics.json: $_" }
+}
 
 # ── 2. Resolve Hudu company ID from slug ──────────────────────────────────────
 
@@ -220,13 +228,11 @@ function Format-DeltaSpan {
 }
 
 try {
-    # Load current run data
-    $currentMetrics = $null
+    # Use already-loaded metrics; load action items
+    $currentMetrics = $auditMetrics
     $currentItems   = @()
-    $_metricsPath    = Join-Path $OutputPath 'AuditMetrics.json'
     $_actionItemPath = Join-Path $OutputPath 'ActionItems.json'
-    if (Test-Path $_metricsPath)    { $currentMetrics = Get-Content $_metricsPath    -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue }
-    if (Test-Path $_actionItemPath) { $currentItems   = Get-Content $_actionItemPath -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue }
+    if (Test-Path $_actionItemPath) { $currentItems = Get-Content $_actionItemPath -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue }
     if ($null -eq $currentItems) { $currentItems = @() }
 
     if ($priorAssetId) {
@@ -377,9 +383,11 @@ try {
                         "<tbody>$rows</tbody></table>"
                 }
 
-                $deltaHtml = "<details style='margin-bottom:10px;border:1px solid rgba(128,128,128,0.2);border-radius:8px;overflow:hidden;'>" +
-                    "<summary style='padding:10px 14px;background:#1849a9;color:#fff;font-weight:600;cursor:pointer;list-style:none;'>Changes Since Last Month</summary>" +
-                    "<div style='padding:14px;'>$metricRows$resolvedTable$newTable</div></details>"
+                $deltaHtml = "<details style='margin-bottom:16px;border:1px solid rgba(128,128,128,0.2);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04);'>" +
+                    "<summary style='padding:12px 24px;border-bottom:2px solid rgba(30,58,95,0.12);font-size:18px;font-weight:700;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;'>" +
+                    "<span style='display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;border-radius:8px;background:#1e3a5f;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;'>&#9651;</span>" +
+                    "Changes Since Last Month</summary>" +
+                    "<div style='padding:20px 24px;'>$metricRows$resolvedTable$newTable</div></details>"
             }
 
             $huduBodyContent = $huduBodyContent.Replace('<!-- AUDIT_DELTA_INJECT -->', $deltaHtml)
@@ -404,10 +412,29 @@ $huduBodyContent = $huduBodyContent -replace '<!-- TILE_DELTA_[A-Z_]+ -->', ''
 
 Write-Host "  [Hudu] Updating asset fields..." -ForegroundColor DarkCyan
 
+# Build KPI field values from AuditMetrics.json (plain text — shown in Hudu asset table)
+$_fieldMfa      = if ($null -ne $auditMetrics.MfaCoveragePct)   { "$([math]::Round([double]$auditMetrics.MfaCoveragePct, 1))%" }        else { '' }
+$_fieldScore    = if ($null -ne $auditMetrics.SecureScoreCurrent -and $null -ne $auditMetrics.SecureScoreMax) {
+    "$([math]::Round([double]$auditMetrics.SecureScoreCurrent, 0)) / $([math]::Round([double]$auditMetrics.SecureScoreMax, 0))"
+} elseif ($null -ne $auditMetrics.SecureScoreCurrent) { "$([math]::Round([double]$auditMetrics.SecureScoreCurrent, 0))" } else { '' }
+$_fieldStorage  = if ($null -ne $auditMetrics.TenantStoragePct) {
+    $pct = [math]::Round([double]$auditMetrics.TenantStoragePct, 1)
+    if ($null -ne $auditMetrics.TenantStorageUsedGB -and $null -ne $auditMetrics.TenantStorageTotalGB) {
+        $used  = [math]::Round([double]$auditMetrics.TenantStorageUsedGB, 0)
+        $total = [math]::Round([double]$auditMetrics.TenantStorageTotalGB, 0)
+        "${pct}% (${used} GB / ${total} GB)"
+    } else { "${pct}%" }
+} else { '' }
+$_fieldCritical = if ($null -ne $auditMetrics.ActionItemCritical) { "$([int]$auditMetrics.ActionItemCritical)" } else { '' }
+
 $updateBody = @{
     asset = @{
         custom_fields = @(
             @{ report_summary = $huduBodyContent }
+            @{ mfa_coverage   = $_fieldMfa      }
+            @{ secure_score   = $_fieldScore    }
+            @{ tenant_storage = $_fieldStorage  }
+            @{ critical_items = $_fieldCritical }
         )
     }
 } | ConvertTo-Json -Depth 6 -Compress

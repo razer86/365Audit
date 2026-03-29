@@ -4709,38 +4709,42 @@ $_huduColour     = @{ ok = '#16a34a'; warn = '#d97706'; critical = '#dc2626' }
 # ── Builder helpers ────────────────────────────────────────────────────────────
 
 function New-HuduKpiTile { param([string]$Label, [string]$Value, [string]$Sub, [string]$Colour, [string]$DeltaMarkerId = '')
-    $subHtml   = if ($Sub)            { "<div style='font-size:11px;color:#94a3b8;margin-top:3px;'>$Sub</div>" } else { '' }
-    $deltaHtml = if ($DeltaMarkerId)  { "<!-- TILE_DELTA_$DeltaMarkerId -->" }                                   else { '' }
-    return "<div style='flex:1;min-width:155px;background:rgba(128,128,128,0.05);border:1px solid rgba(128,128,128,0.2);border-radius:8px;padding:14px 16px;'>" +
-           "<div style='font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:.05em;margin-bottom:4px;'>$Label</div>" +
+    $subHtml   = if ($Sub)           { "<div style='font-size:11px;opacity:0.6;margin-top:3px;'>$Sub</div>" } else { '' }
+    $deltaHtml = if ($DeltaMarkerId) { "<!-- TILE_DELTA_$DeltaMarkerId -->" }                                                  else { '' }
+    return "<div style='flex:1;min-width:140px;padding:12px 16px;border-radius:8px;border:1px solid rgba(128,128,128,0.2);background:rgba(128,128,128,0.03);'>" +
+           "<div style='font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:0.6;margin-bottom:4px;'>$Label</div>" +
            "<div style='font-size:22px;font-weight:700;color:$Colour;'>$Value</div>$subHtml$deltaHtml</div>"
 }
 
-function New-HuduSection { param([string]$Title, [string]$Content, [switch]$Open, [string]$Accent = '#1849a9')
+$script:_huduSectionCounter = 0
+function New-HuduSection { param([string]$Title, [string]$Content, [switch]$Open)
+    $script:_huduSectionCounter++
+    $num      = $script:_huduSectionCounter
     $openAttr = if ($Open) { ' open' } else { '' }
-    return "<details$openAttr style='margin-bottom:10px;border:1px solid rgba(128,128,128,0.2);border-radius:8px;overflow:hidden;'>" +
-           "<summary style='padding:11px 16px;background:$Accent;color:#fff;font-weight:600;font-size:13px;cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;'>" +
-           "<span>$Title</span><span style='font-size:10px;opacity:.65;'>&#9660;</span></summary>" +
-           "<div style='padding:14px 16px;'>$Content</div></details>"
+    $badge    = "<span style='display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;border-radius:8px;background:#1e3a5f;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;margin-right:10px;'>$num</span>"
+    return "<details$openAttr style='margin-bottom:16px;border:1px solid rgba(128,128,128,0.2);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04);'>" +
+           "<summary style='padding:12px 24px;border-bottom:2px solid rgba(30,58,95,0.12);font-size:18px;font-weight:700;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;'>" +
+           "$badge<span style='flex:1;'>$Title</span></summary>" +
+           "<div style='padding:20px 24px;'>$Content</div></details>"
 }
 
 function New-HuduStatGrid { param([hashtable[]]$Stats)
     $tiles = foreach ($s in $Stats) {
         $c = if ($s.Colour) { $s.Colour } else { 'inherit' }
-        "<div style='flex:1;min-width:110px;padding:10px 12px;background:rgba(128,128,128,0.05);border-radius:6px;border:1px solid rgba(128,128,128,0.2);'>" +
-        "<div style='font-size:10px;text-transform:uppercase;color:#64748b;letter-spacing:.04em;'>$($s.Label)</div>" +
-        "<div style='font-size:17px;font-weight:700;color:$c;margin-top:3px;'>$($s.Value)</div></div>"
+        "<div style='flex:1;min-width:110px;padding:10px 14px;border-radius:8px;border:1px solid rgba(128,128,128,0.2);background:rgba(128,128,128,0.03);'>" +
+        "<div style='font-size:10px;text-transform:uppercase;opacity:0.6;letter-spacing:.05em;margin-bottom:3px;'>$($s.Label)</div>" +
+        "<div style='font-size:18px;font-weight:700;color:$c;'>$($s.Value)</div></div>"
     }
-    return "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;'>$($tiles -join '')</div>"
+    return "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;'>$($tiles -join '')</div>"
 }
 
 function New-HuduTable { param([string[]]$Headers, [string[][]]$Rows, [int]$MaxRows = 0)
-    if (-not $Rows -or $Rows.Count -eq 0) { return "<p style='font-size:12px;color:#94a3b8;margin:4px 0;'>No records found.</p>" }
+    if (-not $Rows -or $Rows.Count -eq 0) { return "<p style='font-size:12px;color:rgba(128,128,128,0.6);margin:4px 0;'>No records found.</p>" }
     $show     = if ($MaxRows -gt 0 -and $Rows.Count -gt $MaxRows) { $Rows | Select-Object -First $MaxRows } else { $Rows }
-    $truncMsg = if ($MaxRows -gt 0 -and $Rows.Count -gt $MaxRows) { "<p style='font-size:11px;color:#94a3b8;margin:6px 0 0;'>Showing $MaxRows of $($Rows.Count) — full list in M365_AuditSummary.html.</p>" } else { '' }
-    $hCells   = $Headers | ForEach-Object { "<th style='padding:6px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:.04em;background:rgba(128,128,128,0.05);white-space:nowrap;'>$_</th>" }
-    $bRows    = $show | ForEach-Object { $cells = $_ | ForEach-Object { "<td style='padding:6px 10px;font-size:12px;border-top:1px solid rgba(128,128,128,0.1);'>$_</td>" }; "<tr>$($cells -join '')</tr>" }
-    return "<table style='width:100%;border-collapse:collapse;border:1px solid rgba(128,128,128,0.2);border-radius:6px;overflow:hidden;margin-bottom:4px;'>" +
+    $truncMsg = if ($MaxRows -gt 0 -and $Rows.Count -gt $MaxRows) { "<p style='font-size:11px;color:rgba(128,128,128,0.6);margin:6px 0 0;'>Showing $MaxRows of $($Rows.Count) &mdash; full list in M365_AuditSummary.html.</p>" } else { '' }
+    $hCells   = $Headers | ForEach-Object { "<th style='padding:8px 10px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;background:rgba(128,128,128,0.08);border:1px solid rgba(128,128,128,0.2);white-space:nowrap;'>$_</th>" }
+    $bRows    = $show | ForEach-Object { $cells = $_ | ForEach-Object { "<td style='padding:7px 10px;font-size:12px;border:1px solid rgba(128,128,128,0.15);'>$_</td>" }; "<tr>$($cells -join '')</tr>" }
+    return "<table style='width:100%;border-collapse:collapse;margin-bottom:6px;'>" +
            "<thead><tr>$($hCells -join '')</tr></thead><tbody>$($bRows -join '')</tbody></table>$truncMsg"
 }
 
@@ -4748,20 +4752,13 @@ function New-HuduAiTable { param([array]$Items, [string]$Heading, [string]$Accen
     if (-not $Items -or $Items.Count -eq 0) { return '' }
     $rows = foreach ($ai in $Items) {
         $_cleanText = $ai.Text -replace '\s*\(CIS\s[\d.]+\)', ''
-        "<tr style='border-bottom:1px solid rgba(128,128,128,0.1);'>" +
-        "<td style='padding:8px 10px;font-size:12px;font-weight:600;white-space:nowrap;'>$($ai.Category)</td>" +
-        "<td style='padding:8px 10px;font-size:13px;'>$_cleanText</td></tr>"
+        "<div style='padding:9px 12px;margin-bottom:4px;border-left:3px solid $AccentColour;background:rgba(128,128,128,0.02);border-radius:0 4px 4px 0;'>" +
+        "<div style='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:rgba(128,128,128,0.6);margin-bottom:2px;'>$($ai.Category)</div>" +
+        "<div style='font-size:12px;'>$_cleanText</div></div>"
     }
-    return "<div style='margin-bottom:12px;'>" +
-           "<div style='padding:9px 14px;background:$AccentColour;border-radius:6px 6px 0 0;'>" +
-           "<span style='color:#fff;font-weight:700;font-size:13px;'>$Heading ($($Items.Count))</span></div>" +
-           "<div style='border:1px solid rgba(128,128,128,0.2);border-top:none;border-radius:0 0 6px 6px;overflow:hidden;'>" +
-           "<table style='width:100%;border-collapse:collapse;'>" +
-           "<thead><tr style='background:rgba(128,128,128,0.05);'>" +
-           "<th style='padding:7px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:.04em;width:160px;'>Category</th>" +
-           "<th style='padding:7px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:.04em;'>Finding</th>" +
-           "</tr></thead>" +
-           "<tbody>$($rows -join '')</tbody></table></div></div>"
+    return "<div style='margin-bottom:14px;'>" +
+           "<div style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:$AccentColour;margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid rgba(128,128,128,0.15);'>$Heading ($($Items.Count))</div>" +
+           ($rows -join '') + "</div>"
 }
 
 function New-HuduModuleAi {
@@ -4774,20 +4771,19 @@ function New-HuduModuleAi {
     $_mc = @($_mItems | Where-Object { $_.Severity -eq 'critical' })
     $_mw = @($_mItems | Where-Object { $_.Severity -eq 'warning'  })
     $rows = foreach ($ai in $_mItems) {
-        $sev  = if ($ai.Severity -eq 'critical') { '#dc2626' } else { '#d97706' }
-        $icon = if ($ai.Severity -eq 'critical') { '&#9889;' } else { '&#9888;' }
-        $doc  = if ($ai.DocUrl) { "<td style='padding:5px 8px;white-space:nowrap;'><a href='$($ai.DocUrl)' style='color:#3b82f6;font-size:11px;'>Docs</a></td>" } else { '<td></td>' }
-        "<tr style='border-top:1px solid rgba(128,128,128,0.1);'>" +
-        "<td style='padding:5px 8px;white-space:nowrap;font-size:11px;font-weight:700;color:$sev;'>$icon $(($ai.Severity).ToUpper())</td>" +
-        "<td style='padding:5px 8px;font-size:11px;white-space:nowrap;'>$($ai.Category)</td>" +
-        "<td style='padding:5px 8px;font-size:12px;'>$($ai.Text)</td>$doc</tr>"
+        $borderCol = if ($ai.Severity -eq 'critical') { '#dc2626' } else { '#d97706' }
+        $bgCol     = if ($ai.Severity -eq 'critical') { 'rgba(220,38,38,0.05)' } else { 'rgba(217,119,6,0.05)' }
+        $docHtml   = if ($ai.DocUrl) { " <a href='$($ai.DocUrl)' style='color:#3b82f6;font-size:11px;margin-left:6px;'>Docs &#8599;</a>" } else { '' }
+        "<div style='padding:8px 10px;margin-bottom:4px;border-left:3px solid $borderCol;background:$bgCol;border-radius:0 4px 4px 0;'>" +
+        "<div style='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:rgba(128,128,128,0.6);margin-bottom:2px;'>$($ai.Category)</div>" +
+        "<div style='font-size:12px;'>$($ai.Text)$docHtml</div></div>"
     }
     $badge = @()
-    if ($_mc.Count -gt 0) { $badge += "<span style='color:#dc2626;font-weight:700;'>$($_mc.Count) critical</span>" }
-    if ($_mw.Count -gt 0) { $badge += "<span style='color:#d97706;font-weight:700;'>$($_mw.Count) warning$(if ($_mw.Count -ne 1) {'s'})</span>" }
-    return "<div style='margin-top:12px;border-top:2px solid rgba(128,128,128,0.1);padding-top:10px;'>" +
-           "<div style='font-size:12px;font-weight:700;margin-bottom:6px;'>Action Items &mdash; $($badge -join ' &bull; ')</div>" +
-           "<table style='width:100%;border-collapse:collapse;'><tbody>$($rows -join '')</tbody></table></div>"
+    if ($_mc.Count -gt 0) { $badge += "<span style='color:#dc2626;font-weight:700;font-size:11px;'>$($_mc.Count) critical</span>" }
+    if ($_mw.Count -gt 0) { $badge += "<span style='color:#d97706;font-weight:700;font-size:11px;'>$($_mw.Count) warning$(if ($_mw.Count -ne 1) {'s'})</span>" }
+    return "<div style='margin-top:12px;padding-top:10px;border-top:1px solid rgba(128,128,128,0.15);'>" +
+           "<div style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:rgba(128,128,128,0.6);margin-bottom:8px;'>Action Items &mdash; $($badge -join ' &bull; ')</div>" +
+           ($rows -join '') + "</div>"
 }
 
 # ── KPI row ────────────────────────────────────────────────────────────────────
@@ -4840,6 +4836,7 @@ if ($_huduCritItems.Count -gt 0) { $_huduAiParts += "$($_huduCritItems.Count) cr
 if ($_huduWarnItems.Count -gt 0) { $_huduAiParts += "$($_huduWarnItems.Count) warning$(if ($_huduWarnItems.Count -ne 1) {'s'})" }
 $_huduAiTitle = if ($_huduAiParts.Count -gt 0) { "Action Items &mdash; $($_huduAiParts -join ', ')" } else { "Action Items" }
 
+$script:_huduSectionCounter = 0
 $_secActionItems = New-HuduSection -Title $_huduAiTitle -Content $_huduAiContent -Open
 
 # ── Section: Microsoft Entra ───────────────────────────────────────────────────
@@ -5119,19 +5116,19 @@ if ($_scubaResults) {
     $_sgAiWarns = @($_sgAiItems | Where-Object { $_.Severity -eq 'warning'  }).Count
     $_sgParts   = @(); if ($_sgAiCrits -gt 0) { $_sgParts += "$_sgAiCrits critical" }; if ($_sgAiWarns -gt 0) { $_sgParts += "$_sgAiWarns warning$(if ($_sgAiWarns -ne 1){'s'})" }
     $_scubaTitle = if ($_sgParts.Count -gt 0) { "ScubaGear CIS Baseline &mdash; $($_sgParts -join ', ')" } else { "ScubaGear CIS Baseline" }
-    $_secScuba = New-HuduSection -Title $_scubaTitle -Content $_sgContent -Accent '#334155'
+    $_secScuba = New-HuduSection -Title $_scubaTitle -Content $_sgContent
 }
 
 # ── Assemble HTML fragment (rendered inside Hudu's rich-text field) ────────────
 $_huduHtml = @"
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 
-<div style="background:#1849a9;color:#fff;padding:18px 24px;border-radius:8px;margin-bottom:20px;display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-  <div>
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.7;margin-bottom:4px;">Microsoft 365 Audit Report</div>
-    <div style="font-size:18px;font-weight:700;">$_huduCompany</div>
+<div style="background:linear-gradient(135deg,#1e3a5f 0%,#2e5c6e 100%);border-radius:14px;padding:28px 32px;margin-bottom:20px;box-shadow:0 4px 12px rgba(30,58,95,.15);">
+  <div style="font-size:26px;font-weight:700;letter-spacing:-0.3px;color:#fff;margin:0;line-height:1.2;">$_huduCompany</div>
+  <div style="font-size:15px;opacity:0.85;margin-top:4px;color:#fff;font-weight:400;">Microsoft 365 Audit Report</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.2);font-size:12px;opacity:0.8;color:#fff;">
+    <span>Generated: $reportDate</span><span>365Audit v$ScriptVersion</span>
   </div>
-  <div style="font-size:12px;opacity:.75;">Generated: $reportDate</div>
 </div>
 
 $_huduKpiRow
@@ -5145,7 +5142,7 @@ $_secIntune
 $_secTeams
 $_secScuba
 
-<div style="margin-top:20px;padding-top:12px;border-top:1px solid rgba(128,128,128,0.2);font-size:11px;color:#94a3b8;">
+<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;text-align:center;">
   Full detail: M365_AuditSummary.html &bull; 365Audit v$ScriptVersion
 </div>
 
