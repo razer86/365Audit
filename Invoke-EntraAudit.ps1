@@ -38,7 +38,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.17.2
+    Version     : 1.18.2
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -55,7 +55,7 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.17.2"
+$ScriptVersion = "1.18.2"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -533,7 +533,7 @@ catch {
 Write-Host "`nStarting Entra Audit for $($context.OrgName)..." -ForegroundColor Cyan
 
 $step       = 0
-$totalSteps = 19
+$totalSteps = 20
 $activity   = "Entra Audit — $($context.OrgName)"
 
 
@@ -610,15 +610,16 @@ function Get-AuditInitiator {
 
 # --- Account Creations ---
 try {
-    $rawCreations  = Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and activityDisplayName eq 'Add user'" -All -ErrorAction Stop
+    $rawCreations  = Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and activityDisplayName eq 'Add user' and result eq 'success'" -All -ErrorAction Stop
     $acctCreations = foreach ($entry in $rawCreations) {
         $target = $entry.TargetResources | Select-Object -First 1
+        # DisplayName is not set on the target resource for Add user events; extract from ModifiedProperties
+        $nameProp = $target.ModifiedProperties | Where-Object { $_.DisplayName -eq 'displayName' } | Select-Object -First 1
         [PSCustomObject]@{
             Timestamp   = $entry.ActivityDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
             InitiatedBy = Get-AuditInitiator $entry
             TargetUPN   = $target.UserPrincipalName
-            TargetName  = $target.DisplayName
-            Result      = $entry.Result
+            TargetName  = if ($nameProp -and $nameProp.NewValue) { $nameProp.NewValue } elseif ($target.DisplayName) { $target.DisplayName } else { '' }
         }
     }
     $acctCreations | Export-Csv "$outputDir\Entra_AccountCreations.csv" -NoTypeInformation -Encoding UTF8
@@ -631,15 +632,14 @@ catch {
 
 # --- Account Deletions ---
 try {
-    $rawDeletions  = Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and activityDisplayName eq 'Delete user'" -All -ErrorAction Stop
+    $rawDeletions  = Get-MgAuditLogDirectoryAudit -Filter "$dateFilter and activityDisplayName eq 'Delete user' and result eq 'success'" -All -ErrorAction Stop
     $acctDeletions = foreach ($entry in $rawDeletions) {
         $target = $entry.TargetResources | Select-Object -First 1
         [PSCustomObject]@{
             Timestamp   = $entry.ActivityDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
             InitiatedBy = Get-AuditInitiator $entry
             TargetUPN   = $target.UserPrincipalName
-            TargetName  = $target.DisplayName
-            Result      = $entry.Result
+            TargetName  = if ($target.DisplayName) { $target.DisplayName } else { '' }
         }
     }
     $acctDeletions | Export-Csv "$outputDir\Entra_AccountDeletions.csv" -NoTypeInformation -Encoding UTF8
@@ -667,18 +667,22 @@ try {
     $securityEvents = @($rawUserMgmt | Where-Object { $_.ActivityDisplayName -in $securityActivityNames })
 
     $auditEvents = foreach ($entry in ($roleEvents + $securityEvents)) {
-        $targetUser = $entry.TargetResources | Where-Object { $_.Type -eq "User" } | Select-Object -First 1
-        $targetRole = $entry.TargetResources | Where-Object { $_.Type -eq "Role" } | Select-Object -First 1
+        # Type values vary by event category: "User", "Group", "directoryRole", etc. — use partial match for role
+        $targetUser = $entry.TargetResources | Where-Object { $_.Type -eq 'User' } | Select-Object -First 1
+        $targetRole = $entry.TargetResources | Where-Object { $_.Type -match '(?i)role' } | Select-Object -First 1
         if (-not $targetUser) { $targetUser = $entry.TargetResources | Select-Object -First 1 }
+
+        # UserPrincipalName is often empty for role management events; fall back to DisplayName
+        $targetLabel = Format-DirectoryUserLabel -DisplayName $targetUser.DisplayName -UserPrincipalName $targetUser.UserPrincipalName -Fallback ''
 
         [PSCustomObject]@{
             Timestamp   = $entry.ActivityDateTime.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC"
             Category    = $entry.Category
             Activity    = $entry.ActivityDisplayName
             InitiatedBy = Get-AuditInitiator $entry
-            TargetUPN   = $targetUser.UserPrincipalName
+            TargetUPN   = $targetLabel
             TargetName  = $targetUser.DisplayName
-            TargetRole  = if ($targetRole) { $targetRole.DisplayName } else { "" }
+            TargetRole  = if ($targetRole) { $targetRole.DisplayName } else { '' }
             Result      = $entry.Result
         }
     }
@@ -1604,6 +1608,29 @@ catch {
     Write-Warning "Unable to retrieve organisation settings: $_"
 }
 
+
+# ================================
+# ===   Microsoft 365 Lighthouse ===
+# ================================
+# The Lighthouse service principal (App ID 2828a423-d5cc-4818-8285-aa945d95017a) is registered
+# in the customer tenant when they are enrolled in Microsoft 365 Lighthouse.
+$step++
+Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking Microsoft 365 Lighthouse enrollment..." -PercentComplete ([int]($step / $totalSteps * 100))
+try {
+    $_lighthouseAppId = '2828a423-d5cc-4818-8285-aa945d95017a'
+    $_lighthouseSp    = Get-MgServicePrincipal -Filter "appId eq '$_lighthouseAppId'" -Property Id,DisplayName,AppId -ErrorAction Stop | Select-Object -First 1
+
+    [PSCustomObject]@{
+        Enrolled        = if ($_lighthouseSp) { 'True' } else { 'False' }
+        ServicePrincipalId   = if ($_lighthouseSp) { $_lighthouseSp.Id }          else { '' }
+        DisplayName     = if ($_lighthouseSp) { $_lighthouseSp.DisplayName } else { '' }
+    } | Export-Csv "$outputDir\Entra_LighthouseStatus.csv" -NoTypeInformation -Encoding UTF8
+    Write-Progress -Id 1 -Activity $activity -Status "Step $step/$totalSteps — Checking Microsoft 365 Lighthouse enrollment..." -CurrentOperation "Saved: Entra_LighthouseStatus.csv (enrolled: $(-not [string]::IsNullOrEmpty($_lighthouseSp)))" -PercentComplete ([int]($step / $totalSteps * 100))
+}
+catch {
+    Add-AuditIssue -Severity 'Info' -Section 'Entra' -Collector 'Get-MgServicePrincipal (Lighthouse)' -Description ($_.Exception.Message ?? "$_") -Action 'Check Application.Read.All permissions'
+    Write-Warning "Unable to check Lighthouse enrollment: $_"
+}
 
 # ================================
 # ===   Done                    ===
