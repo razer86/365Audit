@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.10.0
+    Version     : 2.11.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey
 )
 
-$ScriptVersion         = "2.10.0"
+$ScriptVersion         = "2.11.0"
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 Write-Verbose "Setup-365AuditApp.ps1 loaded (v$ScriptVersion)"
@@ -390,27 +390,7 @@ function Connect-GraphForSetup {
     )
 
     Write-Status 'Connecting to Microsoft Graph (browser window will open for interactive sign-in)...'
-    try {
-        Connect-MgGraph -Scopes $scopes -NoWelcome -ErrorAction Stop
-    }
-    catch {
-        if ($_.Exception.Message -match 'WithBroker|BrokerExtension|MsalCacheHelper|InteractiveBrowserCredential|DeviceCodeCredential') {
-            # WAM/MSAL broker conflict — another module loaded an incompatible assembly version.
-            # Fall back to device code flow which bypasses WAM entirely.
-            Write-Warning "Browser auth failed (MSAL conflict with another loaded module) — retrying with device code flow..."
-            try {
-                Connect-MgGraph -Scopes $scopes -NoWelcome -UseDeviceAuthentication -ErrorAction Stop
-            }
-            catch {
-                throw (
-                    "Interactive authentication failed due to a MSAL version conflict in the installed Graph module. " +
-                    "To fix: open a standalone PowerShell 7 window (not an IDE terminal) and re-run this script, " +
-                    "or run: Update-Module Microsoft.Graph -Force  then restart PowerShell and try again."
-                )
-            }
-        }
-        else { throw }
-    }
+    Connect-MgGraph -Scopes $scopes -NoWelcome -ErrorAction Stop
 
     $ctx = Get-MgContext
     if (-not $ctx) { throw "Authentication completed but no Graph context was established." }
@@ -1045,6 +1025,12 @@ function Invoke-PermissionCheck {
         }
         catch {
             if ($_.Exception.Message -match 'Authorization_RequestDenied|Insufficient privileges') {
+                $ctx = Get-MgContext
+                if ($ctx -and $ctx.AuthType -eq 'Delegated') {
+                    # Already interactive — the failure is a real permissions issue, not an auth type mismatch.
+                    # Reconnecting would just prompt the user again for no benefit.
+                    throw
+                }
                 # App-only auth cannot update its own permissions — reconnect interactively and retry.
                 Write-Status "App-only auth cannot update permissions — reconnecting interactively to apply changes..." -Type Warning
                 Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
@@ -1094,39 +1080,50 @@ function Resolve-PermissionState {
     $permissionChanges = Invoke-PermissionCheck -App $App
 
     if ($script:SetupNeedsManualConsent) {
-        Write-Status 'Automatic admin consent was not sufficient — reconnecting interactively to complete consent...' -Type Warning
-
-        # Capture org name while still connected app-only, before disconnecting
-        if (-not $orgName) {
-            $orgName = (Get-MgOrganization -ErrorAction SilentlyContinue | Select-Object -First 1).DisplayName
+        $ctx = Get-MgContext
+        if ($ctx -and $ctx.AuthType -eq 'Delegated') {
+            # Already in an interactive session — a reconnect would just prompt again for no benefit.
+            # Go straight to manual portal consent.
+            if (-not $orgName) {
+                $orgName = (Get-MgOrganization -ErrorAction SilentlyContinue | Select-Object -First 1).DisplayName
+            }
+            Request-AdminConsent -ApplicationId $App.AppId -TenantName ($orgName ?? $TenantId)
         }
+        else {
+            Write-Status 'Automatic admin consent was not sufficient — reconnecting interactively to complete consent...' -Type Warning
 
-        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
-
-        $interactiveOk = $false
-        try {
-            $TenantId     = Connect-GraphForSetup
-            $orgName      = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
-            Write-Status "Tenant: $orgName ($TenantId)" -Type Success
-            $interactiveOk = $true
-        }
-        catch {
-            Write-Status "Interactive sign-in unavailable: $($_.Exception.Message)" -Type Warning
-            Write-Status 'Falling back to manual portal consent...' -Type Warning
-        }
-
-        if ($interactiveOk) {
-            $App = Get-MgApplication -Filter "appId eq '$($App.AppId)'" -ErrorAction Stop | Select-Object -First 1
-            if (-not $App) {
-                throw "No app registration found for AppId '$($App.AppId)' after interactive reconnect."
+            # Capture org name while still connected app-only, before disconnecting
+            if (-not $orgName) {
+                $orgName = (Get-MgOrganization -ErrorAction SilentlyContinue | Select-Object -First 1).DisplayName
             }
 
-            $script:SetupNeedsManualConsent = $false
-            $permissionChanges = Invoke-PermissionCheck -App $App
-        }
+            Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
 
-        if ($script:SetupNeedsManualConsent) {
-            Request-AdminConsent -ApplicationId $App.AppId -TenantName ($orgName ?? $TenantId)
+            $interactiveOk = $false
+            try {
+                $TenantId     = Connect-GraphForSetup
+                $orgName      = (Get-MgOrganization -ErrorAction Stop | Select-Object -First 1).DisplayName
+                Write-Status "Tenant: $orgName ($TenantId)" -Type Success
+                $interactiveOk = $true
+            }
+            catch {
+                Write-Status "Interactive sign-in unavailable: $($_.Exception.Message)" -Type Warning
+                Write-Status 'Falling back to manual portal consent...' -Type Warning
+            }
+
+            if ($interactiveOk) {
+                $App = Get-MgApplication -Filter "appId eq '$($App.AppId)'" -ErrorAction Stop | Select-Object -First 1
+                if (-not $App) {
+                    throw "No app registration found for AppId '$($App.AppId)' after interactive reconnect."
+                }
+
+                $script:SetupNeedsManualConsent = $false
+                $permissionChanges = Invoke-PermissionCheck -App $App
+            }
+
+            if ($script:SetupNeedsManualConsent) {
+                Request-AdminConsent -ApplicationId $App.AppId -TenantName ($orgName ?? $TenantId)
+            }
         }
     }
 
