@@ -57,7 +57,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.4.0
+    Version     : 1.5.0
 #>
 
 #Requires -Version 7.2
@@ -73,10 +73,14 @@ param (
     [string]$HuduBaseUrl,
     [string]$HuduApiKey,
     [int]$ReportLayoutId = 0,
-    [string]$ReportAssetName = ''
+    [string]$ReportAssetName = '',
+
+    # When set, the local output folder is deleted after the uploaded zip is
+    # downloaded back from Hudu and verified to open correctly.
+    [switch]$CleanupLocal
 )
 
-$ScriptVersion         = "1.4.0"
+$ScriptVersion         = "1.5.0"
 Write-Verbose "Publish-HuduAuditReport.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
@@ -475,17 +479,86 @@ catch {
     return
 }
 
+# Verify archive integrity before uploading
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+try {
+    $_localZip    = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+    $_localCount  = $_localZip.Entries.Count
+    $_localZip.Dispose()
+    if ($_localCount -eq 0) {
+        Write-Warning "Publish-HuduAuditReport: Archive appears empty — skipping upload."
+        Remove-Item $zipPath -ErrorAction SilentlyContinue
+        return
+    }
+    Write-Verbose "Local archive verified ($_localCount entries)."
+}
+catch {
+    Write-Warning "Publish-HuduAuditReport: Archive verification failed — $_ — skipping upload."
+    Remove-Item $zipPath -ErrorAction SilentlyContinue
+    return
+}
+
 Write-Host "  [Hudu] Uploading zip archive to asset..." -ForegroundColor DarkCyan
 
+$_uploadResp      = $null
+$_uploadSucceeded = $false
 try {
-    Invoke-RestMethod -Uri "$base/api/v1/uploads" -Method Post -Headers $formHeaders `
+    $_uploadResp = Invoke-RestMethod -Uri "$base/api/v1/uploads" -Method Post -Headers $formHeaders `
         -Form @{
             file                      = (Get-Item $zipPath)
             'upload[uploadable_id]'   = "$assetId"
             'upload[uploadable_type]' = 'Asset'
-        } -ErrorAction Stop | Out-Null
+        } -ErrorAction Stop
     Write-Host "  [Hudu] Archive uploaded: $(Split-Path $zipPath -Leaf)" -ForegroundColor Green
+    $_uploadSucceeded = $true
 }
 catch { Write-Warning "Publish-HuduAuditReport: Zip upload failed — $_" }
 finally { Remove-Item $zipPath -ErrorAction SilentlyContinue }
+
+# ── 8. Verify uploaded archive and clean up local output folder ───────────────
+
+if ($CleanupLocal -and $_uploadSucceeded) {
+    Write-Host "  [Hudu] Verifying uploaded archive before local cleanup..." -ForegroundColor DarkCyan
+    try {
+        # Resolve the download URL — prefer the upload response, fall back to re-querying the asset
+        $_zipUrl = if ($_uploadResp -and $_uploadResp.upload) { $_uploadResp.upload.url } else { $null }
+        if (-not $_zipUrl) {
+            $uploadsResp = Invoke-RestMethod `
+                -Uri "$base/api/v1/uploads?uploadable_id=$assetId&uploadable_type=Asset" `
+                -Headers $jsonHeaders -Method Get -ErrorAction Stop
+            $_zipUrl = @($uploadsResp.uploads) |
+                Where-Object { $_.file_name -like '*.zip' } |
+                Select-Object -Last 1 |
+                Select-Object -ExpandProperty url
+        }
+
+        if (-not $_zipUrl) {
+            Write-Warning "Publish-HuduAuditReport: Could not resolve uploaded zip URL — local folder kept."
+        }
+        else {
+            $tmpVerify = Join-Path $env:TEMP "365Audit_verify_$([System.IO.Path]::GetRandomFileName()).zip"
+            try {
+                Invoke-WebRequest -Uri $_zipUrl -Headers $formHeaders -OutFile $tmpVerify -ErrorAction Stop
+                $_verifyZip   = [System.IO.Compression.ZipFile]::OpenRead($tmpVerify)
+                $_verifyCount = $_verifyZip.Entries.Count
+                $_verifyZip.Dispose()
+
+                if ($_verifyCount -gt 0) {
+                    Write-Host "  [Hudu] Uploaded archive verified ($_verifyCount entries) — removing local folder." -ForegroundColor DarkCyan
+                    Remove-Item -Path $OutputPath -Recurse -Force -ErrorAction Stop
+                    Write-Host "  [Hudu] Local report folder removed: $(Split-Path $OutputPath -Leaf)" -ForegroundColor Green
+                }
+                else {
+                    Write-Warning "Publish-HuduAuditReport: Uploaded archive appears empty — local folder kept."
+                }
+            }
+            finally {
+                Remove-Item $tmpVerify -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    catch {
+        Write-Warning "Publish-HuduAuditReport: Cleanup verification failed — local folder kept: $_"
+    }
+}
 

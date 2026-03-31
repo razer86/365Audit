@@ -53,7 +53,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.6.0
+    Version     : 2.7.0
 
 .LINK
     https://github.com/razer86/365Audit
@@ -77,7 +77,7 @@ param (
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.6.0"
+$ScriptVersion = "2.7.0"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -92,6 +92,7 @@ if (Test-Path $_configPath) {
         if (-not $HuduBaseUrl -and $_config.HuduBaseUrl) { $HuduBaseUrl = $_config.HuduBaseUrl }
         if (-not $OutputRoot  -and $_config.OutputRoot)  { $OutputRoot  = $_config.OutputRoot }
         $_reportLayoutId = if ($_config.HuduReportLayoutId -gt 0) { [int]$_config.HuduReportLayoutId } else { 68 }
+        $_cleanupLocal   = [bool]$_config.CleanupLocalReports
     }
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
@@ -219,7 +220,8 @@ foreach ($entry in $customerList) {
                         -CompanySlug    $customerId `
                         -HuduBaseUrl    $HuduBaseUrl `
                         -HuduApiKey     $HuduApiKey `
-                        -ReportLayoutId $_reportLayoutId
+                        -ReportLayoutId $_reportLayoutId `
+                        -CleanupLocal:$_cleanupLocal
                 }
                 catch { Write-Warning "  Hudu publish failed: $($_.Exception.Message)" }
             }

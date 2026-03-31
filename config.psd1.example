@@ -39,6 +39,14 @@
     # If omitted, reports are written two levels above the toolkit directory.
     # OutputRoot = 'C:\AuditReports'
 
+    # ── Unattended run cleanup ───────────────────────────────────────────────
+
+    # When $true, the local report output folder is deleted after each customer's
+    # audit run — but only after the uploaded zip is downloaded back from Hudu
+    # and verified to open correctly. Set to $false (or omit) to keep all local
+    # report folders.
+    CleanupLocalReports = $false
+
     # ── MSP identity ─────────────────────────────────────────────────────────
 
     # Your MSP's email domains. Technical contact addresses not in this list
