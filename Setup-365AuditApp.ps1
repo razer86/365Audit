@@ -395,13 +395,21 @@ function Connect-GraphForSetup {
     }
     catch {
         if ($_.Exception.Message -match 'WithBroker|BrokerExtension|MsalCacheHelper|InteractiveBrowserCredential|DeviceCodeCredential') {
-            throw (
-                "Interactive authentication failed due to a MSAL version conflict in the installed Graph module. " +
-                "To fix: open a standalone PowerShell 7 window (not an IDE terminal) and re-run this script, " +
-                "or run: Update-Module Microsoft.Graph -Force  then restart PowerShell and try again."
-            )
+            # WAM/MSAL broker conflict — another module loaded an incompatible assembly version.
+            # Fall back to device code flow which bypasses WAM entirely.
+            Write-Warning "Browser auth failed (MSAL conflict with another loaded module) — retrying with device code flow..."
+            try {
+                Connect-MgGraph -Scopes $scopes -NoWelcome -UseDeviceAuthentication -ErrorAction Stop
+            }
+            catch {
+                throw (
+                    "Interactive authentication failed due to a MSAL version conflict in the installed Graph module. " +
+                    "To fix: open a standalone PowerShell 7 window (not an IDE terminal) and re-run this script, " +
+                    "or run: Update-Module Microsoft.Graph -Force  then restart PowerShell and try again."
+                )
+            }
         }
-        throw
+        else { throw }
     }
 
     $ctx = Get-MgContext
