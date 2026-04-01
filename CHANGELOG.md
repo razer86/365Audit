@@ -46,6 +46,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.11.0 | Refactored `Connect-GraphForSetup` — simplified error handling, removed try/catch wrapper around `Connect-MgGraph` (MSAL conflicts surface directly with clear error message) |
 | 2.10.0 | Added `PrivilegedAccess.Read.AzureAD` Graph permission (required by ScubaGear for PIM policy checks); added `Set-GlobalReaderRole` helper and calls in both new-app and update-app paths — Global Reader Entra role is now assigned to the service principal automatically (required by ScubaGear non-interactive assessment) |
 | 2.9.0 | Config loaded from `config.psd1` (version note — no new features, version bump only) |
 | 2.6.0 | Config loaded from `config.psd1` — `HuduApiKey`, `HuduBaseUrl`, `HuduAssetLayoutId`, and `AuditAppName` sourced from file instead of environment variables; `HuduAssetLayoutId` replaces all hardcoded `asset_layout_id=67` references |
@@ -87,6 +88,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.19.0 | `Get-FriendlySkuName` rewritten to load from `Resources/SkuFriendlyNames.csv` (Microsoft's official product names CSV) instead of a hardcoded hashtable; CSV is auto-downloaded from Microsoft on first use if not present; fixes `O365_BUSINESS_PREMIUM` mislabelled as "Business Premium" when it is actually "Business Standard" per Microsoft's SKU reference |
+| 1.18.2 | Various fixes and enhancements to Enterprise Apps and audit issue logging |
 | 1.17.2 | Enterprise Apps Application permissions: use `$ra.ResourceDisplayName` as fallback for `ResourceApp` before falling back to raw ResourceId GUID; SP permission resolution switched from `-Property`-based SDK calls (which silently return empty `AppRoles`) to `Get-MgServicePrincipal` without `-Property` + `-ConsistencyLevel eventual` for appId filter queries; ID comparisons use string interpolation to handle `Nullable<Guid>` type differences in SDK v2 |
 | 1.17.1 | Added `Add-AuditIssue` calls to 17 outer catch blocks (sign-in logs, account creations/deletions, directory audit events, SSPR, CA policies, named locations, Secure Score, Security Defaults, enterprise apps, risky users/sign-ins, auth methods policy, external collaboration, app registrations, PIM assignments, org settings) — collection failures now logged to `AuditIssues.csv` |
 | 1.14.0 | Lazy-load Entra-specific Graph sub-modules via `Import-GraphSubModules` after connect — loads `Users`, `Groups`, `Reports`, `Identity.SignIns`, and `Applications` on demand instead of at startup; adds `Microsoft.Graph.Applications` required for `Get-MgServicePrincipal` and `Get-MgServicePrincipalAppRoleAssignment` |
@@ -235,6 +238,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.60.0 | Hudu report restyled to match Windows Audit Tool visual design: header updated to WAT gradient (`linear-gradient(135deg, #1e3a5f, #2e5c6e)`), `border-radius:14px`, `padding:28px 32px` with `box-shadow`; company name styled as 26px bold white, subtitle at 15px, meta bar with border-top separator; `New-HuduSection` updated to WAT `.section-summary` style — 28×28px `border-radius:8px` numbered badges, 18px bold titles, 14px rounded containers with `box-shadow`; dark mode fix: removed hardcoded `color:#1e3a5f` from section headers and `color:rgba(128,128,128,0.65)` from KPI tile labels — replaced with `opacity:0.6` so text inherits Hudu's theme colour; section counter reset added before first section call |
+| 1.59.0 | Hudu report helper functions updated: `New-HuduKpiTile`, `New-HuduSection` (numbered navy badges), `New-HuduStatGrid`, `New-HuduTable`, `New-HuduAiTable` (left-border callout rows), `New-HuduModuleAi` restyled with neutral RGBA backgrounds, consistent typography, and border accents; `-Accent` parameter removed from `New-HuduSection` |
 | 1.50.0 | Month-over-month delta foundation: `Add-ActionItem` gains a `CheckId` parameter (stable `MODULE-SUBCATEGORY-NNN` identity string) stored in `ActionItems.json` and used by `Publish-HuduAuditReport.ps1` for action item diffing; all 81 non-ScubaGear call sites updated with stable IDs; `AuditMetrics.json` written alongside `ActionItems.json` each run — captures MFA coverage %, Secure Score, device count, storage GB/%, licence assigned/available, and action item counts; `New-HuduKpiTile` gains `-DeltaMarkerId` parameter that emits `<!-- TILE_DELTA_* -->` HTML comment markers inside each KPI tile; `<!-- AUDIT_DELTA_INJECT -->` marker inserted between KPI row and Action Items in Hudu HTML for downstream injection of the delta section |
 | 1.49.0 | Hudu report (`M365_HuduReport.html`) rewritten as a pure HTML fragment compatible with Hudu's rich-text field renderer: removed `<!DOCTYPE html>` wrapper and `<style>` block; all surface backgrounds converted to `rgba()` for light/dark theme compatibility; borders use `rgba(128,128,128,0.2)`; semantic state backgrounds use `rgba()` (good: green/0.1, bad: red/0.1); header banner accent updated to `#1849a9`; section accent default updated to `#1849a9`; action item Category and Finding cells now inherit page text colour (fixes grey-on-dark readability); added **Tenant Storage** KPI tile to both the main report strip and the Hudu report header row — reads `SharePoint_TenantStorage.csv`, falls back to summing per-site and OneDrive CSVs, colour-coded green/amber/red at 75%/90% thresholds; shows `—` when SharePoint module was not run |
 | 1.43.0 | Exchange / Mailboxes action item: flags mailboxes that are over 75% full and have no In-Place Archive enabled, listing each affected mailbox with display name, UPN, and usage percentage; mailbox table row highlighting: near-full rows rendered with an amber left border and `#fff8f0` background; Archive column replaced with a styled "No Archive" label (orange, bold, with tooltip) for flagged rows |
@@ -285,6 +290,8 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.8.0 | Batch log: writes a timestamped `UnattendedAudit_yyyy-MM-dd_HHmmss.log` to the output root with per-tenant START/DONE/FAIL lines (including elapsed time), followed by the final summary table; log file path printed to console at the end of the run |
+| 2.7.0 | Added `CleanupLocalReports` config parameter support; passes `-CleanupLocal` to `Publish-HuduAuditReport.ps1`; version bump for Hudu publish integration refinements |
 | 2.6.0 | After each customer's audit completes, automatically calls `Helpers\Publish-HuduAuditReport.ps1` to push the report to Hudu — reads the output folder path from `$env:TEMP\365Audit_LastOutput.txt` written by `Start-365Audit.ps1`; Hudu publish failures are caught and logged as warnings without stopping remaining customers; customer list migrated from `UnattendedCustomers.json` to `UnattendedCustomers.psd1` |
 | 2.5.1 | `OutputRoot` validation: resolves to absolute path, checks drive/UNC qualifier is accessible, and attempts `New-Item` before the customer loop — bad path stops the entire batch before any customer runs |
 | 2.5.0 | Added `-OutputRoot` parameter; falls back to `OutputRoot` in `config.psd1`; passed through to each `Start-365Audit.ps1` call so all customers in a bulk run write to the same root |
@@ -362,10 +369,22 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 | ------- | ----- |
+| 1.6.0 | Populates four new Hudu asset fields from `AuditMetrics.json`: `mfa_coverage` (e.g. "87.5%"), `secure_score` (raw "72 / 100"), `tenant_storage` (e.g. "34.2% (512 GB / 1024 GB)"), `critical_items` (count); delta section restyled to match WAT — numbered badge, 18px bold title, `border-radius:14px`, removed solid `#1849a9` background; `AuditMetrics.json` loaded once at script start and reused for both KPI fields and delta computation |
+| 1.5.0 | Added `-CleanupLocal` switch; `ReportAssetName` configurable via config or parameter; delta section and tile marker HTML updated for new Hudu report styling |
+| 1.4.0 | HTML report styling updated for consistency with Generate-AuditSummary.ps1 Hudu helper changes |
+| 1.3.0 | Added `secure_score` raw value field; delta section border and badge styling refinements |
 | 1.2.1 | `HuduBaseUrl`, `HuduApiKey`, and `ReportLayoutId` are now optional — values fall back to `HuduBaseUrl`, `HuduApiKey`, and `HuduReportLayoutId` in `config.psd1`; zip attachment deleted after upload (previously left in the report root folder) |
 | 1.2.0 | Month-over-month delta: loads `AuditMetrics.json` and `ActionItems.json` from the current output folder; finds the prior month's asset (`M365 Audit - yyyy-MM` for previous month) in the same asset query; downloads the prior zip attachment via the Hudu uploads API; extracts `AuditMetrics.json` and `ActionItems.json` using `System.IO.Compression.ZipFile`; replaces `<!-- TILE_DELTA_* -->` markers with coloured `+/-N%` spans (green = improvement, red = regression, neutral grey for device count); builds "Changes Since Last Month" `<details>` section with a licence/storage metric change row, a Resolved table (green header), and a New table (red header); injects the section at `<!-- AUDIT_DELTA_INJECT -->`; all prior-data logic is non-fatal (wrapped in `try/catch`) — absent or failed prior zip results in markers being cleared and the report published without delta; prior month asset lookup is performed in the same API call as the current month asset lookup (no extra request) |
 | 1.1.0 | Reads `ActionItems.json` from `$OutputPath` to confirm audit completed before publishing |
 | 1.0.0 | Initial release — resolves Hudu company by slug; finds or creates `M365 Audit - yyyy-MM` asset under the `Monthly Audit Report` layout; populates `report_summary` with `M365_HuduReport.html`; uploads `M365_AuditSummary.html` and a zip of the full output folder as attachments |
+
+---
+
+## Helpers/Update-SkuFriendlyNames.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — downloads Microsoft's official product names and service plan identifiers CSV from `download.microsoft.com` and saves to `Resources/SkuFriendlyNames.csv`; reports unique SKU count before and after |
 
 ---
 
