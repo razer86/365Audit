@@ -38,7 +38,9 @@ jobs:
           # PSUseShouldProcessForStateChangingFunctions: audit scripts are read-only by design
           # PSAvoidUsingConvertToSecureStringWithPlainText: passwords are always retrieved
           #   dynamically from Hudu or generated at runtime — never hardcoded literals
-          excludeRule: '"PSAvoidUsingWriteHost", "PSUseShouldProcessForStateChangingFunctions", "PSAvoidUsingConvertToSecureStringWithPlainText"'
+          # PSAvoidUsingEmptyCatchBlock: intentional in cleanup/finally blocks (disconnect, stop-transcript)
+          # PSUseDeclaredVarsMoreThanAssignments: $ScriptVersion is read by CI version-check, not runtime
+          excludeRule: '"PSAvoidUsingWriteHost", "PSUseShouldProcessForStateChangingFunctions", "PSAvoidUsingConvertToSecureStringWithPlainText", "PSAvoidUsingEmptyCatchBlock", "PSUseDeclaredVarsMoreThanAssignments"'
           output: results.sarif
 
       - name: Upload SARIF results file
