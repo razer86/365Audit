@@ -57,7 +57,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.5.0
+    Version     : 1.6.0
 #>
 
 #Requires -Version 7.2
@@ -80,7 +80,7 @@ param (
     [switch]$CleanupLocal
 )
 
-$ScriptVersion         = "1.5.0"
+$ScriptVersion         = "1.6.0"
 Write-Verbose "Publish-HuduAuditReport.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'

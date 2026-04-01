@@ -53,7 +53,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.7.0
+    Version     : 2.8.0
 
 .LINK
     https://github.com/razer86/365Audit
@@ -77,7 +77,7 @@ param (
     [switch]$SkipCertCheck
 )
 
-$ScriptVersion = "2.7.0"
+$ScriptVersion = "2.8.0"
 Write-Verbose "Start-UnattendedAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -151,6 +151,14 @@ $setupScript  = Join-Path $scriptRoot 'Setup-365AuditApp.ps1'
 $auditScript  = Join-Path $scriptRoot 'Start-365Audit.ps1'
 $results      = [System.Collections.Generic.List[PSCustomObject]]::new()
 
+# ── Batch log ─────────────────────────────────────────────────────────────────
+$_logDir  = if ($OutputRoot) { $OutputRoot } else { $scriptRoot }
+$_logFile = Join-Path $_logDir "UnattendedAudit_$(Get-Date -Format 'yyyy-MM-dd_HHmmss').log"
+function Write-BatchLog ([string]$Message) {
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $Message"
+    Add-Content -Path $_logFile -Value $line -Encoding UTF8
+}
+
 foreach ($scriptPath in @($setupScript, $auditScript)) {
     if (-not (Test-Path $scriptPath)) {
         Write-Error "Required script not found: $scriptPath" -ErrorAction Stop
@@ -161,6 +169,8 @@ $totalCustomers = $customerList.Count
 $currentIndex   = 0
 $failed         = @()
 
+Write-BatchLog "=== Batch started — $totalCustomers customer(s), 365Audit v$ScriptVersion ==="
+
 foreach ($entry in $customerList) {
         $currentIndex++
         $customerId   = $entry.HuduCompanySlug
@@ -170,6 +180,8 @@ foreach ($entry in $customerList) {
         Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
         Write-Host "  $customerLabel  (modules: $($customerMods -join ','))" -ForegroundColor Cyan
         Write-Host "$('=' * 72)" -ForegroundColor Cyan
+        Write-BatchLog "START  $customerLabel  modules=$($customerMods -join ',')"
+        $_tenantStart = Get-Date
 
         $result = [PSCustomObject]@{
             Customer    = $customerId
@@ -203,7 +215,9 @@ foreach ($entry in $customerList) {
             & $auditScript @auditParams
 
             $result.AuditStatus = 'Completed'
+            $_elapsed = (Get-Date) - $_tenantStart
             Write-Host "  $customerLabel — DONE" -ForegroundColor Green
+            Write-BatchLog "DONE   $customerLabel  elapsed=$([math]::Round($_elapsed.TotalMinutes, 1))m"
 
             # ── Publish report to Hudu ────────────────────────────────────────
             $_publishScript  = Join-Path $scriptRoot 'Helpers\Publish-HuduAuditReport.ps1'
@@ -229,7 +243,9 @@ foreach ($entry in $customerList) {
         catch {
             $result.AuditStatus = 'Failed'
             $result.Error       = $_.Exception.Message
+            $_elapsed = (Get-Date) - $_tenantStart
             Write-Host "  $customerLabel — FAILED: $($_.Exception.Message)" -ForegroundColor Red
+            Write-BatchLog "FAIL   $customerLabel  elapsed=$([math]::Round($_elapsed.TotalMinutes, 1))m  error=$($_.Exception.Message)"
         }
 
         $results.Add($result)
@@ -241,6 +257,14 @@ Write-Host "  Bulk run complete — $($results.Count) customer(s)" -ForegroundCo
 Write-Host "$('=' * 72)" -ForegroundColor Cyan
 
 $results | Format-Table -AutoSize
+
+# Append summary to batch log
+$_completedCount = @($results | Where-Object { $_.AuditStatus -eq 'Completed' }).Count
+$_failedCount    = @($results | Where-Object { $_.AuditStatus -eq 'Failed'    }).Count
+Write-BatchLog "=== Batch finished — $_completedCount completed, $_failedCount failed ==="
+$results | Format-Table -AutoSize | Out-String -Width 120 | ForEach-Object { $_.TrimEnd() } |
+    Where-Object { $_ } | Add-Content -Path $_logFile -Encoding UTF8
+Write-Host "  Batch log: $_logFile" -ForegroundColor DarkGray
 
 $failed = @($results | Where-Object { $_.AuditStatus -eq 'Failed' })
 if ($failed.Count -gt 0) {

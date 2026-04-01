@@ -202,6 +202,9 @@ The HTML summary report is documented separately: [Generate-AuditSummary.ps1](do
 1. Calls `Setup-365AuditApp.ps1 -HuduCompanyId` to check the certificate — if expiring within 30 days, renews automatically and pushes new credentials back to Hudu
 2. Calls `Start-365Audit.ps1 -HuduCompanyId -Modules` with credentials freshly fetched from Hudu
 3. Generates the HTML summary report (not opened automatically)
+4. Publishes the report to Hudu (including KPI fields: MFA Coverage, Secure Score, Tenant Storage, Critical Items)
+
+A timestamped batch log (`UnattendedAudit_yyyy-MM-dd_HHmmss.log`) is written to the output root with start/finish times per tenant and the final summary table.
 
 ### Setup
 
@@ -247,7 +250,7 @@ By default, output is written one level above the repository root to prevent aud
 
 Each audit run creates a customer folder inside the output root:
 
-```
+```text
 365Audit/            ← repository
 <parent folder>/
 └── <CompanyName>_<yyyyMMdd>/
@@ -282,6 +285,7 @@ Standalone utility scripts in the `Helpers\` folder. None are required for norma
 | [Remove-AuditCustomer.ps1](docs/Helpers.md#remove-auditcustomerps1) | Offboard a customer — remove Entra app and archive Hudu asset |
 | [Sync-UnattendedCustomers.ps1](docs/Helpers.md#sync-unattendedcustomersps1) | Populate `UnattendedCustomers.json` from Hudu automatically |
 | [Uninstall-AuditModules.ps1](docs/Helpers.md#uninstall-auditmodulesps1) | Clean-remove all toolkit modules for a fresh reinstall |
+| [Update-SkuFriendlyNames.ps1](Helpers/Update-SkuFriendlyNames.ps1) | Download Microsoft's official SKU-to-product-name CSV to `Resources/` |
 
 See [docs/Helpers.md](docs/Helpers.md) for full usage, parameters, and examples.
 
@@ -301,7 +305,7 @@ All modules accept the `-DevMode` switch for standalone testing.
 
 ## File Structure
 
-```
+```text
 365Audit/
 ├── Common/
 │   └── Audit-Common.ps1                      # Shared helpers (Graph/EXO auth, output folder, version check)
@@ -320,7 +324,10 @@ All modules accept the `-DevMode` switch for standalone testing.
 │   ├── New-HuduAssetLayout.ps1               # Creates the M365 Audit Toolkit asset layout in Hudu
 │   ├── Remove-AuditCustomer.ps1              # Offboards a customer — removes Entra app and Hudu asset
 │   ├── Sync-UnattendedCustomers.ps1          # Syncs UnattendedCustomers.psd1 from Hudu assets
-│   └── Uninstall-AuditModules.ps1            # Removes all toolkit modules (clean reinstall / conflict resolution)
+│   ├── Uninstall-AuditModules.ps1            # Removes all toolkit modules (clean reinstall / conflict resolution)
+│   └── Update-SkuFriendlyNames.ps1           # Downloads Microsoft's official SKU friendly names CSV
+├── Resources/
+│   └── SkuFriendlyNames.csv                  # Microsoft SKU-to-product-name map (auto-downloaded if missing)
 ├── CHANGELOG.md                              # Full version history for all scripts
 ├── config.psd1.example                       # Config template (copy to config.psd1)
 ├── Generate-AuditSummary.ps1                 # HTML report generator

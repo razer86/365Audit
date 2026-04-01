@@ -38,7 +38,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.18.2
+    Version     : 1.19.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -55,72 +55,47 @@ if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.
     Write-Error "This script must be run from the 365Audit launcher. Use -DevMode for development." -ErrorAction Stop
 }
 
-$ScriptVersion = "1.18.2"
+$ScriptVersion = "1.19.0"
 Write-Verbose "Invoke-EntraAudit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # === Convert SKU part numbers to friendly names ===
+# Loaded from Resources\SkuFriendlyNames.csv (Microsoft's official CSV, updated by Helpers\Update-SkuFriendlyNames.ps1)
+$script:_skuFriendlyMap = $null
 function Get-FriendlySkuName {
     [CmdletBinding()]
     param (
         [string]$Sku
     )
 
-    $skuMap = @{
-        # Microsoft 365 Business Plans
-        "O365_BUSINESS_PREMIUM"       = "Microsoft 365 Business Premium"
-        "O365_BUSINESS_STANDARD"      = "Microsoft 365 Business Standard"
-        "O365_BUSINESS_ESSENTIALS"    = "Microsoft 365 Business Basic"
-        "M365_APPS_FOR_BUSINESS"      = "Microsoft 365 Apps for Business"
-        "M365_APPS_FOR_ENTERPRISE"    = "Microsoft 365 Apps for Enterprise"
-
-        # Microsoft 365 Enterprise Plans
-        "ENTERPRISEPREMIUM"           = "Microsoft 365 E5"
-        "ENTERPRISEPACK"              = "Microsoft 365 E3"
-        "STANDARDPACK"                = "Microsoft 365 E1"
-        "M365_F3"                     = "Microsoft 365 F3"
-        "DESKLESSPACK"                = "Microsoft 365 F1"
-
-        # Office 365 Plans
-        "O365_E1"                     = "Office 365 E1"
-        "O365_E3"                     = "Office 365 E3"
-        "O365_E5"                     = "Office 365 E5"
-
-        # Exchange Plans
-        "EXCHANGESTANDARD"            = "Exchange Online Plan 1"
-        "EXCHANGEENTERPRISE"          = "Exchange Online Plan 2"
-        "EXCHANGEESSENTIALS"          = "Exchange Online Essentials"
-
-        # Project / Planner
-        "PROJECTESSENTIALS"           = "Project Plan 1"
-        "PROJECTPREMIUM"              = "Project Plan 3"
-        "PROJECTPROFESSIONAL"         = "Project Professional"
-        "PROJECT_PLAN1"               = "Project Online Essentials"
-        "PROJECT_PLAN2"               = "Project Online Professional"
-        "PROJECT_PLAN3"               = "Project Online Premium"
-        "PLANNERSTANDALONE"           = "Microsoft Planner"
-
-        # Power Platform
-        "POWER_BI_STANDARD"           = "Power BI (Free)"
-        "POWER_BI_PRO"                = "Power BI Pro"
-        "POWERAPPS_VIRAL"             = "PowerApps (Free)"
-        "POWERAPPS_P1"                = "PowerApps Plan 1"
-        "POWERAPPS_P2"                = "PowerApps Plan 2"
-        "FLOW_FREE"                   = "Power Automate Free"
-        "FLOW_P1"                     = "Power Automate Plan 1"
-        "FLOW_P2"                     = "Power Automate Plan 2"
-
-        # Misc
-        "SMB_APPS"                               = "Business Apps (Free)"
-        "SPB"                                    = "Microsoft 365 Business Premium"
-        "RMSBASIC"                               = "Azure Rights Management (Free)"
-        "Microsoft_Teams_Rooms_Basic"            = "Microsoft Teams Rooms Basic"
-        "Microsoft_Teams_Rooms_Pro"              = "Microsoft Teams Rooms Pro"
-        "MEETING_ROOM"                           = "Microsoft Teams Rooms Standard"
+    if ($null -eq $script:_skuFriendlyMap) {
+        $script:_skuFriendlyMap = @{}
+        $_csvPath = Join-Path $PSScriptRoot 'Resources\SkuFriendlyNames.csv'
+        if (-not (Test-Path $_csvPath)) {
+            # Auto-download Microsoft's official licensing reference CSV
+            try {
+                $resDir = Join-Path $PSScriptRoot 'Resources'
+                if (-not (Test-Path $resDir)) { New-Item -ItemType Directory -Path $resDir -Force | Out-Null }
+                $_csvUrl = 'https://download.microsoft.com/download/e/3/e/e3e9faf2-f28b-490a-9ada-c6089a1fc5b0/Product%20names%20and%20service%20plan%20identifiers%20for%20licensing.csv'
+                Invoke-WebRequest -Uri $_csvUrl -OutFile $_csvPath -TimeoutSec 15 -ErrorAction Stop
+                Write-Verbose "Downloaded SkuFriendlyNames.csv from Microsoft."
+            }
+            catch { Write-Verbose "Could not download SkuFriendlyNames.csv: $_" }
+        }
+        if (Test-Path $_csvPath) {
+            try {
+                foreach ($row in Import-Csv $_csvPath) {
+                    if ($row.String_Id -and -not $script:_skuFriendlyMap.ContainsKey($row.String_Id)) {
+                        $script:_skuFriendlyMap[$row.String_Id] = $row.Product_Display_Name
+                    }
+                }
+            }
+            catch { Write-Verbose "Could not load SkuFriendlyNames.csv: $_" }
+        }
     }
 
-    if ($skuMap.ContainsKey($Sku)) { return $skuMap[$Sku] }
+    if ($script:_skuFriendlyMap.ContainsKey($Sku)) { return $script:_skuFriendlyMap[$Sku] }
     return $Sku
 }
 
