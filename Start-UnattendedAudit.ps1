@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Runs the 365Audit toolkit across multiple customers in sequence.
 

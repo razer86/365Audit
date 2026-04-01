@@ -140,7 +140,7 @@ function Disconnect-PnPOnlineIfLoaded {
             Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null
             Write-Verbose "Disconnected existing SharePoint Online session."
         }
-        catch {}
+        catch { <# Disconnect may fail if session was never established — safe to ignore #> }
     }
 }
 
@@ -488,10 +488,15 @@ try {
                 Write-Host "Local script not found. Downloading from GitHub..."
                 Write-Host "Fetching: $remoteScriptUrl`n"
                 try {
-                    Invoke-Expression (Invoke-RestMethod $remoteScriptUrl)
+                    $_tempScript = Join-Path $env:TEMP "365Audit_$scriptName"
+                    Invoke-RestMethod $remoteScriptUrl -OutFile $_tempScript -ErrorAction Stop
+                    . $_tempScript
                 }
                 catch {
                     Write-Warning "Failed to download or run ${scriptName}: $_"
+                }
+                finally {
+                    Remove-Item $_tempScript -Force -ErrorAction SilentlyContinue
                 }
             }
 
@@ -525,7 +530,7 @@ try {
 }
 finally {
     if ($_transcriptActive) {
-        try { Stop-Transcript | Out-Null } catch {}
+        try { Stop-Transcript | Out-Null } catch { <# Transcript may not have started #> }
         $logCtx = if ($auditContext) { $auditContext } else { try { Initialize-AuditOutput } catch { $null } }
         if ($logCtx -and $_transcriptPath -and (Test-Path $_transcriptPath -ErrorAction SilentlyContinue)) {
             $logDir  = $logCtx.RawOutputPath

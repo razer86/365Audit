@@ -239,7 +239,7 @@ function Format-StatusPill {
     return "<span style='$($_s[$Type])'>$Text</span>"
 }
 
-function Format-MfaMethodPills {
+function Format-MfaMethodPill {
     # MFAMethods in the CSV are already friendly names produced by Invoke-EntraAudit.ps1
     # (e.g. "Authenticator App", "FIDO2 Key", "Windows Hello") — map by those names.
     param([string]$Methods)
@@ -1680,59 +1680,59 @@ function New-SbSub { param([string]$Id, [string]$Label, [string]$Csv = '', [stri
 }
 $_sbDefinitions = @(
     @{ Id = 'entra'; Label = 'Microsoft Entra'; Prefix = 'Entra'; Subs = @(
-        New-SbSub 'entra-score'       'Secure Score'            'Entra_SecureScore.csv'        $entraDir
-        New-SbSub 'entra-users'       'User Accounts'           'Entra_Users.csv'              $entraDir
-        New-SbSub 'entra-licenses'    'Licences'                'Entra_Licenses.csv'           $entraDir
-        New-SbSub 'entra-admins'      'Admin Roles'             'Entra_AdminRoles.csv'         $entraDir
-        New-SbSub 'entra-authmethods' 'Auth Methods Policy'     'Entra_AuthMethodsPolicy.csv'  $entraDir
-        New-SbSub 'entra-extcollab'   'External Collaboration'  'Entra_ExternalCollab.csv'     $entraDir
-        New-SbSub 'entra-appregs'     'App Registrations'       'Entra_AppRegistrations.csv'   $entraDir
-        New-SbSub 'entra-pim'         'PIM Assignments'         'Entra_PIMAssignments.csv'     $entraDir
-        New-SbSub 'entra-ca'          'Conditional Access'      'Entra_CA_Policies.csv'        $entraDir
-        New-SbSub 'entra-idprot'      'Identity Protection'     'Entra_RiskyUsers.csv'         $entraDir
-        New-SbSub 'entra-groups'      'Groups'                  'Entra_Groups.csv'             $entraDir
-        New-SbSub 'entra-apps'        'Enterprise Apps'         'Entra_EnterpriseApps.csv'     $entraDir
-        New-SbSub 'entra-orgsettings' 'Org User Settings'       'Entra_OrgSettings.csv'        $entraDir
-        New-SbSub 'entra-lighthouse'  'Lighthouse'              'Entra_LighthouseStatus.csv'   $entraDir
+        New-SbSub -Id 'entra-score'       -Label 'Secure Score'            -Csv 'Entra_SecureScore.csv'        -Dir $entraDir
+        New-SbSub -Id 'entra-users'       -Label 'User Accounts'           -Csv 'Entra_Users.csv'              -Dir $entraDir
+        New-SbSub -Id 'entra-licenses'    -Label 'Licences'                -Csv 'Entra_Licenses.csv'           -Dir $entraDir
+        New-SbSub -Id 'entra-admins'      -Label 'Admin Roles'             -Csv 'Entra_AdminRoles.csv'         -Dir $entraDir
+        New-SbSub -Id 'entra-authmethods' -Label 'Auth Methods Policy'     -Csv 'Entra_AuthMethodsPolicy.csv'  -Dir $entraDir
+        New-SbSub -Id 'entra-extcollab'   -Label 'External Collaboration'  -Csv 'Entra_ExternalCollab.csv'     -Dir $entraDir
+        New-SbSub -Id 'entra-appregs'     -Label 'App Registrations'       -Csv 'Entra_AppRegistrations.csv'   -Dir $entraDir
+        New-SbSub -Id 'entra-pim'         -Label 'PIM Assignments'         -Csv 'Entra_PIMAssignments.csv'     -Dir $entraDir
+        New-SbSub -Id 'entra-ca'          -Label 'Conditional Access'      -Csv 'Entra_CA_Policies.csv'        -Dir $entraDir
+        New-SbSub -Id 'entra-idprot'      -Label 'Identity Protection'     -Csv 'Entra_RiskyUsers.csv'         -Dir $entraDir
+        New-SbSub -Id 'entra-groups'      -Label 'Groups'                  -Csv 'Entra_Groups.csv'             -Dir $entraDir
+        New-SbSub -Id 'entra-apps'        -Label 'Enterprise Apps'         -Csv 'Entra_EnterpriseApps.csv'     -Dir $entraDir
+        New-SbSub -Id 'entra-orgsettings' -Label 'Org User Settings'       -Csv 'Entra_OrgSettings.csv'        -Dir $entraDir
+        New-SbSub -Id 'entra-lighthouse'  -Label 'Lighthouse'              -Csv 'Entra_LighthouseStatus.csv'   -Dir $entraDir
     ) | Where-Object { $null -ne $_ } },
     @{ Id = 'exchange'; Label = 'Exchange Online'; Prefix = 'Exchange'; Subs = @(
-        New-SbSub 'exchange-mailboxes'     'Mailboxes'          'Exchange_Mailboxes.csv'             $exchangeDir
-        New-SbSub 'exchange-shared-signin' 'Shared MBX Sign-In' 'Exchange_SharedMailboxSignIn.csv'  $exchangeDir
-        New-SbSub 'exchange-forwarding'   'Forwarding Rules'   'Exchange_InboxForwardingRules.csv'   $exchangeDir
-        New-SbSub 'exchange-audit'        'Audit Config'       'Exchange_AuditConfig.csv'            $exchangeDir
-        New-SbSub 'exchange-dkim'         'DKIM Signing'       'Exchange_DKIM_Status.csv'            $exchangeDir
-        New-SbSub 'exchange-policies'     'Security Policies'  'Exchange_SpamPolicies.csv'           $exchangeDir
-        New-SbSub 'exchange-transport'    'Transport Rules'    'Exchange_TransportRules.csv'         $exchangeDir
-        New-SbSub 'exchange-safe'         'Defender Policies'  'Exchange_SafeAttachments.csv'        $exchangeDir
-        New-SbSub 'exchange-org'          'Org Configuration'  'Exchange_OrgConfig.csv'              $exchangeDir
-        New-SbSub 'exchange-legacyauth'   'Auth Policies'      'Exchange_LegacyAuth.csv'             $exchangeDir
-        New-SbSub 'exchange-connectors'   'Mail Connectors'    'Exchange_MailConnectors.csv'         $exchangeDir
+        New-SbSub -Id 'exchange-mailboxes'     -Label 'Mailboxes'          -Csv 'Exchange_Mailboxes.csv'             -Dir $exchangeDir
+        New-SbSub -Id 'exchange-shared-signin' -Label 'Shared MBX Sign-In' -Csv 'Exchange_SharedMailboxSignIn.csv'  -Dir $exchangeDir
+        New-SbSub -Id 'exchange-forwarding'   -Label 'Forwarding Rules'   -Csv 'Exchange_InboxForwardingRules.csv'   -Dir $exchangeDir
+        New-SbSub -Id 'exchange-audit'        -Label 'Audit Config'       -Csv 'Exchange_AuditConfig.csv'            -Dir $exchangeDir
+        New-SbSub -Id 'exchange-dkim'         -Label 'DKIM Signing'       -Csv 'Exchange_DKIM_Status.csv'            -Dir $exchangeDir
+        New-SbSub -Id 'exchange-policies'     -Label 'Security Policies'  -Csv 'Exchange_SpamPolicies.csv'           -Dir $exchangeDir
+        New-SbSub -Id 'exchange-transport'    -Label 'Transport Rules'    -Csv 'Exchange_TransportRules.csv'         -Dir $exchangeDir
+        New-SbSub -Id 'exchange-safe'         -Label 'Defender Policies'  -Csv 'Exchange_SafeAttachments.csv'        -Dir $exchangeDir
+        New-SbSub -Id 'exchange-org'          -Label 'Org Configuration'  -Csv 'Exchange_OrgConfig.csv'              -Dir $exchangeDir
+        New-SbSub -Id 'exchange-legacyauth'   -Label 'Auth Policies'      -Csv 'Exchange_LegacyAuth.csv'             -Dir $exchangeDir
+        New-SbSub -Id 'exchange-connectors'   -Label 'Mail Connectors'    -Csv 'Exchange_MailConnectors.csv'         -Dir $exchangeDir
     ) | Where-Object { $null -ne $_ } },
     @{ Id = 'mailsec'; Label = 'Mail Security'; Prefix = 'Mail Security'; Subs = @(
-        New-SbSub 'mailsec-records' 'DNS Records' 'MailSec_SPF.csv' $mailSecDir
+        New-SbSub -Id 'mailsec-records' -Label 'DNS Records' -Csv 'MailSec_SPF.csv' -Dir $mailSecDir
     ) | Where-Object { $null -ne $_ } },
     @{ Id = 'sharepoint'; Label = 'SharePoint / OneDrive'; Prefix = 'SharePoint'; Subs = @(
-        New-SbSub 'sp-storage'  'Storage'          'SharePoint_TenantStorage.csv'         $spDir
-        New-SbSub 'sp-sites'    'Sites'            'SharePoint_Sites.csv'                 $spDir
-        New-SbSub 'sp-sharing'  'External Sharing' 'SharePoint_ExternalSharing_Tenant.csv' $spDir
-        New-SbSub 'sp-onedrive' 'OneDrive'         'SharePoint_OneDriveUsage.csv'         $spDir
+        New-SbSub -Id 'sp-storage'  -Label 'Storage'          -Csv 'SharePoint_TenantStorage.csv'         -Dir $spDir
+        New-SbSub -Id 'sp-sites'    -Label 'Sites'            -Csv 'SharePoint_Sites.csv'                 -Dir $spDir
+        New-SbSub -Id 'sp-sharing'  -Label 'External Sharing' -Csv 'SharePoint_ExternalSharing_Tenant.csv' -Dir $spDir
+        New-SbSub -Id 'sp-onedrive' -Label 'OneDrive'         -Csv 'SharePoint_OneDriveUsage.csv'         -Dir $spDir
     ) | Where-Object { $null -ne $_ } },
     @{ Id = 'teams'; Label = 'Microsoft Teams'; Prefix = 'Teams'; Subs = @(
-        New-SbSub 'teams-external'   'External Access'   'Teams_FederationConfig.csv'        $teamsDir
-        New-SbSub 'teams-client'     'Client Config'     'Teams_ClientConfig.csv'            $teamsDir
-        New-SbSub 'teams-meetings'   'Meeting Policies'  'Teams_MeetingPolicies.csv'         $teamsDir
-        New-SbSub 'teams-apps'       'App Policies'      'Teams_AppPermissionPolicies.csv'   $teamsDir
-        New-SbSub 'teams-channels'   'Channel Policies'  'Teams_ChannelPolicies.csv'         $teamsDir
-        New-SbSub 'teams-guest'      'Guest Settings'    'Teams_GuestMeetingConfig.csv'      $teamsDir
-        New-SbSub 'teams-messaging'  'Messaging Policies' 'Teams_MessagingPolicies.csv'      $teamsDir
+        New-SbSub -Id 'teams-external'   -Label 'External Access'    -Csv 'Teams_FederationConfig.csv'        -Dir $teamsDir
+        New-SbSub -Id 'teams-client'     -Label 'Client Config'      -Csv 'Teams_ClientConfig.csv'            -Dir $teamsDir
+        New-SbSub -Id 'teams-meetings'   -Label 'Meeting Policies'   -Csv 'Teams_MeetingPolicies.csv'         -Dir $teamsDir
+        New-SbSub -Id 'teams-apps'       -Label 'App Policies'       -Csv 'Teams_AppPermissionPolicies.csv'   -Dir $teamsDir
+        New-SbSub -Id 'teams-channels'   -Label 'Channel Policies'   -Csv 'Teams_ChannelPolicies.csv'         -Dir $teamsDir
+        New-SbSub -Id 'teams-guest'      -Label 'Guest Settings'     -Csv 'Teams_GuestMeetingConfig.csv'      -Dir $teamsDir
+        New-SbSub -Id 'teams-messaging'  -Label 'Messaging Policies' -Csv 'Teams_MessagingPolicies.csv'       -Dir $teamsDir
     ) | Where-Object { $null -ne $_ } },
     @{ Id = 'intune'; Label = 'Intune'; Prefix = 'Intune'; Subs = @(
-        New-SbSub 'intune-devices'      'Devices'            'Intune_Devices.csv'                   $intuneDir
-        New-SbSub 'intune-compliance'   'Compliance'         'Intune_CompliancePolicies.csv'        $intuneDir
-        New-SbSub 'intune-config'       'Config Profiles'    'Intune_ConfigProfiles.csv'            $intuneDir
-        New-SbSub 'intune-apps'         'Apps'               'Intune_Apps.csv'                      $intuneDir
-        New-SbSub 'intune-updaterings'  'Update Rings'       'Intune_UpdateRings.csv'               $intuneDir
-        New-SbSub 'intune-mam'          'App Protection'     'Intune_AppProtectionPolicies.csv'     $intuneDir
+        New-SbSub -Id 'intune-devices'      -Label 'Devices'            -Csv 'Intune_Devices.csv'                   -Dir $intuneDir
+        New-SbSub -Id 'intune-compliance'   -Label 'Compliance'         -Csv 'Intune_CompliancePolicies.csv'        -Dir $intuneDir
+        New-SbSub -Id 'intune-config'       -Label 'Config Profiles'    -Csv 'Intune_ConfigProfiles.csv'            -Dir $intuneDir
+        New-SbSub -Id 'intune-apps'         -Label 'Apps'               -Csv 'Intune_Apps.csv'                      -Dir $intuneDir
+        New-SbSub -Id 'intune-updaterings'  -Label 'Update Rings'       -Csv 'Intune_UpdateRings.csv'               -Dir $intuneDir
+        New-SbSub -Id 'intune-mam'          -Label 'App Protection'     -Csv 'Intune_AppProtectionPolicies.csv'     -Dir $intuneDir
     ) | Where-Object { $null -ne $_ } }
 )
 if ($_scubaResults) {
@@ -2113,7 +2113,7 @@ $implHtml
             }
 
             # Main user row — clickable to expand sign-in history
-            $mfaMethodsCell = "<td>$(Format-MfaMethodPills $user.MFAMethods)</td>"
+            $mfaMethodsCell = "<td>$(Format-MfaMethodPill $user.MFAMethods)</td>"
             $userRow = "<tr class='user-row'$rowStyle onclick='toggleSignIns(this)' title='Click to show/hide sign-in history'><td>$($user.UPN)</td><td>$($user.FirstName)</td><td>$($user.LastName)</td>$statusCell<td>$($user.AssignedLicense)</td>$mfaMethodsCell$pwdExpiryCell<td>$($user.LastPasswordChange)</td>$lastSignInCell</tr>"
 
             # Hidden sign-in detail row immediately below
@@ -3889,10 +3889,6 @@ if ($spFiles.Count -gt 0) {
             default     { "<span style='color:#888'>None</span>" }
         }
 
-        $infectedClass   = if ($ts.DisallowInfectedFileDownload -eq 'False') { " class='warn'" } else { '' }
-        $reshareClass    = if ($ts.PreventExternalUsersFromResharing -eq 'False') { " class='warn'" } else { '' }
-        $expiryReqClass  = if ($ts.ExternalUserExpirationRequired -eq 'False') { " class='warn'" } else { '' }
-
         $infectedPill  = Format-StatusPill -Text (ConvertTo-HtmlText $ts.DisallowInfectedFileDownload)              -Type $(if ($ts.DisallowInfectedFileDownload -eq 'True') { 'good' } else { 'bad' })
         $resharePill   = Format-StatusPill -Text (ConvertTo-HtmlText $ts.PreventExternalUsersFromResharing)          -Type $(if ($ts.PreventExternalUsersFromResharing -eq 'True') { 'good' } else { 'warn' })
         $expiryReqPill = Format-StatusPill -Text (ConvertTo-HtmlText $ts.ExternalUserExpirationRequired)             -Type $(if ($ts.ExternalUserExpirationRequired -eq 'True') { 'good' } else { 'warn' })
@@ -5081,12 +5077,12 @@ if ($_h_tenantSto) {
 }
 
 $_huduKpiRow = "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;'>" +
-    (New-HuduKpiTile 'MFA Coverage'      $_kpiMfaStr       $_kpiMfaSub       $_huduColour[$_kpiMfaClass]     -DeltaMarkerId 'MFA')     +
-    (New-HuduKpiTile 'Secure Score'      $_kpiScoreVal     $_kpiScoreSub     $_huduColour[$_kpiScoreClass]   -DeltaMarkerId 'SCORE')   +
-    (New-HuduKpiTile 'Managed Devices'   $_kpiDevStr       $_kpiDevSub       $_huduColour[$_kpiDevClass]     -DeltaMarkerId 'DEVICES') +
-    (New-HuduKpiTile 'Tenant Storage'    $_kpiStorageStr      $_kpiStorageSub      $_huduColour[$_kpiStorageClass]   -DeltaMarkerId 'STORAGE')   +
-    (New-HuduKpiTile 'Lighthouse'        $_kpiLighthouseStr   $_kpiLighthouseSub   $_huduColour[$_kpiLighthouseClass])                             +
-    (New-HuduKpiTile 'Action Items'      $_kpiAiStr           $_kpiAiSub           $_huduColour[$_kpiAiClass]        -DeltaMarkerId 'AI')           +
+    (New-HuduKpiTile -Label 'MFA Coverage'    -Value $_kpiMfaStr          -Sub $_kpiMfaSub          -Colour $_huduColour[$_kpiMfaClass]          -DeltaMarkerId 'MFA')     +
+    (New-HuduKpiTile -Label 'Secure Score'   -Value $_kpiScoreVal        -Sub $_kpiScoreSub        -Colour $_huduColour[$_kpiScoreClass]        -DeltaMarkerId 'SCORE')   +
+    (New-HuduKpiTile -Label 'Managed Devices' -Value $_kpiDevStr         -Sub $_kpiDevSub          -Colour $_huduColour[$_kpiDevClass]          -DeltaMarkerId 'DEVICES') +
+    (New-HuduKpiTile -Label 'Tenant Storage'  -Value $_kpiStorageStr     -Sub $_kpiStorageSub      -Colour $_huduColour[$_kpiStorageClass]      -DeltaMarkerId 'STORAGE') +
+    (New-HuduKpiTile -Label 'Lighthouse'      -Value $_kpiLighthouseStr  -Sub $_kpiLighthouseSub   -Colour $_huduColour[$_kpiLighthouseClass])                             +
+    (New-HuduKpiTile -Label 'Action Items'    -Value $_kpiAiStr          -Sub $_kpiAiSub           -Colour $_huduColour[$_kpiAiClass]           -DeltaMarkerId 'AI')       +
     "</div>"
 
 # ── Section: Action Items (ScubaGear excluded — same as main report) ───────────
