@@ -1,17 +1,31 @@
-# Certificate files — contain private keys, never commit
+# ── Certificates & Secrets ────────────────────
+# Private key files — never commit
 *.pfx
 *.p12
-# Local config — contains the Hudu API key, never commit
+
+# ── Local Configuration ──────────────────────
+# Contains Hudu API key, tenant info, etc.
 config.psd1
-# Customer list — contains Hudu company slugs, never commit
+# Contains Hudu company slugs for batch runs
 UnattendedCustomers.psd1
-Test-*
-*.json
+
+# ── Audit Output & Reports ───────────────────
+*.html
+*.pdf
+*.log
+
+# ── Resource Files (auto-downloaded) ─────────
 *.csv
+
+# ── Documents ────────────────────────────────
 *.docx
 *.dotx
-*.html
+
+# ── Data Files ───────────────────────────────
+*.json
+# version.json is tracked — override the blanket ignore
+!version.json
+
+# ── Scripts & Scratch ────────────────────────
 *.py
-# Audit transcript logs
-*.log
-*.pdf
+Test-*
