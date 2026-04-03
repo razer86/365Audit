@@ -1,47 +1,44 @@
-# Deploys 365Audit to Azure Functions on push to main.
+# Builds the 365Audit Docker image and deploys to Azure Container Apps Job.
 #
 # Required GitHub repository secrets:
 #   AZURE_CLIENT_ID        — App registration client ID (federated credential)
 #   AZURE_TENANT_ID        — Azure AD tenant ID
 #   AZURE_SUBSCRIPTION_ID  — Azure subscription ID
-#   AZURE_FUNCTION_APP_NAME — Function App name (from Bicep output)
+#
+# Required GitHub repository variables (Settings → Variables → Actions):
+#   ACR_NAME               — Azure Container Registry name (from Bicep output)
+#   JOB_NAME               — Container Apps Job name (default: job-365audit)
+#   RESOURCE_GROUP          — Azure resource group (default: rg-365audit)
 #
 # Setup (one-time):
-#   1. Deploy infra/main.bicep to create the Function App
-#   2. Create an Azure AD app registration for GitHub OIDC:
-#        az ad app create --display-name "github-365audit-deploy"
-#        az ad sp create --id <appId>
-#   3. Add federated credential:
-#        az ad app federated-credential create --id <appId> --parameters '{
-#          "name": "github-main",
-#          "issuer": "https://token.actions.githubusercontent.com",
-#          "subject": "repo:razer86/365Audit:ref:refs/heads/main",
-#          "audiences": ["api://AzureADTokenExchange"]
-#        }'
-#   4. Grant Contributor on the resource group:
-#        az role assignment create --assignee <appId> \
-#          --role Contributor --scope /subscriptions/<subId>/resourceGroups/rg-365audit
-#   5. Add secrets to GitHub repo settings → Secrets and variables → Actions
+#   1. Deploy infra/main.bicep to create ACR, Container Apps Job, etc.
+#   2. Grant AcrPush role to the GitHub OIDC service principal on the ACR
+#   3. Add secrets and variables to GitHub repo settings
 
-name: Deploy to Azure Functions
+name: Build & Deploy to Container Apps
 
 on:
   push:
-    branches: [main, feature/azure-functions]
+    branches: [main, feature/container-apps]
     paths-ignore:
       - '**.md'
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
-      - '.github/PULL_REQUEST_TEMPLATE.md'
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
 
 permissions:
-  id-token: write   # Required for OIDC federated credential
+  id-token: write
   contents: read
 
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  JOB_NAME: ${{ vars.JOB_NAME || 'job-365audit' }}
+  RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP || 'rg-365audit' }}
+  IMAGE_NAME: 365audit
+
 jobs:
-  deploy:
-    name: Package & Deploy
+  build-and-deploy:
+    name: Build Image & Update Job
     runs-on: ubuntu-latest
     environment: production
 
@@ -56,46 +53,29 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Package Function App
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push Docker image
         run: |
-          mkdir -p deploy
+          TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          LATEST="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest"
+          docker build -t "$TAG" -t "$LATEST" .
+          docker push "$TAG"
+          docker push "$LATEST"
+          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
 
-          # Azure Function scaffolding → deploy root
-          cp AzureFunction/host.json deploy/
-          cp AzureFunction/profile.ps1 deploy/
-          cp AzureFunction/requirements.psd1 deploy/
-          cp -r AzureFunction/AuditBatchTimer deploy/
-
-          # Toolkit scripts → deploy root (alongside host.json)
-          cp Invoke-AzAuditBatch.ps1 deploy/
-          cp Start-365Audit.ps1 deploy/
-          cp Start-UnattendedAudit.ps1 deploy/
-          cp Setup-365AuditApp.ps1 deploy/
-          cp Generate-AuditSummary.ps1 deploy/
-          cp Invoke-*.ps1 deploy/
-          cp -r Common deploy/
-          cp -r Helpers deploy/
-
-          # Resources directory (may not exist yet — created at runtime)
-          mkdir -p deploy/Resources
-
-          # Config/customer files are NOT included — they contain secrets.
-          # UnattendedCustomers.psd1 must be uploaded separately.
-
-          cd deploy && zip -r ../365audit-func.zip .
-          echo "Package contents:"
-          ls -la
-          echo "Package size: $(du -h ../365audit-func.zip | cut -f1)"
-
-      - name: Deploy to Azure Functions
-        uses: azure/functions-action@v1
-        with:
-          app-name: ${{ secrets.AZURE_FUNCTION_APP_NAME }}
-          package: 365audit-func.zip
+      - name: Update Container Apps Job image
+        run: |
+          az containerapp job update \
+            --name ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image "${{ env.IMAGE_TAG }}"
 
       - name: Verify deployment
         run: |
-          az functionapp function list \
-            --name ${{ secrets.AZURE_FUNCTION_APP_NAME }} \
-            --resource-group rg-365audit \
-            --output table
+          az containerapp job show \
+            --name ${{ env.JOB_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "{name:name, image:properties.template.containers[0].image, status:properties.provisioningState}" \
+            -o table

@@ -25,13 +25,6 @@ UnattendedCustomers.psd1
 *.json
 # version.json is tracked — override the blanket ignore
 !version.json
-# Azure Function scaffolding JSON is tracked
-!AzureFunction/host.json
-!AzureFunction/AuditBatchTimer/function.json
-
-# ── Azure Function Local Settings ────────────
-# Contains connection strings and secrets
-AzureFunction/local.settings.json
 
 # ── Scripts & Scratch ────────────────────────
 *.py

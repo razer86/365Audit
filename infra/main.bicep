@@ -1,21 +1,25 @@
-// ── 365Audit Azure Function Infrastructure ──────────────────────────────────
-// Deploys: Function App (B1 plan) + Storage Account + Key Vault + Managed Identity
+// ── 365Audit Container Apps Job Infrastructure ──────────────────────────────
+// Deploys: Container Registry + Container Apps Job + Managed Identity + Log Analytics
+// Reuses existing Key Vault for secret storage.
 //
 // Usage:
-//   az group create -n rg-365audit -l australiaeast
 //   az deployment group create -g rg-365audit -f infra/main.bicep \
-//     -p functionAppName=func-365audit huduBaseUrl=https://your-hudu.com
+//     -p keyVaultName=kv-365a-t36i7raz huduBaseUrl=https://your-hudu.com \
+//       mspDomains=domain1.com,domain2.com
 //
 // After deployment:
-//   1. Store Hudu API key in Key Vault:
-//      az keyvault secret set --vault-name <keyVaultName-output> \
+//   1. Ensure Hudu API key exists in Key Vault:
+//      az keyvault secret set --vault-name <keyVaultName> \
 //        --name 365Audit-HuduApiKey --value '<your-hudu-api-key>'
-//   2. Upload UnattendedCustomers.psd1 to the Function App:
-//      az functionapp deployment source config-zip ...  (handled by GitHub Actions)
-//      Then upload the customer list via Kudu SCM or az webapp deploy.
+//   2. Grant AcrPush to GitHub Actions service principal:
+//      az role assignment create --assignee <github-app-id> \
+//        --role AcrPush --scope <acr-resource-id>
+//   3. Push code to trigger GitHub Actions → builds image → updates job
 
-@description('Name of the Function App (must be globally unique).')
-param functionAppName string
+// ── Parameters ─────────────────────────────────────────────────────────────
+
+@description('Name of the existing Key Vault (already deployed, contains Hudu API key).')
+param keyVaultName string
 
 @description('Hudu instance base URL.')
 param huduBaseUrl string
@@ -23,7 +27,7 @@ param huduBaseUrl string
 @description('Azure region for all resources. Defaults to the resource group location.')
 param location string = resourceGroup().location
 
-@description('Max concurrent audit jobs. Passed as AUDIT_THROTTLE_LIMIT app setting.')
+@description('Max concurrent audit jobs per container. Passed as AUDIT_THROTTLE_LIMIT.')
 @minValue(1)
 @maxValue(10)
 param throttleLimit int = 3
@@ -43,158 +47,161 @@ param huduReportAssetName string = 'M365 - Monthly Audit Report'
 @description('Comma-separated MSP email domains for technical contact checking.')
 param mspDomains string = ''
 
+@description('Container image tag. Updated by GitHub Actions on each deployment.')
+param imageTag string = 'latest'
+
 // ── Naming conventions ──────────────────────────────────────────────────────
 var uniqueSuffix = uniqueString(resourceGroup().id)
-var storageAccountName = 'st365audit${uniqueSuffix}'
-var keyVaultName = 'kv-365a-${substring(uniqueSuffix, 0, 8)}'
-var appServicePlanName = 'asp-365audit'
+var acrName = 'acr365a${substring(uniqueSuffix, 0, 8)}'
 
-// ── Storage Account (required by Azure Functions runtime) ───────────────────
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: storageAccountName
+// ── Existing Key Vault ─────────────────────────────────────────────────────
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+
+// ── User-Assigned Managed Identity ─────────────────────────────────────────
+// User-assigned (not system-assigned) because Container Apps Jobs are ephemeral.
+// A user-assigned identity persists independently of job executions.
+resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: 'id-365audit'
   location: location
-  kind: 'StorageV2'
+}
+
+// ── Azure Container Registry (Basic SKU, ~$7 AUD/month) ───────────────────
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
+  name: acrName
+  location: location
   sku: {
-    name: 'Standard_LRS'
+    name: 'Basic'
   }
   properties: {
-    supportsHttpsTrafficOnly: true
-    minimumTlsVersion: 'TLS1_2'
+    adminUserEnabled: false    // use managed identity for image pull
   }
 }
 
-// ── App Service Plan (B1 — no timeout limits, ~$20 AUD/month) ──────────────
-// To save costs, you can stop this plan between monthly runs via:
-//   az appservice plan update -n asp-365audit -g rg-365audit --sku FREE
-//   (then scale back to B1 before the next run)
-resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
-  name: appServicePlanName
-  location: location
-  kind: 'linux'
-  sku: {
-    name: 'B1'
-    tier: 'Basic'
-  }
+// ── AcrPull role assignment (Managed Identity → ACR) ───────────────────────
+var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+
+resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(acr.id, managedIdentity.id, acrPullRoleId)
+  scope: acr
   properties: {
-    reserved: true // Required for Linux
+    principalId: managedIdentity.properties.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalType: 'ServicePrincipal'
   }
 }
 
-// ── Function App ────────────────────────────────────────────────────────────
-resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
-  name: functionAppName
+// ── Key Vault Secrets User role assignment (Managed Identity → Key Vault) ──
+var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+
+resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, managedIdentity.id, kvSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    principalId: managedIdentity.properties.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ── Log Analytics Workspace ────────────────────────────────────────────────
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: 'log-365audit'
   location: location
-  kind: 'functionapp,linux'
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: 30
+  }
+}
+
+// ── Container Apps Environment ─────────────────────────────────────────────
+resource containerEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
+  name: 'cae-365audit'
+  location: location
+  properties: {
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalytics.properties.customerId
+        sharedKey: logAnalytics.listKeys().primarySharedKey
+      }
+    }
+  }
+}
+
+// ── Container Apps Job (scheduled trigger — 2am on 1st of each month) ─────
+resource auditJob 'Microsoft.App/jobs@2024-03-01' = {
+  name: 'job-365audit'
+  location: location
   identity: {
-    type: 'SystemAssigned'
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
   }
   properties: {
-    serverFarmId: appServicePlan.id
-    httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'PowerShell|7.4'
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      appSettings: [
+    environmentId: containerEnv.id
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: '0 2 1 * *'
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      replicaTimeout: 14400    // 4 hours in seconds
+      replicaRetryLimit: 0     // no auto-retry — errors are handled internally
+      registries: [
         {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+          server: acr.properties.loginServer
+          identity: managedIdentity.id
         }
+      ]
+    }
+    template: {
+      containers: [
         {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'powershell'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME_VERSION'
-          value: '7.4'
-        }
-        {
-          name: 'KEY_VAULT_NAME'
-          value: keyVault.name
-        }
-        {
-          name: 'HUDU_BASE_URL'
-          value: huduBaseUrl
-        }
-        {
-          name: 'AUDIT_THROTTLE_LIMIT'
-          value: string(throttleLimit)
-        }
-        {
-          name: 'SKIP_PUBLISH'
-          value: skipPublish ? 'true' : 'false'
-        }
-        {
-          name: 'HUDU_ASSET_LAYOUT_ID'
-          value: string(huduAssetLayoutId)
-        }
-        {
-          name: 'HUDU_REPORT_LAYOUT_ID'
-          value: string(huduReportLayoutId)
-        }
-        {
-          name: 'HUDU_REPORT_ASSET_NAME'
-          value: huduReportAssetName
-        }
-        {
-          name: 'MSP_DOMAINS'
-          value: mspDomains
-        }
-        {
-          name: 'WEBSITE_RUN_FROM_PACKAGE'
-          value: '1'
+          name: 'audit'
+          image: '${acr.properties.loginServer}/365audit:${imageTag}'
+          resources: {
+            cpu: json('2.0')
+            memory: '4Gi'
+          }
+          env: [
+            { name: 'AZURE_CLIENT_ID';         value: managedIdentity.properties.clientId }
+            { name: 'KEY_VAULT_NAME';           value: keyVault.name }
+            { name: 'HUDU_BASE_URL';            value: huduBaseUrl }
+            { name: 'AUDIT_THROTTLE_LIMIT';     value: string(throttleLimit) }
+            { name: 'SKIP_PUBLISH';             value: skipPublish ? 'true' : 'false' }
+            { name: 'HUDU_ASSET_LAYOUT_ID';     value: string(huduAssetLayoutId) }
+            { name: 'HUDU_REPORT_LAYOUT_ID';    value: string(huduReportLayoutId) }
+            { name: 'HUDU_REPORT_ASSET_NAME';   value: huduReportAssetName }
+            { name: 'MSP_DOMAINS';              value: mspDomains }
+          ]
         }
       ]
     }
   }
 }
 
-// ── Key Vault ───────────────────────────────────────────────────────────────
-resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: keyVaultName
-  location: location
-  properties: {
-    tenantId: subscription().tenantId
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    enableRbacAuthorization: true
-    enableSoftDelete: true
-    softDeleteRetentionInDays: 7
-  }
-}
-
-// ── Key Vault role assignment (Function App → Key Vault Secrets User) ───────
-// Allows the Function App's Managed Identity to read secrets.
-var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
-
-resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(keyVault.id, functionApp.id, keyVaultSecretsUserRoleId)
-  scope: keyVault
-  properties: {
-    principalId: functionApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', keyVaultSecretsUserRoleId)
-    principalType: 'ServicePrincipal'
-  }
-}
-
 // ── Outputs ─────────────────────────────────────────────────────────────────
-@description('Function App name (for GitHub Actions deployment target).')
-output functionAppName string = functionApp.name
 
-@description('Function App default hostname.')
-output functionAppUrl string = 'https://${functionApp.properties.defaultHostName}'
+@description('Container Registry login server (for docker push).')
+output acrLoginServer string = acr.properties.loginServer
 
-@description('Key Vault name (store secrets here).')
+@description('Container Registry name.')
+output acrName string = acr.name
+
+@description('Container Apps Job name.')
+output jobName string = auditJob.name
+
+@description('Key Vault name.')
 output keyVaultName string = keyVault.name
 
-@description('Function App Managed Identity principal ID.')
-output managedIdentityPrincipalId string = functionApp.identity.principalId
+@description('Managed Identity client ID (used for Connect-AzAccount -Identity).')
+output managedIdentityClientId string = managedIdentity.properties.clientId
 
-@description('Storage Account name.')
-output storageAccountName string = storageAccount.name
+@description('Managed Identity principal ID (for troubleshooting RBAC).')
+output managedIdentityPrincipalId string = managedIdentity.properties.principalId

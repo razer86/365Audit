@@ -1,0 +1,31 @@
+# Git
+.git/
+.gitignore
+
+# Azure Function scaffolding (replaced by container-entrypoint.ps1)
+AzureFunction/
+
+# Infrastructure and CI/CD (not needed in container)
+infra/
+.github/
+
+# Documentation
+docs/
+*.md
+
+# Secrets and customer data (never include in image)
+config.psd1
+UnattendedCustomers.psd1
+
+# Generated outputs
+*.html
+*.log
+*.pdf
+*.zip
+*.csv
+
+# IDE and OS
+.vscode/
+*.swp
+*~
+Thumbs.db
