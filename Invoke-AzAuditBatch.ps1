@@ -481,7 +481,7 @@ else {
         }
     }
 
-    $queue      = [System.Collections.Queue]::new($customerList)
+    $queue      = [System.Collections.Queue]::new([array]$customerList)
     $activeJobs = [ordered]@{}
 
     while ($queue.Count -gt 0 -or $activeJobs.Count -gt 0) {
