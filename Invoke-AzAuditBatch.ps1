@@ -225,11 +225,19 @@ if ($OutputRoot) {
 }
 
 # ── Sync customer list from Hudu ─────────────────────────────────────────────
+# Determine customer list path — use script root first, fall back to writable
+# temp location when running in a read-only filesystem (Azure WEBSITE_RUN_FROM_PACKAGE).
+$_defaultCustomerList = Join-Path $PSScriptRoot 'UnattendedCustomers.psd1'
+$_writableCustomerList = Join-Path $env:TEMP 'UnattendedCustomers.psd1'
+$customerListPath = if (Test-Path $_defaultCustomerList) { $_defaultCustomerList }
+                    elseif (Test-Path $_writableCustomerList) { $_writableCustomerList }
+                    else { $_writableCustomerList }  # Sync will create it here
+
 $_syncScript = Join-Path $PSScriptRoot 'Helpers\Sync-UnattendedCustomers.ps1'
 if (-not $SkipSync -and (Test-Path $_syncScript)) {
     Write-Host "  Syncing customer list from Hudu..." -ForegroundColor DarkCyan
     try {
-        & $_syncScript -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey -HuduAssetLayoutId $HuduAssetLayoutId -ErrorAction Stop
+        & $_syncScript -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey -HuduAssetLayoutId $HuduAssetLayoutId -OutputFilePath $customerListPath -ErrorAction Stop
     }
     catch {
         Write-Warning "Customer sync failed — continuing with existing list: $($_.Exception.Message)"
@@ -237,7 +245,6 @@ if (-not $SkipSync -and (Test-Path $_syncScript)) {
 }
 
 # ── Load customer list ───────────────────────────────────────────────────────
-$customerListPath = Join-Path $PSScriptRoot 'UnattendedCustomers.psd1'
 if (-not (Test-Path $customerListPath)) {
     Write-Error ("Customer list not found: $customerListPath`n" +
         "Run Helpers\Sync-UnattendedCustomers.ps1 first, or copy " +

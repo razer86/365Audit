@@ -53,7 +53,11 @@ param (
     [int]$HuduAssetLayoutId,
 
     [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
-    [string[]]$DefaultModules = @('A')
+    [string[]]$DefaultModules = @('A'),
+
+    # Override the output file path for UnattendedCustomers.psd1.
+    # Required in Azure where the script root is read-only (WEBSITE_RUN_FROM_PACKAGE).
+    [string]$OutputFilePath
 )
 
 $ScriptVersion         = "1.1.0"
@@ -85,7 +89,8 @@ $headers = @{ 'x-api-key' = $huduApiKey }
 
 # ── Load existing UnattendedCustomers.psd1 ────────────────────────────────────
 
-$outputPath = Join-Path $PSScriptRoot '..\UnattendedCustomers.psd1'
+$outputPath = if ($OutputFilePath) { $OutputFilePath }
+              else { Join-Path $PSScriptRoot '..\UnattendedCustomers.psd1' }
 $existing   = @{}   # slug → existing entry hashtable
 
 if (Test-Path $outputPath) {
