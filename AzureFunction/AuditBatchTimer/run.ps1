@@ -16,6 +16,7 @@ $batchParams = @{
     KeyVaultName        = $env:KEY_VAULT_NAME
     HuduBaseUrl         = $env:HUDU_BASE_URL
     OutputRoot          = if ($env:TEMP) { $env:TEMP } else { '/tmp' }
+    Sequential          = $true    # Start-Job is not supported in Azure Functions hosted PowerShell
     CleanupLocalReports = $true    # Always clean up in Azure — temp storage
     ErrorAction         = 'Stop'
 }
