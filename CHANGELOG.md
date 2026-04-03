@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.15.1 | Added `-LastOutputFile` parameter — callers can specify a per-customer temp file path for the output folder handoff, preventing race conditions when multiple audits run concurrently; defaults to existing `$env:TEMP\365Audit_LastOutput.txt` when not specified |
 | 2.15.0 | After a successful audit run, writes the customer output folder path to `$env:TEMP\365Audit_LastOutput.txt` so `Start-UnattendedAudit.ps1` can retrieve it without needing to re-derive the path |
 | 2.14.1 | `OutputRoot` validation: resolves to absolute path, checks drive/UNC qualifier is accessible, and attempts `New-Item` before Graph connects — typo fails immediately with the resolved path in the error message |
 | 2.14.0 | Added `-OutputRoot` parameter; falls back to `OutputRoot` in `config.psd1`, then the default path two levels above the toolkit; value is propagated to `Initialize-AuditOutput` via `$script:AuditOutputRoot` before the module loop so all module scripts and the summary use the same root |
@@ -286,6 +287,14 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
+## Invoke-AzAuditBatch.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — concurrent batch runner for 365Audit; runs each customer audit in a separate `pwsh` process via `Start-Job` for Graph SDK assembly isolation; `-ThrottleLimit` (default 3) controls max concurrent jobs; `-Sequential` switch falls back to same-process execution for debugging; credential resolution chain: `-HuduApiKey` parameter, Azure Key Vault (via `-KeyVaultName` + Managed Identity), `config.psd1`, `HUDU_API_KEY` env var; automatically syncs customer list from Hudu via `Sync-UnattendedCustomers.ps1` before each run (`-SkipSync` to disable); Hudu publish runs sequentially in the parent process to avoid API rate limits; includes Azure Function scaffolding (`AzureFunction/`) with timer trigger for monthly automated runs |
+
+---
+
 ## Start-UnattendedAudit.ps1
 
 | Version | Notes |
@@ -392,6 +401,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.1.0 | Added `-HuduBaseUrl`, `-HuduApiKey`, `-HuduAssetLayoutId` parameters — override `config.psd1` values for use in Azure or other environments without a local config file; `config.psd1` is now optional (no longer errors if missing when parameters are supplied) |
 | 1.0.1 | `$DefaultModules` type changed from `[int[]]` to `[string[]]` with `ValidateSet`; default changed from `@(9)` to `@('A')`; module comment and `.PARAMETER` doc updated to include modules 6=Teams, 7=ScubaGear, A=All; PSD1 serialisation now quotes module values so `'A'` renders as a valid string in the output file |
 | 1.0.0 | Initial release — queries Hudu for all assets matching `HuduAssetLayoutId`, resolves company slugs, and merges results into `UnattendedCustomers.psd1`; preserves existing entries, appends new companies with `Modules = @(9)`, warns about slugs no longer in Hudu; supports `-WhatIf` and `-DefaultModules` |
 

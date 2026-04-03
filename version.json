@@ -1,5 +1,6 @@
 {
-  "Start-365Audit.ps1": "2.15.0",
+  "Start-365Audit.ps1": "2.15.1",
+  "Invoke-AzAuditBatch.ps1": "1.0.0",
   "Start-UnattendedAudit.ps1": "2.8.0",
   "Setup-365AuditApp.ps1": "2.11.0",
   "Common/Audit-Common.ps1": "1.24.0",
@@ -16,7 +17,7 @@
   "Helpers/New-HuduAssetLayout.ps1": "1.0.0",
   "Helpers/Publish-HuduAuditReport.ps1": "1.6.0",
   "Helpers/Remove-AuditCustomer.ps1": "1.0.0",
-  "Helpers/Sync-UnattendedCustomers.ps1": "1.0.0",
+  "Helpers/Sync-UnattendedCustomers.ps1": "1.1.0",
   "Helpers/Uninstall-AuditModules.ps1": "1.0.0",
   "Helpers/Update-SkuFriendlyNames.ps1": "1.0.0"
 }

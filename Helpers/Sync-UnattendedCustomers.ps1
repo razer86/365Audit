@@ -14,6 +14,17 @@
 
     Reads HuduBaseUrl, HuduApiKey, and HuduAssetLayoutId from config.psd1.
 
+.PARAMETER HuduBaseUrl
+    Hudu instance base URL. Overrides the value from config.psd1.
+    Use this when running in Azure or other environments without config.psd1.
+
+.PARAMETER HuduApiKey
+    Hudu API key. Overrides the value from config.psd1.
+
+.PARAMETER HuduAssetLayoutId
+    Asset layout ID for the audit toolkit credential asset. Overrides config.psd1.
+    Default: 67.
+
 .PARAMETER DefaultModules
     Module list assigned to newly discovered customers.
     Valid values: 1=Entra  2=Exchange  3=SharePoint  4=MailSec  5=Intune  6=Teams  7=ScubaGear  A=All
@@ -30,38 +41,45 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 1.0.0
+    Version     : 1.1.0
 #>
 
 #Requires -Version 7.2
 
 [CmdletBinding(SupportsShouldProcess)]
 param (
+    [string]$HuduBaseUrl,
+    [string]$HuduApiKey,
+    [int]$HuduAssetLayoutId,
+
     [ValidateSet('1', '2', '3', '4', '5', '6', '7', 'A')]
     [string[]]$DefaultModules = @('A')
 )
 
-$ScriptVersion         = "1.0.0"
+$ScriptVersion         = "1.1.0"
 Write-Verbose "Sync-UnattendedCustomers.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Stop'
 
-# ── Load config ────────────────────────────────────────────────────────────────
+# ── Load config (parameters override config.psd1 values) ─────────────────────
 
 $_configPath = Join-Path $PSScriptRoot '..\config.psd1'
-if (-not (Test-Path $_configPath)) {
-    Write-Error "config.psd1 not found at $_configPath. Copy config.psd1.example and fill in your values."
+if (Test-Path $_configPath) {
+    try {
+        $_config = Import-PowerShellDataFile -Path $_configPath
+        if (-not $HuduBaseUrl)                 { $HuduBaseUrl       = $_config.HuduBaseUrl }
+        if (-not $HuduApiKey)                  { $HuduApiKey        = $_config.HuduApiKey }
+        if ($HuduAssetLayoutId -le 0)          { $HuduAssetLayoutId = $_config.HuduAssetLayoutId }
+    }
+    catch { Write-Warning "Could not load config.psd1: $_" }
 }
 
-try   { $_config = Import-PowerShellDataFile -Path $_configPath }
-catch { Write-Error "Could not load config.psd1: $_" }
+$huduBaseUrl = $HuduBaseUrl?.TrimEnd('/')
+$huduApiKey  = $HuduApiKey
+$layoutId    = if ($HuduAssetLayoutId -gt 0) { $HuduAssetLayoutId } else { 67 }
 
-$huduBaseUrl  = $_config.HuduBaseUrl?.TrimEnd('/')
-$huduApiKey   = $_config.HuduApiKey
-$layoutId     = if ($_config.HuduAssetLayoutId -gt 0) { $_config.HuduAssetLayoutId } else { 67 }
-
-if (-not $huduBaseUrl) { Write-Error "HuduBaseUrl is not set in config.psd1." }
-if (-not $huduApiKey)  { Write-Error "HuduApiKey is not set in config.psd1." }
+if (-not $huduBaseUrl) { Write-Error "HuduBaseUrl is not set. Pass -HuduBaseUrl or set it in config.psd1." }
+if (-not $huduApiKey)  { Write-Error "HuduApiKey is not set. Pass -HuduApiKey or set it in config.psd1." }
 
 $headers = @{ 'x-api-key' = $huduApiKey }
 

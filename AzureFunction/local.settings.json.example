@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "powershell",
+    "FUNCTIONS_WORKER_RUNTIME_VERSION": "7.4",
+    "KEY_VAULT_NAME": "",
+    "HUDU_BASE_URL": "https://your-hudu-instance.com",
+    "AUDIT_THROTTLE_LIMIT": "3"
+  }
+}

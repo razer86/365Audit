@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.15.0
+    Version     : 2.15.1
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -123,10 +123,18 @@ param (
     [Parameter(ParameterSetName = 'Manual')]
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [string]$OutputRoot
+    [string]$OutputRoot,
+
+    # Override the temp file path used to communicate the output folder back to
+    # callers (e.g. Start-UnattendedAudit / Invoke-AzAuditBatch).  Each concurrent
+    # job should pass a unique path to avoid race conditions.
+    [Parameter(ParameterSetName = 'Manual')]
+    [Parameter(ParameterSetName = 'HuduById')]
+    [Parameter(ParameterSetName = 'HuduByName')]
+    [string]$LastOutputFile
 )
 
-$ScriptVersion = "2.15.0"
+$ScriptVersion = "2.15.1"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -523,9 +531,10 @@ try {
     # Record output path to temp file so callers (e.g. Start-UnattendedAudit.ps1)
     # can retrieve it after this script returns from a child-scope & call.
     if ($auditContext) {
+        $_lastOutputTarget = if ($LastOutputFile) { $LastOutputFile }
+                             else { Join-Path $env:TEMP '365Audit_LastOutput.txt' }
         $auditContext.OutputPath | Set-Content `
-            -Path (Join-Path $env:TEMP '365Audit_LastOutput.txt') `
-            -Encoding UTF8 -NoNewline
+            -Path $_lastOutputTarget -Encoding UTF8 -NoNewline
     }
 }
 finally {
