@@ -120,6 +120,9 @@ param (
     # ── Hudu (local mode) ────────────────────────────────────────────────────
     [string]$HuduBaseUrl,
     [string]$HuduApiKey,
+    [int]$HuduAssetLayoutId,
+    [int]$HuduReportLayoutId,
+    [string]$HuduReportAssetName,
 
     # ── Azure Key Vault (Azure mode) ─────────────────────────────────────────
     [string]$KeyVaultName,
@@ -127,6 +130,10 @@ param (
 
     # ── Output ───────────────────────────────────────────────────────────────
     [string]$OutputRoot,
+    [switch]$CleanupLocalReports,
+
+    # ── MSP identity ────────────────────────────────────────────────────────
+    [string[]]$MspDomains,
 
     [switch]$SkipCertCheck,
     [switch]$SkipSync,
@@ -143,16 +150,31 @@ $_configPath = Join-Path $PSScriptRoot 'config.psd1'
 if (Test-Path $_configPath) {
     try {
         $_config = Import-PowerShellDataFile -Path $_configPath
-        if (-not $HuduApiKey  -and $_config.HuduApiKey)  { $HuduApiKey  = $_config.HuduApiKey }
-        if (-not $HuduBaseUrl -and $_config.HuduBaseUrl) { $HuduBaseUrl = $_config.HuduBaseUrl }
-        if (-not $OutputRoot  -and $_config.OutputRoot)  { $OutputRoot  = $_config.OutputRoot }
-        $_reportLayoutId = if ($_config.HuduReportLayoutId -gt 0) { [int]$_config.HuduReportLayoutId } else { 68 }
-        $_cleanupLocal   = [bool]$_config.CleanupLocalReports
+        if (-not $HuduApiKey)          { $HuduApiKey          = $_config.HuduApiKey }
+        if (-not $HuduBaseUrl)         { $HuduBaseUrl         = $_config.HuduBaseUrl }
+        if (-not $OutputRoot)          { $OutputRoot          = $_config.OutputRoot }
+        if ($HuduAssetLayoutId  -le 0) { $HuduAssetLayoutId   = $_config.HuduAssetLayoutId }
+        if ($HuduReportLayoutId -le 0) { $HuduReportLayoutId  = $_config.HuduReportLayoutId }
+        if (-not $HuduReportAssetName) { $HuduReportAssetName = $_config.HuduReportAssetName }
+        if (-not $CleanupLocalReports) { $CleanupLocalReports = [bool]$_config.CleanupLocalReports }
+        if (-not $MspDomains)          { $MspDomains          = @($_config.MspDomains) }
     }
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
-if (-not $_reportLayoutId) { $_reportLayoutId = 68 }
-if (-not $HuduBaseUrl)     { $HuduBaseUrl = 'https://neconnect.huducloud.com' }
+
+# ── Environment variable fallbacks ──────────────────────────────────────────
+if (-not $HuduBaseUrl         -and $env:HUDU_BASE_URL)           { $HuduBaseUrl         = $env:HUDU_BASE_URL }
+if ($HuduAssetLayoutId  -le 0 -and $env:HUDU_ASSET_LAYOUT_ID)   { $HuduAssetLayoutId   = [int]$env:HUDU_ASSET_LAYOUT_ID }
+if ($HuduReportLayoutId -le 0 -and $env:HUDU_REPORT_LAYOUT_ID)  { $HuduReportLayoutId  = [int]$env:HUDU_REPORT_LAYOUT_ID }
+if (-not $HuduReportAssetName -and $env:HUDU_REPORT_ASSET_NAME) { $HuduReportAssetName = $env:HUDU_REPORT_ASSET_NAME }
+if (-not $CleanupLocalReports -and $env:CLEANUP_LOCAL_REPORTS -eq 'true') { $CleanupLocalReports = $true }
+if (-not $MspDomains          -and $env:MSP_DOMAINS)             { $MspDomains          = $env:MSP_DOMAINS -split ',' }
+
+# ── Defaults ────────────────────────────────────────────────────────────────
+if (-not $HuduBaseUrl)         { $HuduBaseUrl         = 'https://neconnect.huducloud.com' }
+if ($HuduAssetLayoutId  -le 0) { $HuduAssetLayoutId   = 67 }
+if ($HuduReportLayoutId -le 0) { $HuduReportLayoutId  = 68 }
+if (-not $HuduReportAssetName) { $HuduReportAssetName = 'M365 - Monthly Audit Report' }
 
 # ── Azure Key Vault credential resolution ────────────────────────────────────
 if (-not $HuduApiKey -and $KeyVaultName) {
@@ -207,7 +229,7 @@ $_syncScript = Join-Path $PSScriptRoot 'Helpers\Sync-UnattendedCustomers.ps1'
 if (-not $SkipSync -and (Test-Path $_syncScript)) {
     Write-Host "  Syncing customer list from Hudu..." -ForegroundColor DarkCyan
     try {
-        & $_syncScript -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey -ErrorAction Stop
+        & $_syncScript -HuduBaseUrl $HuduBaseUrl -HuduApiKey $HuduApiKey -HuduAssetLayoutId $HuduAssetLayoutId -ErrorAction Stop
     }
     catch {
         Write-Warning "Customer sync failed — continuing with existing list: $($_.Exception.Message)"
@@ -285,12 +307,13 @@ function Invoke-HuduPublish {
     Write-Host "  Publishing report for $CustomerSlug to Hudu..." -ForegroundColor DarkCyan
     try {
         & $publishScript `
-            -OutputPath     $CustomerOutputPath `
-            -CompanySlug    $CustomerSlug `
-            -HuduBaseUrl    $HuduBaseUrl `
-            -HuduApiKey     $HuduApiKey `
-            -ReportLayoutId $_reportLayoutId `
-            -CleanupLocal:$_cleanupLocal
+            -OutputPath       $CustomerOutputPath `
+            -CompanySlug      $CustomerSlug `
+            -HuduBaseUrl      $HuduBaseUrl `
+            -HuduApiKey       $HuduApiKey `
+            -ReportLayoutId   $HuduReportLayoutId `
+            -ReportAssetName  $HuduReportAssetName `
+            -CleanupLocal:$CleanupLocalReports
         Write-BatchLog "PUBLISH  $CustomerSlug  OK"
     }
     catch {
@@ -344,7 +367,8 @@ if ($Sequential) {
                 LastOutputFile = $_lastOutputFile
                 ErrorAction    = 'Stop'
             }
-            if ($OutputRoot) { $auditParams['OutputRoot'] = $OutputRoot }
+            if ($OutputRoot)  { $auditParams['OutputRoot']  = $OutputRoot }
+            if ($MspDomains)  { $auditParams['MspDomains']  = $MspDomains }
             & $auditScript @auditParams
 
             $result.AuditStatus = 'Completed'
@@ -392,7 +416,8 @@ else {
             [string]$HuduApiKey,
             [string]$OutputRoot,
             [bool]$SkipCertCheck,
-            [string]$LastOutputFile
+            [string]$LastOutputFile,
+            [string[]]$MspDomains
         )
 
         $startTime = Get-Date
@@ -416,6 +441,7 @@ else {
                 ErrorAction    = 'Stop'
             }
             if ($OutputRoot) { $auditParams['OutputRoot'] = $OutputRoot }
+            if ($MspDomains) { $auditParams['MspDomains'] = $MspDomains }
             & $AuditScript @auditParams
 
             # Step 3: Read back output path
@@ -461,7 +487,8 @@ else {
             $job = Start-Job -ScriptBlock $jobScriptBlock -ArgumentList @(
                 $setupScript, $auditScript,
                 $slug, $mods, $HuduBaseUrl, $HuduApiKey,
-                $OutputRoot, [bool]$SkipCertCheck, $lastOutputFile
+                $OutputRoot, [bool]$SkipCertCheck, $lastOutputFile,
+                $MspDomains
             )
             $activeJobs[$job.Id] = @{ Job = $job; Customer = $slug; Started = Get-Date }
             Write-BatchLog "START  $slug  modules=$($mods -join ',')"

@@ -13,17 +13,18 @@ $toolkitRoot = if ($env:TOOLKIT_ROOT) { $env:TOOLKIT_ROOT }
                else { Split-Path -Parent $PSScriptRoot }
 
 $batchParams = @{
-    KeyVaultName = $env:KEY_VAULT_NAME
-    HuduBaseUrl  = $env:HUDU_BASE_URL
-    OutputRoot   = $env:TEMP
-    ErrorAction  = 'Stop'
+    KeyVaultName        = $env:KEY_VAULT_NAME
+    HuduBaseUrl         = $env:HUDU_BASE_URL
+    OutputRoot          = $env:TEMP
+    CleanupLocalReports = $true    # Always clean up in Azure — temp storage
+    ErrorAction         = 'Stop'
 }
 
-if ($env:AUDIT_THROTTLE_LIMIT) {
-    $batchParams['ThrottleLimit'] = [int]$env:AUDIT_THROTTLE_LIMIT
-}
-if ($env:SKIP_PUBLISH -eq 'true') {
-    $batchParams['SkipPublish'] = $true
-}
+if ($env:AUDIT_THROTTLE_LIMIT)                                    { $batchParams['ThrottleLimit']      = [int]$env:AUDIT_THROTTLE_LIMIT }
+if ($env:HUDU_ASSET_LAYOUT_ID)                                    { $batchParams['HuduAssetLayoutId']  = [int]$env:HUDU_ASSET_LAYOUT_ID }
+if ($env:HUDU_REPORT_LAYOUT_ID)                                   { $batchParams['HuduReportLayoutId'] = [int]$env:HUDU_REPORT_LAYOUT_ID }
+if ($env:HUDU_REPORT_ASSET_NAME)                                  { $batchParams['HuduReportAssetName']= $env:HUDU_REPORT_ASSET_NAME }
+if ($env:MSP_DOMAINS)                                             { $batchParams['MspDomains']         = $env:MSP_DOMAINS -split ',' }
+if ($env:SKIP_PUBLISH -eq 'true')                                 { $batchParams['SkipPublish']        = $true }
 
 & "$toolkitRoot/Invoke-AzAuditBatch.ps1" @batchParams

@@ -7,6 +7,10 @@
     "KEY_VAULT_NAME": "",
     "HUDU_BASE_URL": "https://your-hudu-instance.com",
     "AUDIT_THROTTLE_LIMIT": "3",
-    "SKIP_PUBLISH": "false"
+    "SKIP_PUBLISH": "false",
+    "HUDU_ASSET_LAYOUT_ID": "67",
+    "HUDU_REPORT_LAYOUT_ID": "68",
+    "HUDU_REPORT_ASSET_NAME": "M365 - Monthly Audit Report",
+    "MSP_DOMAINS": "yourdomain.com,yourdomain.com.au"
   }
 }

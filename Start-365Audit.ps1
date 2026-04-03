@@ -131,7 +131,14 @@ param (
     [Parameter(ParameterSetName = 'Manual')]
     [Parameter(ParameterSetName = 'HuduById')]
     [Parameter(ParameterSetName = 'HuduByName')]
-    [string]$LastOutputFile
+    [string]$LastOutputFile,
+
+    # MSP email domains — passed through to Generate-AuditSummary.ps1 for
+    # technical contact domain checking. Falls back to config.psd1 if not set.
+    [Parameter(ParameterSetName = 'Manual')]
+    [Parameter(ParameterSetName = 'HuduById')]
+    [Parameter(ParameterSetName = 'HuduByName')]
+    [string[]]$MspDomains
 )
 
 $ScriptVersion = "2.15.1"
@@ -520,7 +527,8 @@ try {
         Write-Host "  Starting: Generate-AuditSummary.ps1" -ForegroundColor Cyan
         Write-Host "================================================================"
         $summaryParams = @{ AuditFolder = $auditContext.OutputPath }
-        if ($Modules) { $summaryParams['NoOpen'] = $true }
+        if ($Modules)    { $summaryParams['NoOpen'] = $true }
+        if ($MspDomains) { $summaryParams['MspDomains'] = $MspDomains }
         if ($certDaysRemaining -ge 0 -and $certDaysRemaining -le 30) { $summaryParams['CertExpiryDays'] = $certDaysRemaining }
         & $summaryScript @summaryParams
     }

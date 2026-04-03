@@ -83,7 +83,8 @@ param (
     [switch]$DevMode = $false,
     [switch]$NoOpen,
     [int]$CertExpiryDays = -1,
-    [string]$OutputPath
+    [string]$OutputPath,
+    [string[]]$MspDomains
 )
 
 if (-not $DevMode -and $MyInvocation.InvocationName -eq $MyInvocation.MyCommand.Name) {
@@ -96,9 +97,12 @@ Write-Verbose "Generate-AuditSummary.ps1 loaded (v$ScriptVersion)"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # Load config.psd1 — MSP-specific values (domains)
+# Resolution: -MspDomains parameter → MSP_DOMAINS env var → config.psd1
 $_configPath    = Join-Path $PSScriptRoot 'config.psd1'
-$_mspDomains    = @()
-if (Test-Path $_configPath) {
+$_mspDomains    = if ($MspDomains) { @($MspDomains) }
+                  elseif ($env:MSP_DOMAINS) { @($env:MSP_DOMAINS -split ',') }
+                  else { @() }
+if ($_mspDomains.Count -eq 0 -and (Test-Path $_configPath)) {
     try {
         $_config = Import-PowerShellDataFile -Path $_configPath
         if ($_config.MspDomains) { $_mspDomains = @($_config.MspDomains) }

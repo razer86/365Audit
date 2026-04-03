@@ -91,17 +91,23 @@ $_configPath = Join-Path $PSScriptRoot '..\config.psd1'
 if (Test-Path $_configPath) {
     try {
         $_config = Import-PowerShellDataFile -Path $_configPath
-        if (-not $HuduBaseUrl)       { $HuduBaseUrl    = $_config.HuduBaseUrl }
-        if (-not $HuduApiKey)        { $HuduApiKey     = $_config.HuduApiKey  }
-        if ($ReportLayoutId -eq 0)   { $ReportLayoutId    = if ($_config.HuduReportLayoutId -gt 0) { $_config.HuduReportLayoutId } else { 68 } }
-        if (-not $ReportAssetName)   { $ReportAssetName   = $_config.HuduReportAssetName }
+        if (-not $HuduBaseUrl)     { $HuduBaseUrl      = $_config.HuduBaseUrl }
+        if (-not $HuduApiKey)      { $HuduApiKey       = $_config.HuduApiKey  }
+        if ($ReportLayoutId -eq 0) { $ReportLayoutId   = if ($_config.HuduReportLayoutId -gt 0) { $_config.HuduReportLayoutId } else { 68 } }
+        if (-not $ReportAssetName) { $ReportAssetName  = $_config.HuduReportAssetName }
     }
     catch { Write-Verbose "Could not load config.psd1: $_" }
 }
-else {
-    if ($ReportLayoutId -eq 0) { $ReportLayoutId = 68 }
-}
-if (-not $ReportAssetName) { $ReportAssetName = 'M365 Monthly Audit' }
+
+# ── Environment variable fallbacks ─────────────────────────────────────────────
+if (-not $HuduBaseUrl)     { $HuduBaseUrl     = $env:HUDU_BASE_URL }
+if (-not $HuduApiKey)      { $HuduApiKey      = $env:HUDU_API_KEY }
+if ($ReportLayoutId -eq 0 -and $env:HUDU_REPORT_LAYOUT_ID) { $ReportLayoutId = [int]$env:HUDU_REPORT_LAYOUT_ID }
+if (-not $ReportAssetName) { $ReportAssetName = $env:HUDU_REPORT_ASSET_NAME }
+
+# ── Defaults ───────────────────────────────────────────────────────────────────
+if ($ReportLayoutId -eq 0) { $ReportLayoutId  = 68 }
+if (-not $ReportAssetName) { $ReportAssetName = 'M365 - Monthly Audit Report' }
 
 if (-not $HuduBaseUrl) { Write-Error 'HuduBaseUrl is required — supply -HuduBaseUrl or set it in config.psd1.' }
 if (-not $HuduApiKey)  { Write-Error 'HuduApiKey is required — supply -HuduApiKey or set it in config.psd1.'  }

@@ -31,10 +31,22 @@ param throttleLimit int = 3
 @description('Skip publishing reports to Hudu. Set to true for dry-run testing.')
 param skipPublish bool = true
 
+@description('Hudu asset layout ID for audit credential assets.')
+param huduAssetLayoutId int = 67
+
+@description('Hudu asset layout ID for monthly report assets.')
+param huduReportLayoutId int = 68
+
+@description('Display name prefix for monthly report assets in Hudu.')
+param huduReportAssetName string = 'M365 - Monthly Audit Report'
+
+@description('Comma-separated MSP email domains for technical contact checking.')
+param mspDomains string = ''
+
 // ── Naming conventions ──────────────────────────────────────────────────────
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var storageAccountName = 'st365audit${uniqueSuffix}'
-var keyVaultName = 'kv-365audit-${uniqueSuffix}'
+var keyVaultName = 'kv-365a-${substring(uniqueSuffix, 0, 8)}'
 var appServicePlanName = 'asp-365audit'
 
 // ── Storage Account (required by Azure Functions runtime) ───────────────────
@@ -115,6 +127,22 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'SKIP_PUBLISH'
           value: skipPublish ? 'true' : 'false'
+        }
+        {
+          name: 'HUDU_ASSET_LAYOUT_ID'
+          value: string(huduAssetLayoutId)
+        }
+        {
+          name: 'HUDU_REPORT_LAYOUT_ID'
+          value: string(huduReportLayoutId)
+        }
+        {
+          name: 'HUDU_REPORT_ASSET_NAME'
+          value: huduReportAssetName
+        }
+        {
+          name: 'MSP_DOMAINS'
+          value: mspDomains
         }
         {
           name: 'WEBSITE_RUN_FROM_PACKAGE'
