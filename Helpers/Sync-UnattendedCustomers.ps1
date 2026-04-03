@@ -78,9 +78,11 @@ if (Test-Path $_configPath) {
     catch { Write-Warning "Could not load config.psd1: $_" }
 }
 
-$huduBaseUrl = $HuduBaseUrl?.TrimEnd('/')
+$huduBaseUrl = if ($HuduBaseUrl) { $HuduBaseUrl.TrimEnd('/') } else { $null }
 $huduApiKey  = $HuduApiKey
 $layoutId    = if ($HuduAssetLayoutId -gt 0) { $HuduAssetLayoutId } else { 67 }
+
+Write-Host "  Sync config: BaseUrl=$huduBaseUrl, LayoutId=$layoutId" -ForegroundColor DarkGray
 
 if (-not $huduBaseUrl) { Write-Error "HuduBaseUrl is not set. Pass -HuduBaseUrl or set it in config.psd1." }
 if (-not $huduApiKey)  { Write-Error "HuduApiKey is not set. Pass -HuduApiKey or set it in config.psd1." }
@@ -119,7 +121,7 @@ do {
     catch { Write-Error "Hudu asset query failed (page $page): $_" }
     foreach ($a in @($response.assets)) { $allAssets.Add($a) }
     $page++
-} while ($response.assets.Count -gt 0)
+} while ($response -and $response.assets -and $response.assets.Count -gt 0)
 
 Write-Host "Found $($allAssets.Count) asset(s) across all companies." -ForegroundColor Cyan
 
