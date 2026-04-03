@@ -72,6 +72,12 @@
     before processing. Use this switch if the list is already current or if you
     want to avoid the extra Hudu API calls.
 
+.PARAMETER SkipPublish
+    Skip publishing reports to Hudu after each audit completes. The audit still
+    runs and generates local HTML reports, but the Hudu API publish step is
+    skipped entirely. Useful for dry-run testing or when validating the Azure
+    deployment without affecting production Hudu data.
+
 .EXAMPLE
     .\Invoke-AzAuditBatch.ps1 -HuduApiKey 'key123'
     Runs all customers concurrently (3 at a time) using an explicit API key.
@@ -123,7 +129,8 @@ param (
     [string]$OutputRoot,
 
     [switch]$SkipCertCheck,
-    [switch]$SkipSync
+    [switch]$SkipSync,
+    [switch]$SkipPublish
 )
 
 $ScriptVersion = "1.0.0"
@@ -347,11 +354,13 @@ if ($Sequential) {
             Write-BatchLog "DONE   $customerLabel  elapsed=$($result.Elapsed)m"
 
             # Publish to Hudu
-            $_customerOutputPath = if (Test-Path $_lastOutputFile) {
-                (Get-Content $_lastOutputFile -Raw -ErrorAction SilentlyContinue).Trim()
-            } else { $null }
-            if ($_customerOutputPath) {
-                Invoke-HuduPublish -CustomerSlug $customerId -CustomerOutputPath $_customerOutputPath
+            if (-not $SkipPublish) {
+                $_customerOutputPath = if (Test-Path $_lastOutputFile) {
+                    (Get-Content $_lastOutputFile -Raw -ErrorAction SilentlyContinue).Trim()
+                } else { $null }
+                if ($_customerOutputPath) {
+                    Invoke-HuduPublish -CustomerSlug $customerId -CustomerOutputPath $_customerOutputPath
+                }
             }
         }
         catch {
@@ -495,7 +504,7 @@ else {
                 Write-BatchLog "DONE   $slug  elapsed=$($jobResult.Elapsed)m"
 
                 # Publish to Hudu sequentially from parent process
-                if ($jobResult.OutputPath) {
+                if (-not $SkipPublish -and $jobResult.OutputPath) {
                     Invoke-HuduPublish -CustomerSlug $slug -CustomerOutputPath $jobResult.OutputPath
                 }
             }

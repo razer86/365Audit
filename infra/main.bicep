@@ -28,6 +28,9 @@ param location string = resourceGroup().location
 @maxValue(10)
 param throttleLimit int = 3
 
+@description('Skip publishing reports to Hudu. Set to true for dry-run testing.')
+param skipPublish bool = true
+
 // ── Naming conventions ──────────────────────────────────────────────────────
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var storageAccountName = 'st365audit${uniqueSuffix}'
@@ -108,6 +111,10 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'AUDIT_THROTTLE_LIMIT'
           value: string(throttleLimit)
+        }
+        {
+          name: 'SKIP_PUBLISH'
+          value: skipPublish ? 'true' : 'false'
         }
         {
           name: 'WEBSITE_RUN_FROM_PACKAGE'

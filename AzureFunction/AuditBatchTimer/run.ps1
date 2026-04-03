@@ -22,5 +22,8 @@ $batchParams = @{
 if ($env:AUDIT_THROTTLE_LIMIT) {
     $batchParams['ThrottleLimit'] = [int]$env:AUDIT_THROTTLE_LIMIT
 }
+if ($env:SKIP_PUBLISH -eq 'true') {
+    $batchParams['SkipPublish'] = $true
+}
 
 & "$toolkitRoot/Invoke-AzAuditBatch.ps1" @batchParams
