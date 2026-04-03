@@ -27,7 +27,7 @@ name: Deploy to Azure Functions
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/azure-functions]
     paths-ignore:
       - '**.md'
       - 'docs/**'
