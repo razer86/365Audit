@@ -22,25 +22,40 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host "365Audit container started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC' -AsUTC)"
 
-# ── Authenticate with User-Assigned Managed Identity ─────────────────────────
-# AZURE_CLIENT_ID is the clientId of the user-assigned managed identity,
-# injected by the Container Apps Job environment configuration (Bicep).
+# ── Authenticate ─────────────────────────────────────────────────────────────
+# Azure (Container Apps Job): AZURE_CLIENT_ID is set by the job env config.
+#   → Connect-AzAccount -Identity -AccountId (user-assigned managed identity)
+# Local (docker run): AZURE_CLIENT_ID is not set, HUDU_API_KEY is provided.
+#   → Skip Az auth entirely; Invoke-AzAuditBatch uses -HuduApiKey directly.
 $clientId = $env:AZURE_CLIENT_ID
-if (-not $clientId) {
-    Write-Error "AZURE_CLIENT_ID environment variable is not set. Cannot authenticate with Managed Identity."
+if ($clientId) {
+    Write-Host "Authenticating with Managed Identity (ClientId: $clientId)..."
+    Connect-AzAccount -Identity -AccountId $clientId | Out-Null
+    Write-Host "Authenticated."
 }
-
-Write-Host "Authenticating with Managed Identity (ClientId: $clientId)..."
-Connect-AzAccount -Identity -AccountId $clientId | Out-Null
-Write-Host "Authenticated."
+elseif (-not $env:HUDU_API_KEY) {
+    Write-Error ("No authentication method available. Either:`n" +
+        "  - Set AZURE_CLIENT_ID (Azure Managed Identity)`n" +
+        "  - Set HUDU_API_KEY (local/direct mode)")
+}
+else {
+    Write-Host "Running in local mode (HUDU_API_KEY provided, skipping Az auth)."
+}
 
 # ── Build parameters for Invoke-AzAuditBatch.ps1 ────────────────────────────
 $batchParams = @{
-    KeyVaultName        = $env:KEY_VAULT_NAME
     HuduBaseUrl         = $env:HUDU_BASE_URL
     OutputRoot          = '/tmp/365audit'
     CleanupLocalReports = $true
     ErrorAction         = 'Stop'
+}
+
+# Azure mode: use Key Vault for secrets. Local mode: use direct API key.
+if ($clientId) {
+    $batchParams['KeyVaultName'] = $env:KEY_VAULT_NAME
+}
+if ($env:HUDU_API_KEY) {
+    $batchParams['HuduApiKey'] = $env:HUDU_API_KEY
 }
 
 if ($env:AUDIT_THROTTLE_LIMIT)   { $batchParams['ThrottleLimit']       = [int]$env:AUDIT_THROTTLE_LIMIT }
