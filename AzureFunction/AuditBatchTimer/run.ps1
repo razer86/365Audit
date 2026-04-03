@@ -15,7 +15,7 @@ $toolkitRoot = if ($env:TOOLKIT_ROOT) { $env:TOOLKIT_ROOT }
 $batchParams = @{
     KeyVaultName        = $env:KEY_VAULT_NAME
     HuduBaseUrl         = $env:HUDU_BASE_URL
-    OutputRoot          = $env:TEMP
+    OutputRoot          = if ($env:TEMP) { $env:TEMP } else { '/tmp' }
     CleanupLocalReports = $true    # Always clean up in Azure — temp storage
     ErrorAction         = 'Stop'
 }

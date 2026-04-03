@@ -228,7 +228,8 @@ if ($OutputRoot) {
 # Determine customer list path — use script root first, fall back to writable
 # temp location when running in a read-only filesystem (Azure WEBSITE_RUN_FROM_PACKAGE).
 $_defaultCustomerList = Join-Path $PSScriptRoot 'UnattendedCustomers.psd1'
-$_writableCustomerList = Join-Path $env:TEMP 'UnattendedCustomers.psd1'
+$_tempDir = if ($env:TEMP) { $env:TEMP } else { '/tmp' }
+$_writableCustomerList = Join-Path $_tempDir 'UnattendedCustomers.psd1'
 $customerListPath = if (Test-Path $_defaultCustomerList) { $_defaultCustomerList }
                     elseif (Test-Path $_writableCustomerList) { $_writableCustomerList }
                     else { $_writableCustomerList }  # Sync will create it here
