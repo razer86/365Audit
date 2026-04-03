@@ -26,5 +26,6 @@ if ($env:HUDU_REPORT_LAYOUT_ID)                                   { $batchParams
 if ($env:HUDU_REPORT_ASSET_NAME)                                  { $batchParams['HuduReportAssetName']= $env:HUDU_REPORT_ASSET_NAME }
 if ($env:MSP_DOMAINS)                                             { $batchParams['MspDomains']         = $env:MSP_DOMAINS -split ',' }
 if ($env:SKIP_PUBLISH -eq 'true')                                 { $batchParams['SkipPublish']        = $true }
+if ($env:TEST_CUSTOMERS)                                          { $batchParams['Customers']          = $env:TEST_CUSTOMERS -split ',' }
 
 & "$toolkitRoot/Invoke-AzAuditBatch.ps1" @batchParams
