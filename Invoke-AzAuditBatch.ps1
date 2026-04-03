@@ -294,6 +294,9 @@ function Write-BatchLog ([string]$Message) {
     Add-Content -Path $_logFile -Value $line -Encoding UTF8
 }
 
+# Force sequential for single-customer runs (no benefit from job overhead)
+if ($totalCustomers -eq 1) { $Sequential = $true }
+
 Write-Host "`n$('=' * 72)" -ForegroundColor Cyan
 Write-Host "  Invoke-AzAuditBatch v$ScriptVersion — $totalCustomers customer(s)" -ForegroundColor Cyan
 if (-not $Sequential) {
