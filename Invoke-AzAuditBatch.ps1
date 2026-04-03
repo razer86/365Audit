@@ -366,7 +366,7 @@ if ($Sequential) {
             }
 
             Write-Host "  Starting audit (modules: $($customerMods -join ','))..." -ForegroundColor DarkCyan
-            $_lastOutputFile = Join-Path $env:TEMP "365Audit_LastOutput_$customerId.txt"
+            $_lastOutputFile = Join-Path $_tempDir "365Audit_LastOutput_$customerId.txt"
             $auditParams = @{
                 HuduCompanyId  = $customerId
                 HuduBaseUrl    = $HuduBaseUrl
@@ -490,7 +490,7 @@ else {
             $entry = $queue.Dequeue()
             $slug  = $entry.HuduCompanySlug
             $mods  = if ($Modules) { $Modules } else { @($entry.Modules ?? @('1', '2', '3', '4')) }
-            $lastOutputFile = Join-Path $env:TEMP "365Audit_LastOutput_$slug.txt"
+            $lastOutputFile = Join-Path $_tempDir "365Audit_LastOutput_$slug.txt"
 
             $job = Start-Job -ScriptBlock $jobScriptBlock -ArgumentList @(
                 $setupScript, $auditScript,
