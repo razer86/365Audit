@@ -170,15 +170,15 @@ resource auditJob 'Microsoft.App/jobs@2024-03-01' = {
             memory: '4Gi'
           }
           env: [
-            { name: 'AZURE_CLIENT_ID';         value: managedIdentity.properties.clientId }
-            { name: 'KEY_VAULT_NAME';           value: keyVault.name }
-            { name: 'HUDU_BASE_URL';            value: huduBaseUrl }
-            { name: 'AUDIT_THROTTLE_LIMIT';     value: string(throttleLimit) }
-            { name: 'SKIP_PUBLISH';             value: skipPublish ? 'true' : 'false' }
-            { name: 'HUDU_ASSET_LAYOUT_ID';     value: string(huduAssetLayoutId) }
-            { name: 'HUDU_REPORT_LAYOUT_ID';    value: string(huduReportLayoutId) }
-            { name: 'HUDU_REPORT_ASSET_NAME';   value: huduReportAssetName }
-            { name: 'MSP_DOMAINS';              value: mspDomains }
+            { name: 'AZURE_CLIENT_ID',         value: managedIdentity.properties.clientId }
+            { name: 'KEY_VAULT_NAME',           value: keyVault.name }
+            { name: 'HUDU_BASE_URL',            value: huduBaseUrl }
+            { name: 'AUDIT_THROTTLE_LIMIT',     value: string(throttleLimit) }
+            { name: 'SKIP_PUBLISH',             value: skipPublish ? 'true' : 'false' }
+            { name: 'HUDU_ASSET_LAYOUT_ID',     value: string(huduAssetLayoutId) }
+            { name: 'HUDU_REPORT_LAYOUT_ID',    value: string(huduReportLayoutId) }
+            { name: 'HUDU_REPORT_ASSET_NAME',   value: huduReportAssetName }
+            { name: 'MSP_DOMAINS',              value: mspDomains }
           ]
         }
       ]
