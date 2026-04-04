@@ -88,9 +88,10 @@ function Invoke-TenantAudit {
 
     $ErrorActionPreference = 'Stop'
 
-    # ── Resolve Hudu credentials (parameter → env var → Key Vault) ──────────
+    # ── Resolve config (parameter → env var → Key Vault) ──────────────────
     if (-not $HuduBaseUrl -and $env:HUDU_BASE_URL) { $HuduBaseUrl = $env:HUDU_BASE_URL }
     if (-not $HuduApiKey  -and $env:HUDU_API_KEY)  { $HuduApiKey  = $env:HUDU_API_KEY }
+    if ($MspDomains.Count -eq 0 -and $env:MSP_DOMAINS) { $MspDomains = $env:MSP_DOMAINS -split ',' }
 
     if (-not $HuduApiKey -and $KeyVaultName) {
         Write-Host "Fetching Hudu API key from Key Vault '$KeyVaultName'..." -ForegroundColor DarkCyan

@@ -56,7 +56,7 @@ function Initialize-AuditOutput {
 
         @{
             DisplayName                = $org.DisplayName
-            TenantId                   = $org.Id
+            TenantId                   = $ctx.TenantId
             CountryLetterCode          = $org.CountryLetterCode
             TechnicalNotificationMails = @($org.TechnicalNotificationMails)
             VerifiedDomains            = $verifiedDomains
