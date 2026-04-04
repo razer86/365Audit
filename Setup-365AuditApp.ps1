@@ -149,7 +149,15 @@ $script:GraphPermissions = @(
     'CrossTenantInformation.ReadBasic.All',
     'SharePointTenantSettings.Read.All',
     'PrivilegedEligibilitySchedule.Read.AzureADGroup',
-    'RoleEligibilitySchedule.Read.Directory'
+    'RoleEligibilitySchedule.Read.Directory',
+    'DeviceManagementRBAC.Read.All',
+    'DirectoryRecommendations.Read.All',
+    'Policy.Read.ConditionalAccess',
+    'ReportSettings.Read.All',
+    'RoleManagement.Read.All',
+    'SecurityIdentitiesSensors.Read.All',
+    'SecurityIdentitiesHealth.Read.All',
+    'ThreatHunting.Read.All'
 )
 
 # Office 365 Exchange Online service principal app ID (constant in all Azure tenants)

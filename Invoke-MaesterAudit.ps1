@@ -87,18 +87,26 @@ New-Item -ItemType Directory -Path $_maesterDir -Force | Out-Null
 # ── Run Maester ─────────────────────────────────────────────────────────────
 # Maester uses the existing Graph and Exchange connections from the parent scope.
 # It runs Pester tests and produces JSON + HTML output.
+Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Status 'Installing Maester tests...' -PercentComplete 15
+
+# Install Maester test files to a temp directory — the module doesn't bundle them
+$_maesterTestDir = Join-Path $_maesterDir 'tests'
+Write-Host "  Installing Maester test files..." -ForegroundColor Gray
+Install-MaesterTests -Path $_maesterTestDir -ErrorAction Stop
+
 Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Status 'Running Maester assessment...' -PercentComplete 20
-Write-Host "`n  Running Maester security assessment (this may take several minutes)..." -ForegroundColor Cyan
+Write-Host "  Running Maester security assessment (this may take several minutes)..." -ForegroundColor Cyan
 
 $_maesterJsonPath  = Join-Path $_maesterDir 'MaesterResults.json'
 $_maesterHtmlPath  = Join-Path $_maesterDir 'MaesterReport.html'
 $_maesterCsvPath   = Join-Path $_maesterDir 'MaesterResults.csv'
 
 try {
-    # Invoke-Maester runs all built-in tests (CISA, CIS, EIDSCA, ORCA)
+    # Invoke-Maester runs Pester tests from the installed test directory
     # -NonInteractive suppresses browser-based prompts
     # -OutputJsonFile / -OutputHtmlFile capture results
     $_maesterParams = @{
+        Path           = $_maesterTestDir
         NonInteractive = $true
         OutputJsonFile = $_maesterJsonPath
         OutputHtmlFile = $_maesterHtmlPath
