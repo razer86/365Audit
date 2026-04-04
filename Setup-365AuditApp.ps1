@@ -65,7 +65,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.11.0
+    Version     : 2.12.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -97,7 +97,7 @@ param (
     [string]$HuduApiKey
 )
 
-$ScriptVersion         = "2.11.0"
+$ScriptVersion         = "2.12.0"
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 Write-Verbose "Setup-365AuditApp.ps1 loaded (v$ScriptVersion)"

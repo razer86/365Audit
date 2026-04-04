@@ -8,6 +8,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.16.0 | Replaced ScubaGear (module 7) with Maester — cross-platform CIS baseline assessment covering CISA SCuBA, CIS v5.0, and EIDSCA; added try/catch per module so one failure doesn't block remaining modules and report generation |
 | 2.15.0 | After a successful audit run, writes the customer output folder path to `$env:TEMP\365Audit_LastOutput.txt` so `Start-UnattendedAudit.ps1` can retrieve it without needing to re-derive the path |
 | 2.14.1 | `OutputRoot` validation: resolves to absolute path, checks drive/UNC qualifier is accessible, and attempts `New-Item` before Graph connects — typo fails immediately with the resolved path in the error message |
 | 2.14.0 | Added `-OutputRoot` parameter; falls back to `OutputRoot` in `config.psd1`, then the default path two levels above the toolkit; value is propagated to `Initialize-AuditOutput` via `$script:AuditOutputRoot` before the module loop so all module scripts and the summary use the same root |
@@ -46,6 +47,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 2.12.0 | Added 12 Maester Graph permissions; `Resolve-AppRoleIds` now skips unavailable permissions with a warning instead of throwing (licence-gated roles like SecurityIdentitiesSensors); disabled WAM broker in `Connect-GraphForSetup` to avoid MSAL assembly conflict with Az.Accounts |
 | 2.11.0 | Refactored `Connect-GraphForSetup` — simplified error handling, removed try/catch wrapper around `Connect-MgGraph` (MSAL conflicts surface directly with clear error message) |
 | 2.10.0 | Added `PrivilegedAccess.Read.AzureAD` Graph permission (required by ScubaGear for PIM policy checks); added `Set-GlobalReaderRole` helper and calls in both new-app and update-app paths — Global Reader Entra role is now assigned to the service principal automatically (required by ScubaGear non-interactive assessment) |
 | 2.9.0 | Config loaded from `config.psd1` (version note — no new features, version bump only) |
@@ -220,7 +222,15 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 ---
 
-## Invoke-ScubaGearAudit.ps1
+## Invoke-MaesterAudit.ps1
+
+| Version | Notes |
+|---------|-------|
+| 1.0.0 | Initial release — replaces Invoke-ScubaGearAudit.ps1; runs Maester (https://maester.dev) PS7-native security testing framework covering CISA SCuBA, CIS v5.0, EIDSCA, and ORCA baselines; connects Graph, EXO, Teams, and Security & Compliance before running tests; installs test files to temp directory; transforms Pester output to structured JSON for Generate-AuditSummary.ps1; exports CSV, HTML, and baseline JSON |
+
+---
+
+## Invoke-ScubaGearAudit.ps1 (removed — replaced by Invoke-MaesterAudit.ps1)
 
 | Version | Notes |
 |---------|-------|
@@ -238,6 +248,7 @@ All notable changes to each script in the 365Audit toolkit are documented here.
 
 | Version | Notes |
 |---------|-------|
+| 1.61.0 | Replaced ScubaGear result loading with Maester — reads `MaesterBaselineResults.json` from `Raw\Maester\`; section titles updated to "M365 Security Baseline"; action item categories use "CIS Baseline /" prefix; attribution links to maester.dev |
 | 1.60.0 | Hudu report restyled to match Windows Audit Tool visual design: header updated to WAT gradient (`linear-gradient(135deg, #1e3a5f, #2e5c6e)`), `border-radius:14px`, `padding:28px 32px` with `box-shadow`; company name styled as 26px bold white, subtitle at 15px, meta bar with border-top separator; `New-HuduSection` updated to WAT `.section-summary` style — 28×28px `border-radius:8px` numbered badges, 18px bold titles, 14px rounded containers with `box-shadow`; dark mode fix: removed hardcoded `color:#1e3a5f` from section headers and `color:rgba(128,128,128,0.65)` from KPI tile labels — replaced with `opacity:0.6` so text inherits Hudu's theme colour; section counter reset added before first section call |
 | 1.59.0 | Hudu report helper functions updated: `New-HuduKpiTile`, `New-HuduSection` (numbered navy badges), `New-HuduStatGrid`, `New-HuduTable`, `New-HuduAiTable` (left-border callout rows), `New-HuduModuleAi` restyled with neutral RGBA backgrounds, consistent typography, and border accents; `-Accent` parameter removed from `New-HuduSection` |
 | 1.50.0 | Month-over-month delta foundation: `Add-ActionItem` gains a `CheckId` parameter (stable `MODULE-SUBCATEGORY-NNN` identity string) stored in `ActionItems.json` and used by `Publish-HuduAuditReport.ps1` for action item diffing; all 81 non-ScubaGear call sites updated with stable IDs; `AuditMetrics.json` written alongside `ActionItems.json` each run — captures MFA coverage %, Secure Score, device count, storage GB/%, licence assigned/available, and action item counts; `New-HuduKpiTile` gains `-DeltaMarkerId` parameter that emits `<!-- TILE_DELTA_* -->` HTML comment markers inside each KPI tile; `<!-- AUDIT_DELTA_INJECT -->` marker inserted between KPI row and Action Items in Hudu HTML for downstream injection of the delta section |

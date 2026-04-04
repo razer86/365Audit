@@ -1,7 +1,7 @@
 {
-  "Start-365Audit.ps1": "2.15.0",
+  "Start-365Audit.ps1": "2.16.0",
   "Start-UnattendedAudit.ps1": "2.8.0",
-  "Setup-365AuditApp.ps1": "2.11.0",
+  "Setup-365AuditApp.ps1": "2.12.0",
   "Common/Audit-Common.ps1": "1.24.0",
   "Invoke-EntraAudit.ps1": "1.19.0",
   "Invoke-ExchangeAudit.ps1": "1.15.2",
@@ -10,7 +10,7 @@
   "Invoke-IntuneAudit.ps1": "1.8.1",
   "Invoke-TeamsAudit.ps1": "1.1.2",
   "Invoke-MaesterAudit.ps1": "1.0.0",
-  "Generate-AuditSummary.ps1": "1.60.0",
+  "Generate-AuditSummary.ps1": "1.61.0",
   "Helpers/Get-HuduAssetLayouts.ps1": "1.0.0",
   "Helpers/Get-ModuleVersionStatus.ps1": "1.0.0",
   "Helpers/New-HuduAssetLayout.ps1": "1.0.0",

@@ -62,7 +62,7 @@
 
 .NOTES
     Author      : Raymond Slater
-    Version     : 2.15.0
+    Version     : 2.16.0
     Change Log  : See CHANGELOG.md
 
 .LINK
@@ -126,7 +126,7 @@ param (
     [string]$OutputRoot
 )
 
-$ScriptVersion = "2.15.0"
+$ScriptVersion = "2.16.0"
 Write-Verbose "Start-365Audit.ps1 loaded (v$ScriptVersion)"
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
