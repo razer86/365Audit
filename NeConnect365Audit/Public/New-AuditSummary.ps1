@@ -476,19 +476,86 @@ else {
 $script:actionItems = [System.Collections.Generic.List[hashtable]]::new()
 $script:ActionItemSequence = 0
 
-# Load Maester CIS baseline results (Raw\Maester\ScubaResults_Maester.json)
+# Load Maester CIS baseline results (Raw\Maester\MaesterResults.json)
+# Maester's native JSON has: Tests[], PassedCount, FailedCount, SkippedCount, TotalCount
+# The report sections expect: MetaData, Summary.<Product>, Results.<Product>[].Controls[]
+# Transform Maester native → report structure here.
 $_scubaResults  = $null
 $_scubaHtmlPath = $null
 
 $_maesterDir = Join-Path (Join-Path $AuditFolder 'Raw') 'Maester'
 if (Test-Path $_maesterDir) {
-    $_scubaJsonFile = Get-ChildItem -Path $_maesterDir -Filter 'MaesterBaselineResults.json' `
+    $_maesterJsonFile = Get-ChildItem -Path $_maesterDir -Filter 'MaesterResults.json' `
         -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($_scubaJsonFile) {
+    if ($_maesterJsonFile) {
         try {
-            $_scubaResults = Get-Content $_scubaJsonFile.FullName -Raw | ConvertFrom-Json
-            Write-Verbose "Maester results loaded: $($_scubaJsonFile.FullName)"
-        } catch {
+            $_maesterRaw = Get-Content $_maesterJsonFile.FullName -Raw | ConvertFrom-Json
+            Write-Verbose "Maester results loaded: $($_maesterJsonFile.FullName)"
+
+            # Transform to report structure
+            $_resultsByProduct = @{}
+            $_summaryByProduct = @{}
+
+            foreach ($_test in $_maesterRaw.Tests) {
+                $_block = if ($_test.Block) { $_test.Block } else { 'Other' }
+                $_result = switch ($_test.Result) {
+                    'Passed'      { 'Pass' }
+                    'Failed'      { 'Fail' }
+                    'Skipped'     { 'N/A' }
+                    'Inconclusive'{ 'Warning' }
+                    'NotRun'      { 'N/A' }
+                    default       { $_test.Result }
+                }
+                $_severity = if ($_test.Severity -in @('High','Critical')) { 'Shall' } else { 'Should' }
+
+                # Group by block → sub-group by tag prefix
+                $_groupName = $_block
+                if (-not $_resultsByProduct.ContainsKey($_block)) {
+                    $_resultsByProduct[$_block] = @{}
+                    $_summaryByProduct[$_block] = @{ Passes = 0; Failures = 0; Warnings = 0; Manual = 0 }
+                }
+                if (-not $_resultsByProduct[$_block].ContainsKey($_groupName)) {
+                    $_resultsByProduct[$_block][$_groupName] = @{
+                        GroupName = $_groupName; GroupReferenceURL = ''; Controls = [System.Collections.Generic.List[object]]::new()
+                    }
+                }
+
+                $_resultsByProduct[$_block][$_groupName].Controls.Add(@{
+                    'Control ID'  = if ($_test.Id) { $_test.Id } else { $_test.Name -replace '^(MT\.\d+\.\d+\.\d+|MS\.\w+\.\d+\.\d+v\d+|CIS\.M365\.\d+\.\d+\.\d+).*', '$1' }
+                    'Requirement' = if ($_test.Title) { $_test.Title } else { $_test.Name }
+                    'Result'      = $_result
+                    'Criticality' = $_severity
+                    'Details'     = if ($_test.ErrorRecord -and $_test.ErrorRecord[0].Exception.Message) { $_test.ErrorRecord[0].Exception.Message } else { '' }
+                })
+
+                switch ($_result) {
+                    'Pass'    { $_summaryByProduct[$_block].Passes++ }
+                    'Fail'    { $_summaryByProduct[$_block].Failures++ }
+                    'Warning' { $_summaryByProduct[$_block].Warnings++ }
+                    default   { $_summaryByProduct[$_block].Manual++ }
+                }
+            }
+
+            # Assemble final structure
+            $_resultsObj = @{}
+            foreach ($_prod in $_resultsByProduct.Keys) {
+                $_resultsObj[$_prod] = @($_resultsByProduct[$_prod].Values)
+            }
+
+            $_scubaResults = [PSCustomObject]@{
+                MetaData = @{
+                    ToolVersion = "Maester $($_maesterRaw.CurrentVersion)"
+                    TenantId    = $_maesterRaw.TenantId
+                    Timestamp   = $_maesterRaw.ExecutedAt
+                    TotalTests  = $_maesterRaw.TotalCount
+                    PassedTests = $_maesterRaw.PassedCount
+                    FailedTests = $_maesterRaw.FailedCount
+                }
+                Summary = $_summaryByProduct
+                Results = $_resultsObj
+            }
+        }
+        catch {
             Write-Warning "Could not parse Maester results: $($_.Exception.Message)"
         }
     }
