@@ -46,5 +46,35 @@ function Initialize-AuditOutput {
     $ctx.OutputPath    = $outputPath
     $ctx.RawOutputPath = $rawPath
 
+    # Write OrgInfo.json — consumed by New-AuditSummary for company header,
+    # domain list, technical contacts, and partner relationship data.
+    $orgInfoPath = Join-Path $outputPath 'OrgInfo.json'
+    try {
+        $verifiedDomains = @($org.VerifiedDomains | ForEach-Object {
+            @{ Name = $_.Name; IsDefault = $_.IsDefault; IsInitial = $_.IsInitial; Type = $_.Type }
+        })
+
+        @{
+            DisplayName                = $org.DisplayName
+            TenantId                   = $org.Id
+            CountryLetterCode          = $org.CountryLetterCode
+            TechnicalNotificationMails = @($org.TechnicalNotificationMails)
+            VerifiedDomains            = $verifiedDomains
+            Raw                        = @{
+                Street       = $org.Street
+                City         = $org.City
+                State        = $org.State
+                PostalCode   = $org.PostalCode
+                BusinessPhones = @($org.BusinessPhones)
+                OnPremisesSyncEnabled = $org.OnPremisesSyncEnabled
+                OnPremisesLastSyncDateTime = $org.OnPremisesLastSyncDateTime
+                OnPremisesProvisioningErrors = @($org.OnPremisesProvisioningErrors)
+            }
+        } | ConvertTo-Json -Depth 5 | Set-Content -Path $orgInfoPath -Encoding UTF8
+    }
+    catch {
+        Write-Warning "Could not write OrgInfo.json: $($_.Exception.Message)"
+    }
+
     return $ctx
 }
