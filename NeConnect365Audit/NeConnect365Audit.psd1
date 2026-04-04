@@ -15,6 +15,7 @@
     FunctionsToExport = @(
         'Invoke-TenantAudit'
         'Register-AuditApp'
+        'New-AuditSummary'
         'Publish-AuditReport'
         'Sync-AuditCustomers'
         'Remove-AuditCustomer'
