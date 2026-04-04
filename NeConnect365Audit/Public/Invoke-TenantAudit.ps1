@@ -88,7 +88,10 @@ function Invoke-TenantAudit {
 
     $ErrorActionPreference = 'Stop'
 
-    # ── Resolve Hudu API key ────────────────────────────────────────────────
+    # ── Resolve Hudu credentials (parameter → env var → Key Vault) ──────────
+    if (-not $HuduBaseUrl -and $env:HUDU_BASE_URL) { $HuduBaseUrl = $env:HUDU_BASE_URL }
+    if (-not $HuduApiKey  -and $env:HUDU_API_KEY)  { $HuduApiKey  = $env:HUDU_API_KEY }
+
     if (-not $HuduApiKey -and $KeyVaultName) {
         Write-Host "Fetching Hudu API key from Key Vault '$KeyVaultName'..." -ForegroundColor DarkCyan
         Import-Module Az.KeyVault -ErrorAction Stop
@@ -100,10 +103,10 @@ function Invoke-TenantAudit {
     }
 
     if (-not $HuduApiKey) {
-        throw "Hudu API key is required. Pass -HuduApiKey or -KeyVaultName."
+        throw "Hudu API key is required. Pass -HuduApiKey, set `$env:HUDU_API_KEY, or use -KeyVaultName."
     }
     if (-not $HuduBaseUrl) {
-        throw "Hudu base URL is required. Pass -HuduBaseUrl."
+        throw "Hudu base URL is required. Pass -HuduBaseUrl or set `$env:HUDU_BASE_URL."
     }
 
     # ── Resolve output root ─────────────────────────────────────────────────
