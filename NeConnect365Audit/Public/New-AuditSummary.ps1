@@ -520,12 +520,16 @@ if (Test-Path $_maesterDir) {
                     }
                 }
 
+                $_ctrlId      = if ($_test.Id) { $_test.Id } else { $_test.Name -replace '^(MT\.\d+\.\d+\.\d+|MS\.\w+\.\d+\.\d+v\d+|CIS\.M365\.\d+\.\d+\.\d+).*', '$1' }
+                $_ctrlReq     = if ($_test.Title) { $_test.Title } else { $_test.Name }
+                $_ctrlDetails = if ($_test.ErrorRecord -and $_test.ErrorRecord[0].Exception.Message) { $_test.ErrorRecord[0].Exception.Message } else { '' }
+
                 $_resultsByProduct[$_block][$_groupName].Controls.Add(@{
-                    'Control ID'  = if ($_test.Id) { $_test.Id } else { $_test.Name -replace '^(MT\.\d+\.\d+\.\d+|MS\.\w+\.\d+\.\d+v\d+|CIS\.M365\.\d+\.\d+\.\d+).*', '$1' }
-                    'Requirement' = if ($_test.Title) { $_test.Title } else { $_test.Name }
+                    'Control ID'  = $_ctrlId
+                    'Requirement' = $_ctrlReq
                     'Result'      = $_result
                     'Criticality' = $_severity
-                    'Details'     = if ($_test.ErrorRecord -and $_test.ErrorRecord[0].Exception.Message) { $_test.ErrorRecord[0].Exception.Message } else { '' }
+                    'Details'     = $_ctrlDetails
                 })
 
                 switch ($_result) {
