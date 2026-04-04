@@ -575,24 +575,45 @@ else {
 $actionItems = [System.Collections.Generic.List[hashtable]]::new()
 $script:ActionItemSequence = 0
 
-# Load ScubaGear results if a prior run produced output in Raw\ScubaGear_*\
+# Load CIS baseline results — check for Maester output first, then ScubaGear
 $_scubaResults  = $null
 $_scubaHtmlPath = $null
-$_scubaRunDir   = Get-ChildItem -Path (Join-Path $AuditFolder 'Raw') -Directory -Filter 'ScubaGear_*' `
-    -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
-if ($_scubaRunDir) {
-    $_scubaJsonFile = Get-ChildItem -Path $_scubaRunDir.FullName -Filter 'ScubaResults_*.json' `
+
+# Try Maester output (Raw\Maester\ScubaResults_Maester.json)
+$_maesterDir = Join-Path (Join-Path $AuditFolder 'Raw') 'Maester'
+if (Test-Path $_maesterDir) {
+    $_scubaJsonFile = Get-ChildItem -Path $_maesterDir -Filter 'ScubaResults_*.json' `
         -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($_scubaJsonFile) {
         try {
             $_scubaResults = Get-Content $_scubaJsonFile.FullName -Raw | ConvertFrom-Json
-            Write-Verbose "ScubaGear results loaded: $($_scubaJsonFile.FullName)"
+            Write-Verbose "Maester results loaded: $($_scubaJsonFile.FullName)"
         } catch {
-            Write-Warning "Could not parse ScubaGear results: $($_.Exception.Message)"
+            Write-Warning "Could not parse Maester results: $($_.Exception.Message)"
         }
     }
-    $_scubaHtmlPath = Join-Path $_scubaRunDir.FullName 'BaselineReports.html'
+    $_scubaHtmlPath = Join-Path $_maesterDir 'MaesterReport.html'
     if (-not (Test-Path $_scubaHtmlPath)) { $_scubaHtmlPath = $null }
+}
+
+# Fall back to ScubaGear output (Raw\ScubaGear_*\ScubaResults_*.json)
+if (-not $_scubaResults) {
+    $_scubaRunDir = Get-ChildItem -Path (Join-Path $AuditFolder 'Raw') -Directory -Filter 'ScubaGear_*' `
+        -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+    if ($_scubaRunDir) {
+        $_scubaJsonFile = Get-ChildItem -Path $_scubaRunDir.FullName -Filter 'ScubaResults_*.json' `
+            -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($_scubaJsonFile) {
+            try {
+                $_scubaResults = Get-Content $_scubaJsonFile.FullName -Raw | ConvertFrom-Json
+                Write-Verbose "ScubaGear results loaded: $($_scubaJsonFile.FullName)"
+            } catch {
+                Write-Warning "Could not parse ScubaGear results: $($_.Exception.Message)"
+            }
+        }
+        $_scubaHtmlPath = Join-Path $_scubaRunDir.FullName 'BaselineReports.html'
+        if (-not (Test-Path $_scubaHtmlPath)) { $_scubaHtmlPath = $null }
+    }
 }
 
 # Helper: add an action item
@@ -1839,15 +1860,20 @@ else {
 }
 
 
-# --- ScubaGear checks ---
+# --- CIS Baseline checks (Maester or ScubaGear) ---
 if ($_scubaResults) {
+    $_sgAiIsMaester = $_scubaResults.MetaData.ToolVersion -like 'Maester*'
+    $_sgAiCatPrefix = if ($_sgAiIsMaester) { 'CIS Baseline' } else { 'ScubaGear' }
     $_sgCategoryMap = @{
-        'AAD'          = 'ScubaGear / Identity'
-        'EXO'          = 'ScubaGear / Exchange'
-        'SharePoint'   = 'ScubaGear / SharePoint'
-        'Teams'        = 'ScubaGear / Teams'
-        'Defender'     = 'ScubaGear / Defender'
-        'PowerPlatform'= 'ScubaGear / Power Platform'
+        'AAD'           = "$_sgAiCatPrefix / Identity"
+        'EXO'           = "$_sgAiCatPrefix / Exchange"
+        'SharePoint'    = "$_sgAiCatPrefix / SharePoint"
+        'Teams'         = "$_sgAiCatPrefix / Teams"
+        'Defender'      = "$_sgAiCatPrefix / Defender"
+        'PowerPlatform' = "$_sgAiCatPrefix / Power Platform"
+        'CISA SCuBA'    = "$_sgAiCatPrefix / CISA SCuBA"
+        'CIS v5.0'      = "$_sgAiCatPrefix / CIS v5.0"
+        'EIDSCA'        = "$_sgAiCatPrefix / EIDSCA"
     }
     foreach ($_sgProd in $_scubaResults.Results.PSObject.Properties) {
         $_sgCat = if ($_sgCategoryMap.ContainsKey($_sgProd.Name)) { $_sgCategoryMap[$_sgProd.Name] } else { "ScubaGear / $($_sgProd.Name)" }
@@ -4624,7 +4650,13 @@ if ($_scubaResults) {
     # "All Controls" chip resets filters
     $_sgChipsHtml += "<div class='stat-chip neutral' data-scuba-filter='all' onclick='scubaFilter(this)' title='Show all results'><div class='stat-chip-value'>$_sgTotal</div><div class='stat-chip-label'>All Controls</div></div>"
 
-    $_sgSummary.Add("<p style='font-size:0.82rem;color:#64748b;margin-bottom:0.75rem'>Assessment provided by <a href='https://www.cisa.gov/resources-tools/services/secure-cloud-business-applications-scuba-project' target='_blank'>CISA ScubaGear</a> — an open-source tool maintained by the Cybersecurity and Infrastructure Security Agency (CISA) that evaluates Microsoft 365 tenants against the <a href='https://www.cisa.gov/resources-tools/resources/secure-cloud-business-applications-scuba-project' target='_blank'>SCuBA M365 Security Configuration Baselines</a>.</p>")
+    $_sgIsMaester = $_scubaResults.MetaData.ToolVersion -like 'Maester*'
+    $_sgAttribution = if ($_sgIsMaester) {
+        "<p style='font-size:0.82rem;color:#64748b;margin-bottom:0.75rem'>Assessment provided by <a href='https://maester.dev' target='_blank'>Maester</a> — an open-source security testing framework that evaluates Microsoft 365 tenants against <a href='https://maester.dev/docs/tests/overview' target='_blank'>CISA SCuBA, CIS v5.0, and EIDSCA baselines</a>.</p>"
+    } else {
+        "<p style='font-size:0.82rem;color:#64748b;margin-bottom:0.75rem'>Assessment provided by <a href='https://www.cisa.gov/resources-tools/services/secure-cloud-business-applications-scuba-project' target='_blank'>CISA ScubaGear</a> — an open-source tool maintained by the Cybersecurity and Infrastructure Security Agency (CISA) that evaluates Microsoft 365 tenants against the <a href='https://www.cisa.gov/resources-tools/resources/secure-cloud-business-applications-scuba-project' target='_blank'>SCuBA M365 Security Configuration Baselines</a>.</p>"
+    }
+    $_sgSummary.Add($_sgAttribution)
     $_sgSummary.Add("<div class='section-stats'>$($_sgChipsHtml -join '')</div>")
 
     # Per-product summary table with links to detail subsections
@@ -4727,9 +4759,10 @@ if ($_scubaResults) {
     }
 
     $_sgMeta    = $_scubaResults.MetaData
-    $_sgVersion = if ($_sgMeta.ToolVersion) { "ScubaGear $($_sgMeta.ToolVersion)" } else { "ScubaGear" }
+    $_sgVersion = if ($_sgMeta.ToolVersion) { $_sgMeta.ToolVersion } else { "ScubaGear" }
+    $_sgSectionTitle = if ($_sgIsMaester) { "M365 Security Baseline" } else { "ScubaGear CIS Baseline" }
 
-    $html.Add((Add-Section -Title "ScubaGear CIS Baseline" -AnchorId 'scuba' -CsvFiles @() -SummaryHtml ($_sgSummary -join "`n") -ModuleVersion $_sgVersion -Collapsed))
+    $html.Add((Add-Section -Title $_sgSectionTitle -AnchorId 'scuba' -CsvFiles @() -SummaryHtml ($_sgSummary -join "`n") -ModuleVersion $_sgVersion -Collapsed))
 }
 
 # =========================================
@@ -5085,10 +5118,10 @@ $_huduKpiRow = "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:2
     (New-HuduKpiTile -Label 'Action Items'    -Value $_kpiAiStr          -Sub $_kpiAiSub           -Colour $_huduColour[$_kpiAiClass]           -DeltaMarkerId 'AI')       +
     "</div>"
 
-# ── Section: Action Items (ScubaGear excluded — same as main report) ───────────
-$_huduCritItems = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -notlike 'ScubaGear*' } |
+# ── Section: Action Items (CIS baseline excluded — shown in its own section) ──
+$_huduCritItems = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -notlike 'ScubaGear*' -and $_.Category -notlike 'CIS Baseline*' } |
     Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
-$_huduWarnItems = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -notlike 'ScubaGear*' } |
+$_huduWarnItems = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -notlike 'ScubaGear*' -and $_.Category -notlike 'CIS Baseline*' } |
     Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
 
 $_huduAiContent = (New-HuduAiTable -Items $_huduCritItems -Heading '&#9889; Critical Issues' -AccentColour '#dc2626') +
@@ -5359,11 +5392,11 @@ if ($_h_teamsFed.Count -gt 0) {
     $_secTeams = New-HuduSection -Title 'Microsoft Teams' -Content $_teamsContent
 }
 
-# ── Section: ScubaGear (only if results loaded) ────────────────────────────────
+# ── Section: CIS Baseline (Maester or ScubaGear — only if results loaded) ─────
 $_secScuba = ''
 if ($_scubaResults) {
     $_sgContent = ''
-    $_sgAiItems = @($actionItems | Where-Object { $_.Category -like 'ScubaGear*' })
+    $_sgAiItems = @($actionItems | Where-Object { $_.Category -like 'ScubaGear*' -or $_.Category -like 'CIS Baseline*' })
     $_sgRows    = foreach ($_sgP in $_scubaResults.Results.PSObject.Properties) {
         $_allCtrls = @($_sgP.Value | ForEach-Object { $_.Controls }) | Where-Object { $_ }
         $_sgPass   = @($_allCtrls | Where-Object { $_.Result -eq 'Pass'    }).Count
@@ -5376,11 +5409,14 @@ if ($_scubaResults) {
     if ($_sgRows.Count -gt 0) {
         $_sgContent += New-HuduTable -Headers @('Product', 'Pass', 'Fail', 'Warning', 'N/A') -Rows $_sgRows
     }
-    $_sgContent += New-HuduModuleAi -Prefixes @('ScubaGear /')
+    $_sgHuduIsMaester = $_scubaResults.MetaData.ToolVersion -like 'Maester*'
+    $_sgAiPrefix = if ($_sgHuduIsMaester) { 'CIS Baseline' } else { 'ScubaGear' }
+    $_sgContent += New-HuduModuleAi -Prefixes @("$_sgAiPrefix /")
     $_sgAiCrits = @($_sgAiItems | Where-Object { $_.Severity -eq 'critical' }).Count
     $_sgAiWarns = @($_sgAiItems | Where-Object { $_.Severity -eq 'warning'  }).Count
     $_sgParts   = @(); if ($_sgAiCrits -gt 0) { $_sgParts += "$_sgAiCrits critical" }; if ($_sgAiWarns -gt 0) { $_sgParts += "$_sgAiWarns warning$(if ($_sgAiWarns -ne 1){'s'})" }
-    $_scubaTitle = if ($_sgParts.Count -gt 0) { "ScubaGear CIS Baseline &mdash; $($_sgParts -join ', ')" } else { "ScubaGear CIS Baseline" }
+    $_huduBaseTitle = if ($_sgHuduIsMaester) { "M365 Security Baseline" } else { "ScubaGear CIS Baseline" }
+    $_scubaTitle = if ($_sgParts.Count -gt 0) { "$_huduBaseTitle &mdash; $($_sgParts -join ', ')" } else { $_huduBaseTitle }
     $_secScuba = New-HuduSection -Title $_scubaTitle -Content $_sgContent
 }
 

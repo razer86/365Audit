@@ -415,8 +415,8 @@ $menu = @{
     4 = @{ Name = "Mail Security Audit";        Script = @("Invoke-MailSecurityAudit.ps1") }
     5 = @{ Name = "Intune / Endpoint Audit";    Script = @("Invoke-IntuneAudit.ps1") }
     6 = @{ Name = "Microsoft Teams Audit";      Script = @("Invoke-TeamsAudit.ps1") }
-    7 = @{ Name = "ScubaGear CIS Baseline";     Script = @("Invoke-ScubaGearAudit.ps1") }
-    'A' = @{ Name = "Run All Modules (1-7)";    Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1", "Invoke-TeamsAudit.ps1", "Invoke-ScubaGearAudit.ps1") }
+    7 = @{ Name = "Maester CIS Baseline";        Script = @("Invoke-MaesterAudit.ps1") }
+    'A' = @{ Name = "Run All Modules (1-7)";    Script = @("Invoke-EntraAudit.ps1", "Invoke-ExchangeAudit.ps1", "Invoke-SharePointAudit.ps1", "Invoke-MailSecurityAudit.ps1", "Invoke-IntuneAudit.ps1", "Invoke-TeamsAudit.ps1", "Invoke-MaesterAudit.ps1") }
     0 = @{ Name = "Exit";                       Script = $null }
 }
 
