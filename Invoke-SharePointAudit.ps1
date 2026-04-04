@@ -77,7 +77,7 @@ $_useAppAuth     = $_spAppId -and $_spCertFilePath
 $_spCertPasswordPlain = $null
 if ($_spCertPassword -is [System.Security.SecureString]) {
     $_ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($_spCertPassword)
-    try   { $_spCertPasswordPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($_ptr) }
+    try   { $_spCertPasswordPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($_ptr) }
     finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($_ptr) }
 }
 

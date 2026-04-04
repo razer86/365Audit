@@ -4,6 +4,10 @@ FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04
 ENV TEMP=/tmp
 ENV TMPDIR=/tmp
 
+# Install OS-level dependencies:
+#   dnsutils — provides dig for DMARC/SPF/DKIM DNS lookups in Invoke-MailSecurityAudit
+RUN apt-get update && apt-get install -y --no-install-recommends dnsutils && rm -rf /var/lib/apt/lists/*
+
 # Install PowerShell modules in a single layer to reduce image size.
 # Graph SDK sub-modules are listed individually rather than the full
 # Microsoft.Graph meta-package to keep the image smaller.

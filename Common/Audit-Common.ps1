@@ -515,18 +515,10 @@ function Connect-TeamsSecure {
     if ($appId -and $tenantId -and $certFilePath) {
         Write-Host "Connecting to Microsoft Teams (app-only auth)..." -ForegroundColor Cyan
 
-        # Load the X509Certificate2 directly from the .pfx — no cert-store import needed
-        $certBytes = [System.IO.File]::ReadAllBytes($certFilePath)
-        $_bstr     = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($certPassword)
-        try {
-            $plainPwd = [Runtime.InteropServices.Marshal]::PtrToStringAuto($_bstr)
-            $certObj  = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
-                $certBytes, $plainPwd,
-                [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
-        }
-        finally {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($_bstr)
-        }
+        # Load the X509Certificate2 from the .pfx file path — matches Connect-MgGraphSecure
+        # and avoids Linux key-storage issues with byte-array + Exportable flag
+        $certObj = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $certFilePath, $certPassword)
 
         Connect-MicrosoftTeams `
             -ApplicationId $appId `

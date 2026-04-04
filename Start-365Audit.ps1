@@ -488,6 +488,7 @@ try {
 
         $scriptsToRun = @($module.Script)
 
+        $_moduleErrors = @()
         foreach ($scriptName in $scriptsToRun) {
             $localScriptPath = Join-Path $localPath $scriptName
             $remoteScriptUrl = "$RemoteBaseUrl/$scriptName"
@@ -496,26 +497,34 @@ try {
             Write-Host "  Starting: $scriptName" -ForegroundColor Cyan
             Write-Host "================================================================"
 
-            if (Test-Path $localScriptPath) {
-                . $localScriptPath
-            }
-            else {
-                Write-Host "Local script not found. Downloading from GitHub..."
-                Write-Host "Fetching: $remoteScriptUrl`n"
-                try {
+            try {
+                if (Test-Path $localScriptPath) {
+                    . $localScriptPath
+                }
+                else {
+                    Write-Host "Local script not found. Downloading from GitHub..."
+                    Write-Host "Fetching: $remoteScriptUrl`n"
                     $_tempScript = Join-Path $env:TEMP "365Audit_$scriptName"
-                    Invoke-RestMethod $remoteScriptUrl -OutFile $_tempScript -ErrorAction Stop
-                    . $_tempScript
+                    try {
+                        Invoke-RestMethod $remoteScriptUrl -OutFile $_tempScript -ErrorAction Stop
+                        . $_tempScript
+                    }
+                    finally {
+                        Remove-Item $_tempScript -Force -ErrorAction SilentlyContinue
+                    }
                 }
-                catch {
-                    Write-Warning "Failed to download or run ${scriptName}: $_"
-                }
-                finally {
-                    Remove-Item $_tempScript -Force -ErrorAction SilentlyContinue
-                }
+                Write-Host "Completed: $scriptName" -ForegroundColor Green
             }
+            catch {
+                Write-Warning "Module FAILED: $scriptName — $($_.Exception.Message)"
+                $_moduleErrors += $scriptName
+            }
+        }
 
-            Write-Host "Completed: $scriptName" -ForegroundColor Green
+        if ($_moduleErrors.Count -gt 0) {
+            Write-Host "`n================================================================" -ForegroundColor Yellow
+            Write-Warning "$($_moduleErrors.Count) module(s) failed: $($_moduleErrors -join ', ')"
+            Write-Host "================================================================" -ForegroundColor Yellow
         }
     }
 
