@@ -15,6 +15,9 @@ $script:AuditContext = $null
 $script:GraphModuleVersion = $null
 $script:GraphDependencyDirectories = $null
 
+# SKU friendly name lookup cache — loaded on first use by Get-FriendlySkuName
+$script:SkuFriendlyMap = $null
+
 # ── Load private functions ──────────────────────────────────────────────────
 $privatePath = Join-Path $PSScriptRoot 'Private'
 if (Test-Path $privatePath) {
@@ -23,10 +26,10 @@ if (Test-Path $privatePath) {
     }
 }
 
-# ── Load audit module functions ─────────────────────────────────────────────
-$modulesPath = Join-Path $PSScriptRoot 'Modules'
-if (Test-Path $modulesPath) {
-    Get-ChildItem -Path $modulesPath -Filter '*.ps1' -Recurse | ForEach-Object {
+# ── Load data collectors ────────────────────────────────────────────────────
+$collectorsPath = Join-Path $PSScriptRoot 'Collectors'
+if (Test-Path $collectorsPath) {
+    Get-ChildItem -Path $collectorsPath -Filter '*.ps1' -Recurse | ForEach-Object {
         . $_.FullName
     }
 }
