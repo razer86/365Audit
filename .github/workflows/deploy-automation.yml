@@ -1,0 +1,82 @@
+# Deploys 365Audit scripts to an Azure Automation Account as a PowerShell 7.2 Runbook.
+#
+# On push to main (or manual trigger):
+#   1. Logs in to Azure via OIDC (federated credential — no stored secrets)
+#   2. Imports/updates the Runbook script
+#   3. Uploads all supporting scripts as Automation Account modules/assets
+#   4. Links the Runbook to the monthly schedule
+#
+# Required GitHub repository secrets:
+#   AZURE_CLIENT_ID        — App registration client ID (federated credential)
+#   AZURE_TENANT_ID        — Azure AD tenant ID
+#   AZURE_SUBSCRIPTION_ID  — Azure subscription ID
+#
+# Required GitHub repository variables:
+#   AUTOMATION_ACCOUNT     — Automation Account name (default: aa-365audit)
+#   RESOURCE_GROUP         — Azure resource group (default: rg-365audit)
+
+name: Deploy to Azure Automation
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AUTOMATION_ACCOUNT: ${{ vars.AUTOMATION_ACCOUNT || 'aa-365audit' }}
+  RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP || 'rg-365audit' }}
+  RUNBOOK_NAME: Invoke-AuditRunbook
+
+jobs:
+  deploy:
+    name: Deploy Runbook & Scripts
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Import Runbook
+        run: |
+          az automation runbook create-or-update \
+            --automation-account-name ${{ env.AUTOMATION_ACCOUNT }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.RUNBOOK_NAME }} \
+            --type PowerShell72 \
+            --location "$(az group show -n ${{ env.RESOURCE_GROUP }} --query location -o tsv)"
+
+          az automation runbook replace-content \
+            --automation-account-name ${{ env.AUTOMATION_ACCOUNT }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.RUNBOOK_NAME }} \
+            --content @infra/Invoke-AuditRunbook.ps1
+
+          az automation runbook publish \
+            --automation-account-name ${{ env.AUTOMATION_ACCOUNT }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.RUNBOOK_NAME }}
+
+      - name: Verify Runbook
+        run: |
+          az automation runbook show \
+            --automation-account-name ${{ env.AUTOMATION_ACCOUNT }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.RUNBOOK_NAME }} \
+            --query "{name:name, state:state, lastModified:lastModifiedTime}" \
+            -o table
