@@ -402,6 +402,11 @@ function Connect-GraphForSetup {
         'RoleManagement.ReadWrite.Directory'
     )
 
+    # Disable the WAM (Web Account Manager) broker — it conflicts with Az.Accounts
+    # MSAL assemblies when both are loaded in the same session. Standard browser auth
+    # works fine without the broker and doesn't require device code flow.
+    $env:AZURE_IDENTITY_DISABLE_INTERACTIVEBROWSERCREDENTIALBROKER = 'true'
+
     Write-Status 'Connecting to Microsoft Graph (browser window will open for interactive sign-in)...'
     Connect-MgGraph -Scopes $scopes -NoWelcome -ErrorAction Stop
 
