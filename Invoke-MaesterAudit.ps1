@@ -84,9 +84,32 @@ $_rawOutPath = $_ctx.RawOutputPath
 $_maesterDir = Join-Path $_rawOutPath 'Maester'
 New-Item -ItemType Directory -Path $_maesterDir -Force | Out-Null
 
+# ── Ensure service connections are active ───────────────────────────────────
+# Maester detects EXO/Teams connections independently. If earlier modules already
+# connected, these are no-ops. If running module 7 standalone, this establishes them.
+Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Status 'Ensuring service connections...' -PercentComplete 10
+
+# Graph should already be connected from the launcher, but verify
+if (-not (Get-MgContext)) {
+    Connect-MgGraphSecure
+}
+
+# Exchange Online — Maester skips 130+ tests without this
+$_exoConnected = Get-ConnectionInformation -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Connected' }
+if (-not $_exoConnected) {
+    Write-Host "  Connecting to Exchange Online for Maester..." -ForegroundColor Gray
+    Connect-ExchangeOnlineSecure
+}
+
+# Teams — Maester skips 11+ tests without this
+try {
+    Connect-TeamsSecure
+} catch {
+    Write-Warning "Could not connect to Teams — Maester Teams tests will be skipped: $($_.Exception.Message)"
+}
+
 # ── Run Maester ─────────────────────────────────────────────────────────────
-# Maester uses the existing Graph and Exchange connections from the parent scope.
-# It runs Pester tests and produces JSON + HTML output.
+# Maester uses the active Graph, EXO, and Teams connections.
 Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Status 'Installing Maester tests...' -PercentComplete 15
 
 # Install Maester test files to a temp directory — the module doesn't bundle them
