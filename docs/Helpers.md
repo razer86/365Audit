@@ -48,7 +48,7 @@ Performs a single bulk PSGallery lookup for every module required by the toolkit
 | `NOT INSTALLED` | Not yet installed — will be installed automatically on first audit run |
 | `MULTIPLE VERSIONS` | More than one version installed side-by-side — run `Uninstall-AuditModules.ps1` then reinstall |
 
-Also checks the Windows PowerShell 5.1 module path for ScubaGear dependencies.
+Also checks the Windows PowerShell 5.1 module path for legacy ScubaGear dependencies.
 
 ---
 

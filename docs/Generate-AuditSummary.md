@@ -39,7 +39,7 @@ The top of the report shows a prioritised list of findings requiring attention:
 - **Mail Security** — DKIM, DMARC, and SPF coverage per domain
 - **Intune** — Licence status, device inventory with OS and compliance breakdown, stale devices, compliance policies, configuration profiles, app install summary
 - **Teams** — Federation settings, client config, meeting policies, guest access settings, app policies
-- **ScubaGear CIS Baseline** — Per-product pass/fail/warning counts with link to full ScubaGear HTML report (collapsed by default; only rendered when ScubaGear output is present)
+- **M365 Security Baseline** — Per-product pass/fail/warning counts with link to full Maester HTML report (collapsed by default; only rendered when Maester output is present)
 - **Compliance Overview** — Distribution bar (passed / warnings / critical) with per-module breakdown and list of CIS controls with findings
 - **Technical Issues** — Collection failures recorded by `Add-AuditIssue` catch blocks across all modules
 

@@ -19,7 +19,7 @@ Which Microsoft 365 workload or script does this relate to?
 - [ ] Mail Security (`Invoke-MailSecurityAudit.ps1`)
 - [ ] Intune (`Invoke-IntuneAudit.ps1`)
 - [ ] Teams (`Invoke-TeamsAudit.ps1`)
-- [ ] ScubaGear (`Invoke-ScubaGearAudit.ps1`)
+- [ ] Maester CIS Baseline (`Invoke-MaesterAudit.ps1`)
 - [ ] Report generation (`Generate-AuditSummary.ps1`)
 - [ ] Other / new module
 

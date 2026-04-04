@@ -9,7 +9,7 @@
   "Invoke-MailSecurityAudit.ps1": "1.9.1",
   "Invoke-IntuneAudit.ps1": "1.8.1",
   "Invoke-TeamsAudit.ps1": "1.1.2",
-  "Invoke-ScubaGearAudit.ps1": "1.3.3",
+  "Invoke-MaesterAudit.ps1": "1.0.0",
   "Generate-AuditSummary.ps1": "1.60.0",
   "Helpers/Get-HuduAssetLayouts.ps1": "1.0.0",
   "Helpers/Get-ModuleVersionStatus.ps1": "1.0.0",

@@ -542,7 +542,7 @@ function Set-ExchangeAdminRole {
 
 # ============================================================
 # Assign Global Reader Entra role to service principal
-# Required by ScubaGear for non-interactive M365 baseline assessment
+# Required by Maester for non-interactive M365 baseline assessment
 # ============================================================
 function Set-GlobalReaderRole {
     [CmdletBinding()]
@@ -579,7 +579,7 @@ function Set-GlobalReaderRole {
         }
         else {
             Write-Warning "Could not assign Global Reader role automatically: $($_.Exception.Message)"
-            Write-Warning "ACTION REQUIRED: In Entra ID, assign the 'Global Reader' role to the '$(Get-Variable -Name AppName -ValueOnly -ErrorAction SilentlyContinue)' service principal manually. This role is required by ScubaGear."
+            Write-Warning "ACTION REQUIRED: In Entra ID, assign the 'Global Reader' role to the '$(Get-Variable -Name AppName -ValueOnly -ErrorAction SilentlyContinue)' service principal manually. This role is required by Maester."
         }
     }
 }
@@ -1068,7 +1068,7 @@ function Invoke-PermissionCheck {
             Write-Status 'Assigning Exchange Administrator role...'
             Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
         }
-        Write-Status 'Assigning Global Reader role (required by ScubaGear)...'
+        Write-Status 'Assigning Global Reader role (required by Maester)...'
         Set-GlobalReaderRole -ServicePrincipalId $sp.Id
         Write-Status 'Permissions validated.' -Type Success
         return $true
@@ -1226,7 +1226,7 @@ function New-EntraApp {
     Grant-AdminConsent -OurSpId $sp.Id -Permissions $ePerms
     Write-Status 'Assigning Exchange Administrator role...'
     Set-ExchangeAdminRole -ServicePrincipalId $sp.Id
-    Write-Status 'Assigning Global Reader role (required by ScubaGear)...'
+    Write-Status 'Assigning Global Reader role (required by Maester)...'
     Set-GlobalReaderRole -ServicePrincipalId $sp.Id
 
     Request-AdminConsent -ApplicationId $app.AppId -TenantName $OrgName

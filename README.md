@@ -187,7 +187,7 @@ On launch the toolkit will:
 | 4 | Invoke-MailSecurityAudit.ps1 | DKIM, DMARC, SPF, anti-spam/phish policies | [Details](docs/Invoke-MailSecurityAudit.md) |
 | 5 | Invoke-IntuneAudit.ps1 | Devices, compliance policies, configuration profiles, apps | [Details](docs/Invoke-IntuneAudit.md) |
 | 6 | Invoke-TeamsAudit.ps1 | Federation, client config, meeting/guest/messaging policies | [Details](docs/Invoke-TeamsAudit.md) |
-| 7 | Invoke-ScubaGearAudit.ps1 | CISA M365 Foundations Benchmark (Windows PowerShell 5.1) | [Details](docs/Invoke-ScubaGearAudit.md) |
+| 7 | Invoke-MaesterAudit.ps1 | M365 Security Baseline — CISA SCuBA, CIS v5.0, EIDSCA (cross-platform) | — |
 | A | Run All (1–7) | Full audit across all modules, then generates the HTML summary | — |
 | 0 | Exit | — | — |
 
@@ -315,7 +315,7 @@ All modules accept the `-DevMode` switch for standalone testing.
 │   ├── Invoke-ExchangeAudit.md               # Exchange module — permissions, output files
 │   ├── Invoke-IntuneAudit.md                 # Intune module — permissions, output files
 │   ├── Invoke-MailSecurityAudit.md           # Mail Security module — permissions, output files
-│   ├── Invoke-ScubaGearAudit.md              # ScubaGear module — requirements, output files
+│   ├── Invoke-MaesterAudit.md                # Maester CIS baseline module — requirements, output files
 │   ├── Invoke-SharePointAudit.md             # SharePoint module — permissions, output files
 │   └── Invoke-TeamsAudit.md                  # Teams module — permissions, output files
 ├── Helpers/
@@ -335,7 +335,7 @@ All modules accept the `-DevMode` switch for standalone testing.
 ├── Invoke-ExchangeAudit.ps1                  # Exchange Online module
 ├── Invoke-IntuneAudit.ps1                    # Intune / Endpoint module
 ├── Invoke-MailSecurityAudit.ps1              # Mail security module
-├── Invoke-ScubaGearAudit.ps1                 # CISA ScubaGear CIS Baseline module
+├── Invoke-MaesterAudit.ps1                   # Maester M365 Security Baseline module
 ├── Invoke-SharePointAudit.ps1                # SharePoint / OneDrive module
 ├── Invoke-TeamsAudit.ps1                     # Teams module
 ├── Setup-365AuditApp.ps1                     # One-time app registration, certificate setup, and renewal

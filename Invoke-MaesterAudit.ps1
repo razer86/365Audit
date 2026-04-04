@@ -7,7 +7,7 @@
     that evaluates Microsoft 365 tenants against CISA SCuBA, CIS v5.0, and EIDSCA
     baselines using Pester-based tests.
 
-    Unlike ScubaGear (which requires Windows PowerShell 5.1), Maester runs natively
+    Maester runs natively
     in PowerShell 7 on Windows, Linux, and macOS — making it suitable for Docker
     containers and Azure Container Apps Jobs.
 
@@ -157,14 +157,11 @@ catch {
     return
 }
 
-# ── Transform results to ScubaGear-compatible JSON ──────────────────────────
-# Generate-AuditSummary.ps1 expects the ScubaGear JSON structure:
+# ── Transform results to structured JSON ─────────────────────────────────────
+# Generate-AuditSummary.ps1 expects this JSON structure:
 #   MetaData: { ToolVersion }
 #   Summary:  { <Product>: { Passes, Failures, Warnings, Manual } }
 #   Results:  { <Product>: [ { GroupName, GroupReferenceURL, Controls: [ { Control ID, Requirement, Result, Criticality, Details } ] } ] }
-#
-# We transform Maester's Pester output into this structure so the existing
-# report generation works with minimal changes.
 Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Status 'Processing results...' -PercentComplete 85
 
 # ── Build CSV export ────────────────────────────────────────────────────────
@@ -181,7 +178,7 @@ if ($_csvRows) {
     $_csvRows | Export-Csv -Path $_maesterCsvPath -NoTypeInformation -Encoding UTF8
 }
 
-# ── Build ScubaGear-compatible JSON ─────────────────────────────────────────
+# ── Build structured JSON ────────────────────────────────────────────────────
 # Group tests by their top-level Block (CISA, CIS, EIDSCA, etc.)
 $_productMap = @{
     'CISA'   = 'CISA SCuBA'
@@ -210,7 +207,7 @@ foreach ($_test in $_pesterResult.Tests) {
     # Determine group (second-level block)
     $_groupName = if ($_blocks.Count -gt 1) { $_blocks[1] } else { $_topBlock }
 
-    # Map Pester result to ScubaGear-style result
+    # Map Pester result to report-style result
     $_result = switch ($_test.Result) {
         'Passed'   { 'Pass' }
         'Failed'   { 'Fail' }
@@ -273,9 +270,8 @@ $_compatJson = @{
     Results = $_resultsObj
 }
 
-# Write ScubaGear-compatible JSON to Maester directory
-# Use the ScubaResults_*.json naming convention so Generate-AuditSummary.ps1 finds it
-$_compatJsonPath = Join-Path $_maesterDir "ScubaResults_Maester.json"
+# Write structured JSON for Generate-AuditSummary.ps1
+$_compatJsonPath = Join-Path $_maesterDir "MaesterBaselineResults.json"
 $_compatJson | ConvertTo-Json -Depth 10 | Set-Content -Path $_compatJsonPath -Encoding UTF8
 
 Write-Host "  Results: $_maesterJsonPath" -ForegroundColor Gray

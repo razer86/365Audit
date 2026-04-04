@@ -15,7 +15,7 @@
 #                   4 = Mail Security      — DKIM, DMARC, SPF, anti-spam/phish policies
 #                   5 = Intune / Endpoint  — Devices, compliance, configuration, apps
 #                   6 = Teams              — Federation, client config, meeting/app policies
-#                   7 = ScubaGear          — CISA CIS M365 Foundations Benchmark (requires WinPS 5.1)
+#                   7 = Maester            — M365 Security Baseline (CISA SCuBA, CIS v5.0, EIDSCA)
 #                   A = Run All            — Modules 1–7 + summary
 
 @{

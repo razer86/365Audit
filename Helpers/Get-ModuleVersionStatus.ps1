@@ -25,7 +25,7 @@ Write-Verbose "Get-ModuleVersionStatus.ps1 loaded (v$ScriptVersion)"
 
 $ErrorActionPreference = 'Continue'
 
-# ScubaGear installs into the Windows PowerShell 5.1 module path.
+# Legacy ScubaGear may be installed in the Windows PowerShell 5.1 module path.
 # Inject it into PSModulePath so Get-Module -ListAvailable and Find-Module can reach it.
 $_ps51ModulePath = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\Modules'
 if ((Test-Path $_ps51ModulePath) -and ($env:PSModulePath -notlike "*$_ps51ModulePath*")) {
@@ -58,7 +58,10 @@ $_modules = @(
     # Teams audit
     'MicrosoftTeams'
 
-    # ScubaGear audit (Windows PowerShell 5.1 — installed to Documents\WindowsPowerShell\Modules)
+    # Maester CIS Baseline
+    'Maester'
+
+    # Legacy ScubaGear (Windows PowerShell 5.1)
     'ScubaGear'
 )
 
