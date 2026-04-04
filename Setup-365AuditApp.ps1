@@ -431,7 +431,8 @@ function Resolve-AppRoleIds {
     foreach ($name in $PermissionNames) {
         $role = $sp.AppRoles | Where-Object { $_.Value -eq $name -and $_.AllowedMemberTypes -contains 'Application' }
         if (-not $role) {
-            throw "Application permission '$name' not found on service principal '$ResourceAppId'."
+            Write-Warning "Application permission '$name' not found on service principal '$ResourceAppId' — may require a licence not present in this tenant. Skipping."
+            continue
         }
         [PSCustomObject]@{
             Id           = $role.Id
