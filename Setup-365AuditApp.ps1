@@ -144,7 +144,12 @@ $script:GraphPermissions = @(
     'Application.Read.All',
     'Application.ReadWrite.OwnedBy',
     'TeamSettings.Read.All',
-    'PrivilegedAccess.Read.AzureAD'
+    'PrivilegedAccess.Read.AzureAD',
+    # Maester CIS Baseline additional permissions
+    'CrossTenantInformation.ReadBasic.All',
+    'SharePointTenantSettings.Read.All',
+    'PrivilegedEligibilitySchedule.Read.AzureADGroup',
+    'RoleEligibilitySchedule.Read.Directory'
 )
 
 # Office 365 Exchange Online service principal app ID (constant in all Azure tenants)
