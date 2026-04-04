@@ -473,7 +473,7 @@ else {
 # =========================================
 # ===   Action Items                    ===
 # =========================================
-$actionItems = [System.Collections.Generic.List[hashtable]]::new()
+$script:actionItems = [System.Collections.Generic.List[hashtable]]::new()
 $script:ActionItemSequence = 0
 
 # Load Maester CIS baseline results (Raw\Maester\ScubaResults_Maester.json)
@@ -1490,8 +1490,8 @@ if (Test-Path $_aiTeamsAppSetupCsv) {
 # --- Build KPI strip values (uses data already loaded during action item checks) ---
 $_kpiMfaPct    = if ($null -ne $_aiPct)   { $_aiPct }   else { $null }
 $_kpiUserCount = if ($null -ne $_aiTotal) { $_aiTotal } else { $null }
-$_kpiCritCount = @($actionItems | Where-Object { $_.Severity -eq 'critical' }).Count
-$_kpiWarnCount = @($actionItems | Where-Object { $_.Severity -eq 'warning'  }).Count
+$_kpiCritCount = @($script:actionItems | Where-Object { $_.Severity -eq 'critical' }).Count
+$_kpiWarnCount = @($script:actionItems | Where-Object { $_.Severity -eq 'warning'  }).Count
 
 $_kpiScoreVal  = '&mdash;'
 $_kpiScorePct  = $null
@@ -1645,8 +1645,8 @@ if ($_scubaResults) {
     $_sbDefinitions += @(@{ Id = 'scuba'; Label = 'M365 Security Baseline'; Prefix = 'CIS Baseline'; Subs = @($_sgSbSubs) })
 }
 $_sbItemsHtml = foreach ($_mod in $_sbDefinitions) {
-    $_mc = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_mod.Prefix)*" }).Count
-    $_mw = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_mod.Prefix)*" }).Count
+    $_mc = @($script:actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_mod.Prefix)*" }).Count
+    $_mw = @($script:actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_mod.Prefix)*" }).Count
     $_dotClass  = if ($_mc -gt 0) { 'dot-critical' } elseif ($_mw -gt 0) { 'dot-warn' } else { 'dot-ok' }
     $_badgeHtml = if ($_mc -gt 0) { "<span class='sb-badge'>$_mc</span>" } elseif ($_mw -gt 0) { "<span class='sb-badge warn'>$_mw</span>" } else { '' }
     $_subLinks  = ($_mod.Subs | ForEach-Object { "<a class='sb-sub' href='#$($_.Id)'>$($_.Label)</a>" }) -join ''
@@ -1683,9 +1683,9 @@ $_companyCard = if ($script:companyCardHtml) { $script:companyCardHtml } else { 
 $html.Add($_companyCard)
 
 # --- Render Action Items block ---
-if ($actionItems.Count -gt 0) {
-    $_critItems = @($actionItems | Where-Object { $_.Severity -eq 'critical' } | Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
-    $_warnItems = @($actionItems | Where-Object { $_.Severity -eq 'warning'  } | Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
+if ($script:actionItems.Count -gt 0) {
+    $_critItems = @($script:actionItems | Where-Object { $_.Severity -eq 'critical' } | Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
+    $_warnItems = @($script:actionItems | Where-Object { $_.Severity -eq 'warning'  } | Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
 
     $_critRows = foreach ($ai in $_critItems) {
         $docLink = if ($ai.DocUrl) { "<a class='ai-doc' href='$($ai.DocUrl)' target='_blank'>&#128279; Docs</a>" } else { "" }
@@ -1771,11 +1771,11 @@ if ($_scubaResults) {
 # =========================================
 # ===   Compliance Overview             ===
 # =========================================
-$_covCritCount = @($actionItems | Where-Object { $_.Severity -eq 'critical' }).Count
-$_covWarnCount = @($actionItems | Where-Object { $_.Severity -eq 'warning'  }).Count
+$_covCritCount = @($script:actionItems | Where-Object { $_.Severity -eq 'critical' }).Count
+$_covWarnCount = @($script:actionItems | Where-Object { $_.Severity -eq 'warning'  }).Count
 
 # Extract CIS control IDs from action item text (pattern: CIS N.N.N)
-$_covCisIds = @($actionItems | ForEach-Object {
+$_covCisIds = @($script:actionItems | ForEach-Object {
     if ($_.Text -match '\(CIS ([\d.]+)\)') { $Matches[1] }
 } | Sort-Object -Unique)
 
@@ -1811,8 +1811,8 @@ $_covModules = @(
     @{ Name = 'Teams';        Prefix = 'Teams'         }
 )
 $_covModuleRows = foreach ($_cm in $_covModules) {
-    $_cmCrit = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_cm.Prefix)*" }).Count
-    $_cmWarn = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_cm.Prefix)*" }).Count
+    $_cmCrit = @($script:actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -like "$($_cm.Prefix)*" }).Count
+    $_cmWarn = @($script:actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -like "$($_cm.Prefix)*" }).Count
     if ($_cmCrit -gt 0) { $_cmCell = "<span class='issue-sev-critical'>$_cmCrit critical</span>$(if ($_cmWarn -gt 0){ ", <span class='issue-sev-warning'>$_cmWarn warning</span>" })" }
     elseif ($_cmWarn -gt 0) { $_cmCell = "<span class='issue-sev-warning'>$_cmWarn warning</span>" }
     else { $_cmCell = "<span style='color:#2e7d32'>&#10003; No issues</span>" }
@@ -1857,8 +1857,8 @@ if ($entraFiles.Count -gt 0) {
     $_esGaStr      = if ($null -ne $_aiGaCount)    { "$_aiGaCount" }       else { '&mdash;' }
     $_esScoreStr   = if ($null -ne $_kpiScorePct)  { "${_kpiScorePct}%" }  else { '&mdash;' }
     $_esScoreSub   = if ($null -ne $_kpiSs)        { "$($_kpiSs.CurrentScore) / $($_kpiSs.MaxScore)" } else { '' }
-    $_esCritStr    = @($actionItems | Where-Object { $_.Category -like 'Entra*' -and $_.Severity -eq 'critical' }).Count
-    $_esWarnStr    = @($actionItems | Where-Object { $_.Category -like 'Entra*' -and $_.Severity -eq 'warning'  }).Count
+    $_esCritStr    = @($script:actionItems | Where-Object { $_.Category -like 'Entra*' -and $_.Severity -eq 'critical' }).Count
+    $_esWarnStr    = @($script:actionItems | Where-Object { $_.Category -like 'Entra*' -and $_.Severity -eq 'warning'  }).Count
     $_esMfaClass   = if ($null -eq $_aiPct -or $_aiPct -eq 100) { 'ok' } elseif ($_aiPct -ge 80) { 'warn' } else { 'critical' }
     $_esGaClass    = if ($null -eq $_aiGaCount -or ($_aiGaCount -ge 2 -and $_aiGaCount -le 4)) { 'ok' } else { 'warn' }
     $_esAiClass    = if ($_esCritStr -gt 0) { 'critical' } elseif ($_esWarnStr -gt 0) { 'warn' } else { 'ok' }
@@ -2715,8 +2715,8 @@ if ($exchangeFiles.Count -gt 0) {
         $_exSharedCount = @($_exMbxAll | Where-Object { $_.RecipientType -eq 'SharedMailbox' }).Count
     }
     $_exFwdCount  = if ($null -ne $_aiInboxRules) { $_aiInboxRules.Count } else { 0 }
-    $_exAiCrit    = @($actionItems | Where-Object { $_.Category -like 'Exchange*' -and $_.Severity -eq 'critical' }).Count
-    $_exAiWarn    = @($actionItems | Where-Object { $_.Category -like 'Exchange*' -and $_.Severity -eq 'warning'  }).Count
+    $_exAiCrit    = @($script:actionItems | Where-Object { $_.Category -like 'Exchange*' -and $_.Severity -eq 'critical' }).Count
+    $_exAiWarn    = @($script:actionItems | Where-Object { $_.Category -like 'Exchange*' -and $_.Severity -eq 'warning'  }).Count
     $_exAiClass   = if ($_exAiCrit -gt 0) { 'critical' } elseif ($_exAiWarn -gt 0) { 'warn' } else { 'ok' }
     $_exAiStr     = if ($_exAiCrit -gt 0) { "$_exAiCrit critical" } elseif ($_exAiWarn -gt 0) { "$_exAiWarn warnings" } else { 'None' }
     $_exFwdClass  = if ($_exFwdCount -gt 0) { 'warn' } else { 'ok' }
@@ -3421,8 +3421,8 @@ if ($mailSecFiles.Count -gt 0) {
             $_msDkimClass = if ($_msDkimPct -eq 100) { 'ok' } elseif ($_msDkimPct -ge 80) { 'warn' } else { 'critical' }
         }
     }
-    $_msAiCrit  = @($actionItems | Where-Object { $_.Category -like 'Mail Security*' -and $_.Severity -eq 'critical' }).Count
-    $_msAiWarn  = @($actionItems | Where-Object { $_.Category -like 'Mail Security*' -and $_.Severity -eq 'warning'  }).Count
+    $_msAiCrit  = @($script:actionItems | Where-Object { $_.Category -like 'Mail Security*' -and $_.Severity -eq 'critical' }).Count
+    $_msAiWarn  = @($script:actionItems | Where-Object { $_.Category -like 'Mail Security*' -and $_.Severity -eq 'warning'  }).Count
     $_msAiClass = if ($_msAiCrit -gt 0) { 'critical' } elseif ($_msAiWarn -gt 0) { 'warn' } else { 'ok' }
     $_msAiStr   = if ($_msAiCrit -gt 0) { "$_msAiCrit critical" } elseif ($_msAiWarn -gt 0) { "$_msAiWarn warnings" } else { 'None' }
     $mailSecSummary.Add(@"
@@ -3554,8 +3554,8 @@ if ($spFiles.Count -gt 0) {
             $_spStorageStr = "$_spUsedGB / $_spTotalGB GB"
         }
     }
-    $_spAiCrit  = @($actionItems | Where-Object { $_.Category -like 'SharePoint*' -and $_.Severity -eq 'critical' }).Count
-    $_spAiWarn  = @($actionItems | Where-Object { $_.Category -like 'SharePoint*' -and $_.Severity -eq 'warning'  }).Count
+    $_spAiCrit  = @($script:actionItems | Where-Object { $_.Category -like 'SharePoint*' -and $_.Severity -eq 'critical' }).Count
+    $_spAiWarn  = @($script:actionItems | Where-Object { $_.Category -like 'SharePoint*' -and $_.Severity -eq 'warning'  }).Count
     $_spAiClass = if ($_spAiCrit -gt 0) { 'critical' } elseif ($_spAiWarn -gt 0) { 'warn' } else { 'ok' }
     $_spAiStr   = if ($_spAiCrit -gt 0) { "$_spAiCrit critical" } elseif ($_spAiWarn -gt 0) { "$_spAiWarn warnings" } else { 'None' }
     $_spExtClass = if ($_spExtCount -gt 0) { 'warn' } else { 'ok' }
@@ -3938,8 +3938,8 @@ if ($teamsFiles.Count -gt 0) {
     $_tmMtgPoliciesCount = '&mdash;'
     $_tmMtgCsvStat = Join-Path $teamsDir "Teams_MeetingPolicies.csv"
     if (Test-Path $_tmMtgCsvStat) { $_tmMtgPoliciesCount = @(Import-Csv $_tmMtgCsvStat).Count }
-    $_tmAiCrit  = @($actionItems | Where-Object { $_.Category -like 'Teams*' -and $_.Severity -eq 'critical' }).Count
-    $_tmAiWarn  = @($actionItems | Where-Object { $_.Category -like 'Teams*' -and $_.Severity -eq 'warning'  }).Count
+    $_tmAiCrit  = @($script:actionItems | Where-Object { $_.Category -like 'Teams*' -and $_.Severity -eq 'critical' }).Count
+    $_tmAiWarn  = @($script:actionItems | Where-Object { $_.Category -like 'Teams*' -and $_.Severity -eq 'warning'  }).Count
     $_tmAiClass = if ($_tmAiCrit -gt 0) { 'critical' } elseif ($_tmAiWarn -gt 0) { 'warn' } else { 'ok' }
     $_tmAiStr   = if ($_tmAiCrit -gt 0) { "$_tmAiCrit critical" } elseif ($_tmAiWarn -gt 0) { "$_tmAiWarn warnings" } else { 'None' }
     $teamsSummary.Add(@"
@@ -4121,8 +4121,8 @@ if ($intuneFiles.Count -gt 0) {
     } else { $null }
     $_itComplStr    = if ($null -ne $_itComplPct) { "${_itComplPct}%" } else { '&mdash;' }
     $_itComplClass  = if ($null -eq $_itComplPct -or $_itComplPct -eq 100) { 'ok' } elseif ($_itComplPct -ge 80) { 'warn' } else { 'critical' }
-    $_itAiCrit      = @($actionItems | Where-Object { $_.Category -like 'Intune*' -and $_.Severity -eq 'critical' }).Count
-    $_itAiWarn      = @($actionItems | Where-Object { $_.Category -like 'Intune*' -and $_.Severity -eq 'warning'  }).Count
+    $_itAiCrit      = @($script:actionItems | Where-Object { $_.Category -like 'Intune*' -and $_.Severity -eq 'critical' }).Count
+    $_itAiWarn      = @($script:actionItems | Where-Object { $_.Category -like 'Intune*' -and $_.Severity -eq 'warning'  }).Count
     $_itAiClass     = if ($_itAiCrit -gt 0) { 'critical' } elseif ($_itAiWarn -gt 0) { 'warn' } else { 'ok' }
     $_itAiStr       = if ($_itAiCrit -gt 0) { "$_itAiCrit critical" } elseif ($_itAiWarn -gt 0) { "$_itAiWarn warnings" } else { 'None' }
     $intuneSummary.Add(@"
@@ -4822,9 +4822,9 @@ function toggleModule(hdr) {
 $html -join "`n" | Set-Content -Path $reportPath -Encoding UTF8
 
 # Write structured action items sidecar for downstream integrations (e.g. Hudu publish)
-if ($actionItems.Count -gt 0) {
+if ($script:actionItems.Count -gt 0) {
     $sidecarPath = Join-Path $AuditFolder 'ActionItems.json'
-    $actionItems | ForEach-Object { [PSCustomObject]$_ } | ConvertTo-Json -Depth 3 |
+    $script:actionItems | ForEach-Object { [PSCustomObject]$_ } | ConvertTo-Json -Depth 3 |
         Set-Content -Path $sidecarPath -Encoding UTF8
     Write-Verbose "Action items sidecar written: $sidecarPath"
 }
@@ -4928,7 +4928,7 @@ function New-HuduAiTable { param([array]$Items, [string]$Heading, [string]$Accen
 function New-HuduModuleAi {
     # Compact action item sub-panel for a module section, filtered by category prefix
     param([string[]]$Prefixes)
-    $_mItems = @($actionItems | Where-Object {
+    $_mItems = @($script:actionItems | Where-Object {
         $_cat = $_.Category; $Prefixes | Where-Object { $_cat -like "$_*" }
     } | Sort-Object { $_.Sequence })
     if ($_mItems.Count -eq 0) { return "<p style='font-size:12px;color:#16a34a;margin:10px 0 0;'>&#10003; No action items for this module.</p>" }
@@ -4986,9 +4986,9 @@ $_huduKpiRow = "<div style='display:flex;gap:12px;flex-wrap:wrap;margin-bottom:2
     "</div>"
 
 # ── Section: Action Items (CIS baseline excluded — shown in its own section) ──
-$_huduCritItems = @($actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -notlike 'CIS Baseline*' } |
+$_huduCritItems = @($script:actionItems | Where-Object { $_.Severity -eq 'critical' -and $_.Category -notlike 'CIS Baseline*' } |
     Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
-$_huduWarnItems = @($actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -notlike 'CIS Baseline*' } |
+$_huduWarnItems = @($script:actionItems | Where-Object { $_.Severity -eq 'warning'  -and $_.Category -notlike 'CIS Baseline*' } |
     Sort-Object @{ Expression = { Get-ActionItemModuleSortOrder -Category $_.Category } }, @{ Expression = { $_.Sequence } })
 
 $_huduAiContent = (New-HuduAiTable -Items $_huduCritItems -Heading '&#9889; Critical Issues' -AccentColour '#dc2626') +
@@ -5263,7 +5263,7 @@ if ($_h_teamsFed.Count -gt 0) {
 $_secScuba = ''
 if ($_scubaResults) {
     $_sgContent = ''
-    $_sgAiItems = @($actionItems | Where-Object { $_.Category -like 'CIS Baseline*' })
+    $_sgAiItems = @($script:actionItems | Where-Object { $_.Category -like 'CIS Baseline*' })
     $_sgRows    = foreach ($_sgP in $_scubaResults.Results.PSObject.Properties) {
         $_allCtrls = @($_sgP.Value | ForEach-Object { $_.Controls }) | Where-Object { $_ }
         $_sgPass   = @($_allCtrls | Where-Object { $_.Result -eq 'Pass'    }).Count
