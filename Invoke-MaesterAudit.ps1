@@ -108,12 +108,39 @@ try {
     Write-Warning "Could not connect to Teams — Maester Teams tests will be skipped: $($_.Exception.Message)"
 }
 
+# Security & Compliance — Maester skips 50+ Defender/DLP tests without this
+# Uses the same cert auth as EXO via Connect-IPPSSession
+$_appId        = Get-Variable -Name AuditAppId        -ValueOnly -ErrorAction SilentlyContinue
+$_certFilePath = Get-Variable -Name AuditCertFilePath -ValueOnly -ErrorAction SilentlyContinue
+$_certPassword = Get-Variable -Name AuditCertPassword -ValueOnly -ErrorAction SilentlyContinue
+
+if ($_appId -and $_certFilePath) {
+    try {
+        $_orgDomain = (Get-GraphOrganizationSafe).VerifiedDomains |
+            Where-Object { $_.IsInitial -eq $true } |
+            Select-Object -ExpandProperty Name -First 1
+        Write-Host "  Connecting to Security & Compliance for Maester..." -ForegroundColor Gray
+        Connect-IPPSSession `
+            -AppId               $_appId `
+            -Organization        $_orgDomain `
+            -CertificateFilePath $_certFilePath `
+            -CertificatePassword $_certPassword `
+            -ShowBanner:$false `
+            -ErrorAction Stop
+        Write-Host "  Connected to Security & Compliance." -ForegroundColor Gray
+    } catch {
+        Write-Warning "Could not connect to Security & Compliance — Maester Defender/DLP tests will be skipped: $($_.Exception.Message)"
+    }
+}
+
 # ── Run Maester ─────────────────────────────────────────────────────────────
 # Maester uses the active Graph, EXO, and Teams connections.
 Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Status 'Installing Maester tests...' -PercentComplete 15
 
-# Install Maester test files to a temp directory — the module doesn't bundle them
-$_maesterTestDir = Join-Path $_maesterDir 'tests'
+# Install Maester test files to a clean temp directory — the module doesn't bundle them.
+# Use a fresh path each run to avoid the "folder is not empty" interactive prompt.
+$_tempBase       = $env:TEMP ?? $env:TMPDIR ?? '/tmp'
+$_maesterTestDir = Join-Path $_tempBase "MaesterTests_$(New-Guid)"
 Write-Host "  Installing Maester test files..." -ForegroundColor Gray
 Install-MaesterTests -Path $_maesterTestDir -ErrorAction Stop
 
@@ -277,5 +304,8 @@ $_compatJson | ConvertTo-Json -Depth 10 | Set-Content -Path $_compatJsonPath -En
 Write-Host "  Results: $_maesterJsonPath" -ForegroundColor Gray
 Write-Host "  CSV:     $_maesterCsvPath" -ForegroundColor Gray
 Write-Host "  Report:  $_maesterHtmlPath" -ForegroundColor Gray
+
+# Clean up temp test files
+Remove-Item $_maesterTestDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Progress -Id 1 -Activity 'Maester CIS Baseline' -Completed
