@@ -22,6 +22,12 @@ $ErrorActionPreference = 'Stop'
 
 Write-Host "365Audit container started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC' -AsUTC)"
 
+# ── Preload Graph SDK assemblies ─────────────────────────────────────────────
+# Must happen BEFORE Connect-AzAccount so Az.Accounts doesn't load a different
+# version of Azure.Identity / Microsoft.Kiota that conflicts with Graph SDK.
+. "$PSScriptRoot/Common/Audit-Common.ps1"
+Initialize-GraphSdk
+
 # ── Authenticate ─────────────────────────────────────────────────────────────
 # Azure (Container Apps Job): AZURE_CLIENT_ID is set by the job env config.
 #   → Connect-AzAccount -Identity -AccountId (user-assigned managed identity)
